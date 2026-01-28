@@ -1,7 +1,19 @@
 [project]
 name = "ticket-forge"
 version = "0.1.0"
-description = "Add your description here"
+description = "Machine Learning project monorepo"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = []
+
+[tool.uv.workspace]
+members = [
+    "apps/training",
+    "apps/web-backend",
+    "libs/*"
+]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=8.0.0",
+]

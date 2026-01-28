@@ -1,0 +1,16 @@
+[project]
+name = "web-backend"
+version = "0.1.0"
+description = "FastAPI web backend for serving ML models"
+requires-python = ">=3.12"
+dependencies = [
+    "ml-core",
+    "fastapi>=0.110.0",
+]
+
+[tool.uv.sources]
+ml-core = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

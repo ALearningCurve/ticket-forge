@@ -38,4 +38,6 @@ npm i
 ```
 
 ## Usage
-(will update once product is complete)
+
+Will update once more code is added.
+
