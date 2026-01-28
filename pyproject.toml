@@ -10,7 +10,8 @@ dependencies = []
 members = [
     "apps/training",
     "apps/web-backend",
-    "libs/*"
+    "libs/*",
+    "notebooks"
 ]
 
 [tool.uv]
