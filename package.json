@@ -2,16 +2,16 @@
   "name": "ticket-forge",
   "version": "1.0.0",
   "description": "AI Powered Ticket Management",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
+  "scripts": {},
+  "workspaces": [
+    "apps/web-frontend"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ALearningCurve/ticket-forge.git"
   },
   "author": "",
-  "license": "ISC",
+  "license": "AGPL-3.0-only",
   "bugs": {
     "url": "https://github.com/ALearningCurve/ticket-forge/issues"
   },

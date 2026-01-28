@@ -30,12 +30,18 @@ TicketForge is an AI-Powered DevOps ticket assignment system capable of automati
 ## Installation
 (will update once product is complete)
 
+> [!NOTE]
+> This project uses [uv workspaces](https://docs.astral.sh/uv/concepts/projects/workspaces/) and [npm workspaces](https://docs.npmjs.com/cli/v8/using-npm/workspaces) since this project is laid out like a monorepo. Make sure you are familiar with both before continuing (i.e. make sure you know where to run install and package add commands)!
+
 1. Install [uv](https://docs.astral.sh/uv/getting-started/installation/), [node](https://nodejs.org/en/download), and npm 
 
+2. Install project level dependencies
 ```sh
 uv sync
 npm i
 ```
+
+3. Good to go!
 
 ## Usage
 

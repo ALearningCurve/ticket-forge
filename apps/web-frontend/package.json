@@ -1,0 +1,13 @@
+{
+  "name": "@ticket-forge/web-frontend",
+  "version": "0.1.0",
+  "description": "Frontend web application for ticket management",
+  "private": true,
+  "scripts": {
+    "dev": "echo 'Add your dev server command here'",
+    "build": "echo 'Add your build command here'",
+    "start": "echo 'Add your start command here'"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}
