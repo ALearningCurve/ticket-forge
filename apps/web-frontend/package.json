@@ -1,13 +1,16 @@
 {
-  "name": "@ticket-forge/web-frontend",
-  "version": "0.1.0",
-  "description": "Frontend web application for ticket management",
-  "private": true,
+  "name": "apps-web-frontend",
+  "type": "module",
+  "version": "0.0.1",
   "scripts": {
-    "dev": "echo 'Add your dev server command here'",
-    "build": "echo 'Add your build command here'",
-    "start": "echo 'Add your start command here'"
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "astro": "astro"
   },
-  "dependencies": {},
-  "devDependencies": {}
+  "dependencies": {
+    "@tailwindcss/vite": "^4.1.18",
+    "astro": "^5.17.1",
+    "tailwindcss": "^4.1.18"
+  }
 }
