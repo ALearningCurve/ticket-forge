@@ -52,3 +52,59 @@ npm i
 
 Will update once more code is added.
 
+## Development
+
+This project includes linting, type checking, and testing tools to ensure code quality.
+
+### Running Tests
+
+To run all tests:
+```sh
+uv run pytest
+```
+
+To run tests with verbose output:
+```sh
+uv run pytest -v
+```
+
+### Linting
+
+This project uses [Ruff](https://docs.astral.sh/ruff/) for linting and code formatting.
+
+To check for linting issues:
+```sh
+uv run ruff check .
+```
+
+To automatically fix linting issues:
+```sh
+uv run ruff check --fix .
+```
+
+To format code:
+```sh
+uv run ruff format .
+```
+
+### Type Checking
+
+This project uses [Pyright](https://github.com/microsoft/pyright) for static type checking.
+
+To run type checking:
+```sh
+uv run pyright
+```
+
+To check specific directories:
+```sh
+uv run pyright libs/ apps/
+```
+
+### Running All Checks
+
+To run all quality checks (linting, type checking, and tests):
+```sh
+uv run ruff check . && uv run pyright && uv run pytest
+```
+
