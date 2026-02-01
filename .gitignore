@@ -213,4 +213,6 @@ data
 !models/README.md
 !data/README.md
 
+.vscode
+
 node_modules

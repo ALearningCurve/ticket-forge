@@ -32,25 +32,30 @@ TicketForge is an AI-Powered DevOps ticket assignment system capable of automati
 ```
 
 ## Installation
-(will update once product is complete)
 
 > [!IMPORTANT]
 > This project uses [uv workspaces](https://docs.astral.sh/uv/concepts/projects/workspaces/) and [npm workspaces](https://docs.npmjs.com/cli/v8/using-npm/workspaces) since this project is laid out like a monorepo. Make sure you are familiar with both before continuing (i.e. make sure you know where to run install and package add commands)!
-> [!NOTE]
 
-1. Install [uv](https://docs.astral.sh/uv/getting-started/installation/), [node](https://nodejs.org/en/download), and npm 
+Here we guide you through steps install tooling and dependencies needed to run our application.
 
-2. Install project level dependencies
-```sh
-uv sync
-npm i
-```
+1. Install [uv](https://docs.astral.sh/uv/getting-started/installation/), [node and npm](https://nodejs.org/en/download), and [just](https://github.com/casey/just)
+
+2. Then run: `just`
+  - This command installs all packages and configures the workspaces
 
 3. Good to go!
 
 ## Usage
 
-Will update once more code is added.
+All usage scripts are defined in a `justfile` which can be run.
+```sh
+Available recipes:
+    check           # runs all checks on the repo
+    default         # install all 3rd party packages
+    install-deps    # install all 3rd party packages
+    pylint dir="."  # Runs python linting. Specify the directory to lint with dir.
+    pytest *args='' # Runs python tests. Any args are forwarded to pytest.
+```
 
 ## Development
 
@@ -58,53 +63,30 @@ This project includes linting, type checking, and testing tools to ensure code q
 
 ### Running Tests
 
-To run all tests:
+To run python tests:
 ```sh
-uv run pytest
-```
-
-To run tests with verbose output:
-```sh
-uv run pytest -v
+just pytest [...pytest arguments]
 ```
 
 ### Linting
 
-This project uses [Ruff](https://docs.astral.sh/ruff/) for linting and code formatting.
+#### Python
+For the python projects, we use the following tools:
 
-To check for linting issues:
+- This project uses [Ruff](https://docs.astral.sh/ruff/) for linting and code formatting.
+- This project uses [Pyright](https://github.com/microsoft/pyright) for static type checking.
+
+To invoke these just run, where you can specify a directory as optional arg
+
 ```sh
-uv run ruff check .
-```
-
-To automatically fix linting issues:
-```sh
-uv run ruff check --fix .
-```
-
-To format code:
-```sh
-uv run ruff format .
-```
-
-### Type Checking
-
-This project uses [Pyright](https://github.com/microsoft/pyright) for static type checking.
-
-To run type checking:
-```sh
-uv run pyright
-```
-
-To check specific directories:
-```sh
-uv run pyright libs/ apps/
+just pylint 
+just pylint path/to/dir
 ```
 
 ### Running All Checks
 
 To run all quality checks (linting, type checking, and tests):
 ```sh
-uv run ruff check . && uv run pyright && uv run pytest
+just check-all
 ```
 
