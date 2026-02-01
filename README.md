@@ -37,7 +37,7 @@ TicketForge is an AI-Powered DevOps ticket assignment system capable of automati
 > [!IMPORTANT]
 > This project uses [uv workspaces](https://docs.astral.sh/uv/concepts/projects/workspaces/) and [npm workspaces](https://docs.npmjs.com/cli/v8/using-npm/workspaces) since this project is laid out like a monorepo. Make sure you are familiar with both before continuing (i.e. make sure you know where to run install and package add commands)!
 
-Here we guide you through steps install tooling and dependencies needed to run our application.
+Here we guide you through the steps to install the tooling and dependencies needed to run our application.
 
 1. Install [uv](https://docs.astral.sh/uv/getting-started/installation/), [node and npm](https://nodejs.org/en/download), and [just](https://github.com/casey/just)
 
@@ -54,7 +54,7 @@ Available recipes:
     check           # runs all checks on the repo from repo-root
     default         # install all 3rd party packages
     install-deps    # install all 3rd party packages
-    pycheck dir="." # Run both python lint and tests on a particular directory
+    pycheck dir="." # Run all python checks on a particular directory
     pylint dir="."  # Runs python linting. Specify the directory to lint with dir.
     pytest *args='' # Runs python tests. Any args are forwarded to pytest.
 ```
@@ -91,7 +91,7 @@ To run all quality checks (linting, type checking, and tests):
 ```sh
 # Just python:
 just pycheck                 # entire project
-just pycheck app/web-backend # just a single folder
+just pycheck apps/web-backend # just a single folder
 
 # All languages
 just check                   # entire project

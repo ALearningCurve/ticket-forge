@@ -1,4 +1,3 @@
-# install all 3rd party packages
 default: install-deps
 
 # install all 3rd party packages
@@ -17,12 +16,12 @@ pylint dir=".":
   uv run ruff format {{dir}}
   uv run pyright {{dir}}
 
-# Run all checks on a particular directory
+# Run all python checks on a particular directory
 pycheck dir=".":
   just pylint {{dir}}
   just pytest {{dir}}
 
 
-# runs all checks on the repo
+# runs all checks on the repo from repo-root
 check:
   just pycheck .

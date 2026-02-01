@@ -7,8 +7,7 @@ dependencies = [
     "ml-core",
     "fastapi>=0.110.0",
     "httpx>=0.25.0",
-    "pydantic>=2.12.5",
-
+    "pydantic>=2.12.5"
 ]
 
 [tool.uv.sources]
