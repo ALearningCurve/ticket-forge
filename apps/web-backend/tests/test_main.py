@@ -1,13 +1,12 @@
 """Tests for main application."""
 
 from fastapi.testclient import TestClient
-
 from web_backend.main import app
 
 client = TestClient(app)
 
 
-def test_read_root():
+def test_read_root() -> None:
   """Test the root endpoint."""
   response = client.get("/")
   assert response.status_code == 200

@@ -27,6 +27,7 @@ TicketForge is an AI-Powered DevOps ticket assignment system capable of automati
 ├── uv.lock              # Pinned Python dependencies
 ├── package.json         # Node.js dependencies for JS projects
 ├── package-lock.json
+├── Justfile             # Command runner (`just --list` for more info)
 ├── LICENSE
 └── README.md
 ```
@@ -50,9 +51,10 @@ Here we guide you through steps install tooling and dependencies needed to run o
 All usage scripts are defined in a `justfile` which can be run.
 ```sh
 Available recipes:
-    check           # runs all checks on the repo
+    check           # runs all checks on the repo from repo-root
     default         # install all 3rd party packages
     install-deps    # install all 3rd party packages
+    pycheck dir="." # Run both python lint and tests on a particular directory
     pylint dir="."  # Runs python linting. Specify the directory to lint with dir.
     pytest *args='' # Runs python tests. Any args are forwarded to pytest.
 ```
@@ -87,6 +89,11 @@ just pylint path/to/dir
 
 To run all quality checks (linting, type checking, and tests):
 ```sh
-just check-all
+# Just python:
+just pycheck                 # entire project
+just pycheck app/web-backend # just a single folder
+
+# All languages
+just check                   # entire project
 ```
 

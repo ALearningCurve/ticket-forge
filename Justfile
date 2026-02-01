@@ -17,7 +17,12 @@ pylint dir=".":
   uv run ruff format {{dir}}
   uv run pyright {{dir}}
 
+# Run all checks on a particular directory
+pycheck dir=".":
+  just pylint {{dir}}
+  just pytest {{dir}}
+
+
 # runs all checks on the repo
-check-all:
-  just pylint
-  just pytest
+check:
+  just pycheck .

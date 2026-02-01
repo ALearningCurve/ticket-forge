@@ -2408,6 +2408,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "httpx" },
     { name = "ml-core" },
+    { name = "pydantic" },
 ]
 
 [package.metadata]
@@ -2415,6 +2416,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.110.0" },
     { name = "httpx", specifier = ">=0.25.0" },
     { name = "ml-core", editable = "libs/ml-core" },
+    { name = "pydantic", specifier = ">=2.12.5" },
 ]
 
 [[package]]
