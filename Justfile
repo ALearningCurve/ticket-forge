@@ -4,22 +4,30 @@ default: install-deps
 install-deps:
   uv sync --all-packages
   npm i
+  uv run pre-commit install
 
 # Runs python tests. Any args are forwarded to pytest.
 [positional-arguments]
-@pytest *args='': 
+@pytest *args='':
   uv run pytest "$@"
 
-# Runs python linting. Specify the directory to lint with dir.
-pylint dir=".": 
-  uv run ruff check --fix {{dir}}
-  uv run ruff format {{dir}}
-  uv run pyright {{dir}}
+# Runs python linting. Specify the directories/files to lint as positional args.
+[positional-arguments]
+@pylint *args=".":
+  uv run ruff check --fix "$@"
+  uv run ruff format "$@"
+  uv run pyright "$@"
 
-# Run all python checks on a particular directory
-pycheck dir=".":
-  just pylint {{dir}}
-  just pytest {{dir}}
+# Run all python checks on particular files and directories
+pycheck *args=".":
+  just pylint "$@"
+  just pytest "$@"
+
+# Run pre-commit hooks
+[positional-arguments]
+@precommit *args='run':
+  uv run pre-commit "$@"
+
 
 
 # runs all checks on the repo from repo-root
