@@ -51,12 +51,17 @@ Here we guide you through the steps to install the tooling and dependencies need
 All usage scripts are defined in a `justfile` which can be run.
 ```sh
 Available recipes:
-    check           # runs all checks on the repo from repo-root
-    default         # install all 3rd party packages
-    install-deps    # install all 3rd party packages
-    pycheck dir="." # Run all python checks on a particular directory
-    pylint dir="."  # Runs python linting. Specify the directory to lint with dir.
-    pytest *args='' # Runs python tests. Any args are forwarded to pytest.
+    default               # Configure repository and install dependencies
+
+    [lang-agnostic]
+    check                 # runs all checks on the repo from repo-root
+    install-deps          # install all 3rd party packages
+    precommit *args='run' # Run pre-commit hooks
+
+    [python]
+    pycheck *args="."     # Run all python checks on particular files and directories
+    pylint *args="."      # Runs python linting. Specify the directories/files to lint as positional args.
+    pytest *args=''       # Runs python tests. Any args are forwarded to pytest.
 ```
 
 ## Development
