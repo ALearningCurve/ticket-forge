@@ -43,7 +43,7 @@ select = [
     "N",
     "TRY",
     "TID",
-    "PLR"
+    "PLR",
 ]
 ignore = ["D104", "D100", "D205", "TRY002"]
 
