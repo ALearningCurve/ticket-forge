@@ -45,4 +45,4 @@ check:
 [group: 'data-pipeline']
 [positional-arguments]
 train *args='':
-  uv run apps/training/training/cmd/train.py "$@"
+  uv run python -m training.cmd.train {{ args }}
