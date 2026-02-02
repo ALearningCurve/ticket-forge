@@ -2,7 +2,7 @@ import json
 from abc import ABC, abstractmethod
 from functools import wraps
 from pathlib import Path
-from typing import Callable, ParamSpec, TypeVar
+from typing import Any, Callable, ParamSpec, TypeVar
 
 import joblib
 
@@ -14,7 +14,7 @@ class Saver(ABC):
   """Interface representing different backends to cache with."""
 
   @abstractmethod
-  def dump(self, obj: R, path: Path) -> None:
+  def dump(self, obj: Any, path: Path) -> None:  # noqa: ANN401
     """Dumps the given object to the specified path in JSON format.
 
     Args:
@@ -24,7 +24,7 @@ class Saver(ABC):
     pass
 
   @abstractmethod
-  def load(self, path: Path) -> R:
+  def load(self, path: Path) -> Any:  # noqa: ANN401
     """Loads from given path.
 
     Args:
@@ -39,7 +39,7 @@ class Saver(ABC):
 class JoblibSaver(Saver):
   """A saver that uses joblib to serialize and deserialize objects."""
 
-  def dump(self, obj: R, path: Path) -> None:
+  def dump(self, obj: Any, path: Path) -> None:  # noqa: ANN401
     """Dumps obj to given path.
 
     Args:
@@ -48,7 +48,7 @@ class JoblibSaver(Saver):
     """
     joblib.dump(obj, path)
 
-  def load(self, path: Path) -> R:
+  def load(self, path: Path) -> Any:  # noqa: ANN401
     """Loads from given path.
 
     Args:
@@ -63,7 +63,7 @@ class JoblibSaver(Saver):
 class JsonSaver(Saver):
   """A saver that users json to serialize and deserialize objects."""
 
-  def dump(self, obj: R, path: Path) -> None:
+  def dump(self, obj: Any, path: Path) -> None:  # noqa: ANN401
     """Dumps obj to given path.
 
     Args:
@@ -73,7 +73,7 @@ class JsonSaver(Saver):
     with open(path, "w") as f:
       json.dump(obj, f)
 
-  def load(self, path: Path) -> R:
+  def load(self, path: Path) -> Any:  # noqa: ANN401
     """Loads from given path.
 
     Args:

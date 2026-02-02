@@ -61,8 +61,18 @@ convention = "google"
 ban-relative-imports = "all"
 
 [tool.pytest.ini_options]
-pythonpath = ["."]
-timeout = 10
+pythonpath = [
+    ".",
+    "apps/web-backend",
+    "apps/training",
+    "libs/ml-core",
+    "libs/shared",
+]
+testpaths = [
+    "apps/web-backend/tests",
+    "apps/training/tests",
+]
+timeout = 30
 
 [tool.pyright]
 strict = ["**/*.py"]

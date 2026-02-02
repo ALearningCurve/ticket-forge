@@ -20,7 +20,6 @@ repos:
     hooks:
       - id: custom-python-check
         name: python linting/type checking
-        entry: just pycheck
+        entry: just pylint
         language: system
-        types: [python]     # Only runs when .py files change
-        pass_filenames: true # Appends changed file paths to the command
+        pass_filenames: false

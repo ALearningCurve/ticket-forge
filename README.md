@@ -32,6 +32,19 @@ TicketForge is an AI-Powered DevOps ticket assignment system capable of automati
 └── README.md
 ```
 
+## Workspace Documentation
+
+Each workspace has its own README with detailed setup and usage instructions:
+
+### Applications
+- [**training**](./apps/training/README.md) - ML model training pipeline for ticket time prediction
+- [**web-backend**](./apps/web-backend/README.md) - FastAPI service for model serving and business logic
+- [**web-frontend**](./apps/web-frontend/README.md) - Astro-based dashboard UI
+
+### Libraries
+- [**ml-core**](./libs/ml-core/README.md) - Core ML utilities and data schemas
+- [**shared**](./libs/shared/README.md) - Common utilities (caching, configuration, logging)
+
 ## Installation
 
 > [!IMPORTANT]

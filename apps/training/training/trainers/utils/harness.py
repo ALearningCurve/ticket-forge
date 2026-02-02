@@ -21,6 +21,7 @@ class Dataset(BaseModel):
   """
 
   split: Splits_t
+  subset_size: int | None = None
 
   def load_x(self) -> X_t:
     """Loads the x dataset.
@@ -35,7 +36,10 @@ class Dataset(BaseModel):
       noise=20,
       random_state=42,
     )  # type: ignore
-    return dataset[0]  # type: ignore
+    x = dataset[0]  # type: ignore
+    if self.subset_size is not None:
+      return x[: self.subset_size]  # type: ignore
+    return x  # type: ignore
 
   def load_y(self) -> Y_t:
     """Loads the y vector.
@@ -50,10 +54,15 @@ class Dataset(BaseModel):
       noise=20,
       random_state=42,
     )  # type: ignore
-    return dataset[1]
+    y = dataset[1]
+    if self.subset_size is not None:
+      return y[: self.subset_size]  # type: ignore
+    return y
 
   @staticmethod
-  def as_sklearn_cv_split() -> tuple[X_t, Y_t, PredefinedSplit]:
+  def as_sklearn_cv_split(
+    subset_size: int | None = None,
+  ) -> tuple[X_t, Y_t, PredefinedSplit]:
     """Creates predefined sklearn cross validation split with
     fixed training and validation partitions.
 
@@ -61,8 +70,8 @@ class Dataset(BaseModel):
         The predefined split along with the combined x and y data.
         This is returned as a tuple [x,y,cv_split]
     """
-    train = Dataset(split="train")
-    validation = Dataset(split="validation")
+    train = Dataset(split="train", subset_size=subset_size)
+    validation = Dataset(split="validation", subset_size=subset_size)
 
     x_train = train.load_x()
     y_train = train.load_y()

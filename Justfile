@@ -11,13 +11,13 @@ install-deps:
 # Runs python tests. Any args are forwarded to pytest.
 [group: 'python']
 [positional-arguments]
-@pytest *args='':
+pytest *args='':
   uv run pytest "$@"
 
 # Runs python linting. Specify the directories/files to lint as positional args.
 [group: 'python']
 [positional-arguments]
-@pylint *args=".":
+pylint *args=".":
   uv run ruff check --fix "$@"
   uv run ruff format "$@"
   uv run pyright "$@"
@@ -31,7 +31,7 @@ pycheck *args=".":
 # Run pre-commit hooks
 [group: 'lang-agnostic']
 [positional-arguments]
-@precommit *args='run':
+precommit *args='run':
   uv run pre-commit "$@"
 
 
@@ -40,3 +40,9 @@ pycheck *args=".":
 [group: 'lang-agnostic']
 check:
   just pycheck .
+
+# runs the training script
+[group: 'data-pipeline']
+[positional-arguments]
+train *args='':
+  uv run apps/training/training/cmd/train.py "$@"
