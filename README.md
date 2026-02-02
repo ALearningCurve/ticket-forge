@@ -63,8 +63,12 @@ Here we guide you through the steps to install the tooling and dependencies need
 
 All usage scripts are defined in a `justfile` which can be run.
 ```sh
+$ just --list
 Available recipes:
     default               # Configure repository and install dependencies
+
+    [data-pipeline]
+    train *args=''        # runs the training script
 
     [lang-agnostic]
     check                 # runs all checks on the repo from repo-root

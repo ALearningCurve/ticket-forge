@@ -68,10 +68,6 @@ pythonpath = [
     "libs/ml-core",
     "libs/shared",
 ]
-testpaths = [
-    "apps/web-backend/tests",
-    "apps/training/tests",
-]
 timeout = 30
 
 [tool.pyright]

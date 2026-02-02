@@ -1207,16 +1207,20 @@ wheels = [
 [[package]]
 name = "ml-core"
 version = "0.1.0"
-source = { editable = "libs/ml-core" }
+source = { virtual = "libs/ml-core" }
 dependencies = [
     { name = "pandas" },
     { name = "pydantic" },
+    { name = "scikit-learn" },
+    { name = "shared" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "pandas", specifier = ">=2.0.0" },
     { name = "pydantic", specifier = ">=2.0.0" },
+    { name = "scikit-learn", specifier = ">=1.5.0" },
+    { name = "shared", editable = "libs/shared" },
 ]
 
 [[package]]
@@ -2003,7 +2007,7 @@ requires-dist = [
     { name = "ipykernel", specifier = ">=7.1.0" },
     { name = "jupyter" },
     { name = "matplotlib" },
-    { name = "ml-core", editable = "libs/ml-core" },
+    { name = "ml-core", virtual = "libs/ml-core" },
     { name = "scikit-learn", specifier = ">=1.8.0" },
     { name = "seaborn" },
 ]
@@ -2438,7 +2442,7 @@ dependencies = [
 requires-dist = [
     { name = "joblib", specifier = ">=1.5.3" },
     { name = "matplotlib", specifier = ">=3.10.8" },
-    { name = "ml-core", editable = "libs/ml-core" },
+    { name = "ml-core", virtual = "libs/ml-core" },
     { name = "polars", specifier = ">=1.37.1" },
     { name = "scikit-learn", specifier = ">=1.3.0" },
     { name = "scipy", specifier = ">=1.17.0" },
@@ -2540,7 +2544,7 @@ dependencies = [
 requires-dist = [
     { name = "fastapi", specifier = ">=0.110.0" },
     { name = "httpx", specifier = ">=0.25.0" },
-    { name = "ml-core", editable = "libs/ml-core" },
+    { name = "ml-core", virtual = "libs/ml-core" },
     { name = "pydantic", specifier = ">=2.12.5" },
 ]
 
