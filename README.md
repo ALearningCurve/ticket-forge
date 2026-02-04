@@ -117,3 +117,17 @@ just pycheck apps/web-backend # just a single folder
 # All languages
 just check                   # entire project
 ```
+
+
+## Contributing
+
+1. Create a feature branch from `main`
+2. Follow conventional commit format: `[#issue] type: description`
+   - Example: `[#2] feat: implement GitHub issue scraper`
+3. Ensure all tests pass (when applicable)
+4. Update relevant documentation
+5. Submit a pull request with completed checklist
+
+## License
+
+[GNU APGL](LICENSE)
