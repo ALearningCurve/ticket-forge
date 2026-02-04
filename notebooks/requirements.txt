@@ -1,2 +1,7 @@
 pymupdf
 docx
+numpy
+pandas
+json
+pathlib
+sentence-transformers
