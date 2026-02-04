@@ -52,7 +52,7 @@ Each workspace has its own README with detailed setup and usage instructions:
 
 Here we guide you through the steps to install the tooling and dependencies needed to run our application.
 
-1. Install [uv](https://docs.astral.sh/uv/getting-started/installation/), [node and npm](https://nodejs.org/en/download), and [just](https://github.com/casey/just)
+1. Install [uv](https://docs.astral.sh/uv/getting-started/installation/), [node 22 and npm](https://nodejs.org/en/download), and [just](https://github.com/casey/just)
 
 2. Then run: `just`
   - This command installs all packages and configures the workspaces
