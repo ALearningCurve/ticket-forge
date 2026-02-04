@@ -2,7 +2,45 @@
 
 ML model training pipeline for ticket time prediction using multiple regression algorithms.
 
-## Overview
+This includes ETL and model training.
+
+```
+training
+
+├── cmd                     # scripts to run
+├── etl
+│   └── ingest              # "Extract" part of ETL
+└── trainers                # ML model trainers
+    ├── train_forest.py
+    ├── train_linear.py
+    ├── train_svm.py
+    ├── train_xgboost.py
+    └── utils
+```
+
+## ETL Submodule
+
+### Ingress
+
+#### GitHub Issue Ingestion
+
+This module ingests closed GitHub issues with assignees and produces
+a compressed JSON dataset for downstream processing.
+
+##### Setup
+- Create a GitHub Personal Access Token (classic)
+- Add it to a .env file as GITHUB_TOKEN
+
+##### Run
+```sh
+uv run -m training.etl.ingest.scrape_github_issues
+uv run -m training.etl.ingest.csv_to_json
+```
+##### Outputs
+- data/github_issues/tickets_raw.csv
+- data/github_issues/tickets_final.json.gz
+
+## Trainers Submodule
 
 This module trains and evaluates various machine learning models to predict ticket resolution times. It currently supports:
 
@@ -11,9 +49,9 @@ This module trains and evaluates various machine learning models to predict tick
 - **SVM (with kernel approximation)** - Non-linear modeling with scalability
 - **XGBoost** - Gradient boosting for high performance
 
-## Quick Start
+### Quick Start
 
-### Run Training
+#### Run Training
 
 ```bash
 # Validates the training pipeline
@@ -26,7 +64,7 @@ just train -m forest linear
 just train -r my_run_123
 ```
 
-### Output
+#### Output
 
 Training outputs are saved to `models/{run_id}/`:
 
@@ -34,33 +72,14 @@ Training outputs are saved to `models/{run_id}/`:
 - `eval_{model_name}.json` - Performance metrics (MAE, MSE, RMSE, R²)
 - `best.txt` - contains name of the best performing model
 
-### Performance Visualization
+#### Performance Visualization
 
 Example metrics from recent training run:
 
 ![Performance Results](./assets/performance.png)
 
-## Project Structure
 
-```
-training/
-├── training/
-│   ├── cmd/
-│   │   └── train.py              # Main training entry point
-│   └── trainers/
-│       ├── train_forest.py        # Random Forest trainer
-│       ├── train_linear.py        # Linear regression trainer
-│       ├── train_svm.py           # SVM trainer
-│       ├── train_xgboost.py       # XGBoost trainer
-│       └── utils/
-│           └── harness.py         # Shared utilities & Dataset class
-├── tests/
-│   ├── test_cmd_train.py         # Command logic tests
-│   └── test_trainers.py          # Model trainer tests
-└── README.md
-```
-
-## Adding New Models
+### Adding New Models
 
 To add a new model:
 
@@ -103,29 +122,3 @@ just pytest apps/training/tests/
 # Run with verbose output
 just pytest apps/training/tests/ -v
 ```
-
-Dataset Loading Options
-
-The `Dataset` class supports loading full or subset data for testing:
-
-```python
-from training.trainers.utils.harness import Dataset
-
-# Full dataset (100 samples)
-dataset = Dataset(split="train")
-
-# Subset for fast testing (20 samples)
-dataset = Dataset(split="train", subset_size=20)
-
-# Get train/val split with combined data
-x_combined, y_combined, cv_split = Dataset.as_sklearn_cv_split(subset_size=20)
-```
-
-## Dependencies
-
-- scikit-learn - ML algorithms and utilities
-- XGBoost - Gradient boosting
-- Polars - Fast dataframe operations
-- numpy - Numerical computing
-
-See `pyproject.toml` for exact versions.
