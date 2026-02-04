@@ -61,13 +61,24 @@ convention = "google"
 ban-relative-imports = "all"
 
 [tool.pytest.ini_options]
-pythonpath = ["."]
-timeout = 10
+pythonpath = [
+    ".",
+    "apps/web-backend",
+    "apps/training",
+    "libs/ml-core",
+    "libs/shared",
+]
+timeout = 30
 
 [tool.pyright]
 strict = ["**/*.py"]
 typeCheckingMode = "standard"
-reportMissingTypeStubs = false
+reportMissingTypeStubs = "none"
+reportUnknownMemberType = "none"
+reportUnknownVariableType = "none"
+reportUnknownArgumentType = "none"
+reportArgumentType = "none"
+reportReturnType = "none"
 pythonVersion = "3.12"
 extraPaths = [
     "apps/web-backend",

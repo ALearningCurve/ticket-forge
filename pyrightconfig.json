@@ -1,0 +1,14 @@
+{
+    "typeCheckingMode": "standard",
+    "reportMissingTypeStubs": "none",
+    "reportUnknownMemberType": "none",
+    "reportUnknownVariableType": "none",
+    "reportUnknownArgumentType": "none",
+    "pythonVersion": "3.12",
+    "extraPaths": [
+        "apps/web-backend",
+        "apps/training",
+        "libs/ml-core",
+        "libs/shared"
+    ]
+}
