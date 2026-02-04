@@ -1,19 +1,21 @@
 # scrape_github_issues.py
 
-from github import Github, Auth
-import pandas as pd
 import os
-from dotenv import load_dotenv
 import time
-from shared.configuration import Paths
+from typing import Any
 
+import pandas as pd
+from dotenv import load_dotenv
+from github import Auth, Github
+from shared.configuration import Paths
 
 # Load GitHub token
 load_dotenv()
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 
 if not GITHUB_TOKEN:
-  raise RuntimeError("GITHUB_TOKEN missing. Add it to a .env file.")
+  msg = "GITHUB_TOKEN missing. Add it to a .env file."
+  raise RuntimeError(msg)
 
 auth = Auth.Token(GITHUB_TOKEN)
 g = Github(auth=auth)
@@ -26,7 +28,16 @@ REPOS = ["hashicorp/terraform", "ansible/ansible", "prometheus/prometheus"]
 SCRAPE_LIMIT_PER_REPO = 300
 
 
-def scrape_repo_closed_issues(repo_name, limit):
+def scrape_repo_closed_issues(repo_name: str, limit: int) -> list[dict[str, Any]]:
+  """Scrape closed issues with assignees from a GitHub repository.
+
+  Args:
+      repo_name: The name of the repository to scrape.
+      limit: The maximum number of issues to scrape.
+
+  Returns:
+      A list of dictionaries containing issue data.
+  """
   print(f"\n📦 Scraping CLOSED issues with assignees from {repo_name}")
   repo = g.get_repo(repo_name)
 

@@ -1,10 +1,10 @@
 # csv_to_json.py
 
-import os
-import pandas as pd
-import json
 import gzip
+import json
 from datetime import datetime
+
+import pandas as pd
 from shared.configuration import Paths
 
 DATA_DIR = Paths.data_root / "github_issues"
