@@ -5,7 +5,7 @@ from training.trainers.utils.harness import X_t, Y_t, load_fit_dump
 
 # %%
 
-XGB_VERBOSE = 2  # 3=debug, 2=info, 1=warning
+XGB_VERBOSE = 1  # 3=debug, 2=info, 1=warning
 xgb.set_config(verbosity=XGB_VERBOSE)
 
 
@@ -62,7 +62,7 @@ def fit_grid(
     scoring="neg_mean_squared_error",
     refit=True,
     n_jobs=1,
-    n_iter=10,
+    n_iter=50,
     random_state=RANDOM_SEED,
     error_score="raise",  # type: ignore
   )
