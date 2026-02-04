@@ -16,11 +16,21 @@ No external dependencies required (uses regex).
 
 import re
 from typing import Tuple, Dict, List
+from dataclasses import dataclass
+
+
+@dataclass
+class NormalizedResume:
+    """Normalized resume data."""
+    engineer_id: str
+    filename: str
+    normalized_content: str
+    removed_items: Dict[str, List[str]]
 
 
 class ResumeNormalizer:
     """Normalize resume text by removing PII and dates."""
-    
+
     # Regex patterns for items to remove
     PATTERNS = {
         'phone': [
@@ -52,7 +62,7 @@ class ResumeNormalizer:
             r'\d+\.\d+\s*/\s*4\.0',
         ],
     }
-    
+
     def __init__(
         self,
         remove_phone: bool = True,
@@ -70,81 +80,84 @@ class ResumeNormalizer:
             'dates': remove_dates,
             'gpa': remove_gpa,
         }
-    
+
     def normalize(self, text: str) -> Tuple[str, Dict[str, List[str]]]:
         """
         Normalize a single resume text.
-        
+
         Args:
             text: Raw resume text
-            
+
         Returns:
             Tuple of (normalized_text, removed_items_dict)
         """
         removed = {}
         normalized = text
-        
+
         # Apply each pattern category
         for category, should_remove in self.config.items():
             if not should_remove:
                 continue
-                
+
             patterns = self.PATTERNS.get(category, [])
             category_matches = []
-            
+
             for pattern in patterns:
                 matches = re.findall(pattern, normalized, re.IGNORECASE)
                 category_matches.extend(matches)
                 normalized = re.sub(pattern, ' ', normalized, flags=re.IGNORECASE)
-            
+
             if category_matches:
                 removed[category] = list(set(category_matches))
-        
+
         # Clean up formatting
         normalized = self._clean_formatting(normalized)
-        
+
         return normalized, removed
-    
+
     def _clean_formatting(self, text: str) -> str:
         """Clean up whitespace and special characters."""
         # Remove bullet points and special chars
         text = re.sub(r'[•▪▸►◆◇○●■□–—|·]', ' ', text)
-        
+
         # Remove multiple spaces
         text = re.sub(r' +', ' ', text)
-        
+
         # Remove multiple newlines
         text = re.sub(r'\n\s*\n+', '\n', text)
-        
+
         # Remove leading/trailing whitespace per line
         lines = [line.strip() for line in text.split('\n')]
         text = '\n'.join(line for line in lines if line)
-        
+
         return text.strip()
-    
-    def normalize_batch(self, data: Dict[str, str]) -> Tuple[Dict[str, str], Dict[str, Dict]]:
+
+    def normalize_batch(self, extracted_resumes: List) -> List[NormalizedResume]:
         """
         Normalize multiple resumes.
-        
+
         Args:
-            data: Dict mapping engineer_id to raw text
-            
+            extracted_resumes: List of ExtractedResume objects from Step 1
+
         Returns:
-            Tuple of:
-                - Dict mapping engineer_id to normalized text
-                - Dict mapping engineer_id to removed items
+            List of NormalizedResume objects
         """
-        normalized_results = {}
-        removed_results = {}
-        
-        for engineer_id, raw_text in data.items():
-            print(f"Normalizing: {engineer_id}")
-            
-            normalized_text, removed = self.normalize(raw_text)
-            normalized_results[engineer_id] = normalized_text
-            removed_results[engineer_id] = removed
-            
+        results = []
+
+        for resume in extracted_resumes:
+            print(f"Normalizing: {resume.engineer_id} ({resume.filename})")
+
+            normalized_text, removed = self.normalize(resume.raw_content)
+
+            normalized = NormalizedResume(
+                engineer_id=resume.engineer_id,
+                filename=resume.filename,
+                normalized_content=normalized_text,
+                removed_items=removed
+            )
+            results.append(normalized)
+
             removed_count = sum(len(v) for v in removed.values())
             print(f"    ✓ Removed {removed_count} PII items")
-        
-        return normalized_results, removed_results
+
+        return results

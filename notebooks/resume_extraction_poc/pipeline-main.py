@@ -8,15 +8,6 @@ Install dependencies:
 
 Usage:
     python pipeline_main.py
-
-File structure required:
-    your_project/
-    ├── resume_extract.py
-    ├── resume_normalize.py
-    ├── resume_embed.py
-    ├── resume_store.py
-    ├── pipeline_main.py      <-- RUN THIS
-    └── /resume/              <-- Your PDF/DOCX files
 """
 
 from pathlib import Path
@@ -32,25 +23,20 @@ def run_pipeline(
     resume_directory: str,
     output_json: str = "resumes_final.json",
     output_sqlite: str = "resumes_final.db",
-    embedding_model: str = "all-MiniLM-L6-v2"
+    embedding_model: str = "all-MiniLM-L6-v2",
+    id_prefix: str = "ENG",
+    use_uuid: bool = False
 ):
     """
     Run the complete resume processing pipeline.
 
-    Data Flow:
-        resume files (PDF/DOCX/DOC)
-            │
-            ▼ Step 1: Extract
-        raw_data: Dict[engineer_id, raw_text]
-            │
-            ▼ Step 2: Normalize
-        normalized_data: Dict[engineer_id, clean_text]
-            │
-            ▼ Step 3: Embed
-        embeddings: Dict[engineer_id, vector]
-            │
-            ▼ Step 4: Store
-        JSON + SQLite files
+    Args:
+        resume_directory: Path to folder with PDF/DOCX/DOC files
+        output_json: Output JSON file path
+        output_sqlite: Output SQLite database path
+        embedding_model: sentence-transformers model name
+        id_prefix: Prefix for engineer IDs (e.g., "ENG" → ENG-001)
+        use_uuid: Use UUID instead of sequential IDs
     """
 
     print("=" * 60)
@@ -60,6 +46,7 @@ def run_pipeline(
     print(f"Output JSON:     {output_json}")
     print(f"Output SQLite:   {output_sqlite}")
     print(f"Embedding Model: {embedding_model}")
+    print(f"ID Format:       {'UUID' if use_uuid else f'{id_prefix}-001, {id_prefix}-002, ...'}")
     print("=" * 60)
 
     # Validate input directory
@@ -75,14 +62,15 @@ def run_pipeline(
     print("STEP 1: EXTRACTING TEXT FROM RESUMES")
     print("─" * 60)
 
-    extractor = ResumeExtractor()
-    raw_data = extractor.extract_directory(resume_directory)
+    extractor = ResumeExtractor(id_prefix=id_prefix, use_uuid=use_uuid)
+    extracted_resumes = extractor.extract_directory(resume_directory)
+    # extracted_resumes = [ExtractedResume(engineer_id, filename, raw_content), ...]
 
-    if not raw_data:
+    if not extracted_resumes:
         print("❌ No resumes extracted. Exiting.")
         return
 
-    print(f"\n✓ Step 1 Complete: Extracted {len(raw_data)} resumes")
+    print(f"\n✓ Step 1 Complete: Extracted {len(extracted_resumes)} resumes")
 
     # ─────────────────────────────────────────────────────────
     # STEP 2: NORMALIZE
@@ -100,9 +88,10 @@ def run_pipeline(
         remove_gpa=True,
     )
 
-    normalized_data, removed_data = normalizer.normalize_batch(raw_data)
+    normalized_resumes = normalizer.normalize_batch(extracted_resumes)
+    # normalized_resumes = [NormalizedResume(engineer_id, filename, normalized_content, removed_items), ...]
 
-    print(f"\n✓ Step 2 Complete: Normalized {len(normalized_data)} resumes")
+    print(f"\n✓ Step 2 Complete: Normalized {len(normalized_resumes)} resumes")
 
     # ─────────────────────────────────────────────────────────
     # STEP 3: EMBED
@@ -112,11 +101,12 @@ def run_pipeline(
     print("─" * 60)
 
     embedder = ResumeEmbedder(model_name=embedding_model)
-    embeddings = embedder.embed_batch(normalized_data)
+    embedded_resumes = embedder.embed_batch(normalized_resumes)
+    # embedded_resumes = [EmbeddedResume(engineer_id, filename, normalized_content, embedding), ...]
 
     model_info = embedder.get_model_info()
 
-    print(f"\n✓ Step 3 Complete: Generated {len(embeddings)} embeddings")
+    print(f"\n✓ Step 3 Complete: Generated {len(embedded_resumes)} embeddings")
 
     # ─────────────────────────────────────────────────────────
     # STEP 4: STORE
@@ -126,8 +116,7 @@ def run_pipeline(
     print("─" * 60)
 
     storage = ResumeStorage(
-        normalized_data=normalized_data,
-        embeddings=embeddings,
+        embedded_resumes=embedded_resumes,
         embedding_model=model_info['model_name'],
         embedding_dim=model_info['embedding_dim']
     )
@@ -141,23 +130,15 @@ def run_pipeline(
     print("✅ PIPELINE COMPLETE - VERIFYING DATABASE")
     print("=" * 60)
 
-    # Read from database to verify
     reader = ResumeReader(output_sqlite)
     records = reader.get_all()
     total_count = reader.count()
 
     print(f"\n📊 DATABASE SUMMARY:")
     print("-" * 60)
-    print(f"Total Records in DB: {total_count}")
-    print(f"Output JSON:         {output_json}")
-    print(f"Output SQLite:       {output_sqlite}")
-
-    if records:
-        # Get info from first record (actual data from DB)
-        first_record = records[0]
-        print(f"\nEmbedding Model:     {first_record['embedding_model']}")
-        print(f"Embedding Dimension: {first_record['embedding_dim']}")
-        print(f"Processed At:        {first_record['processed_at']}")
+    print(f"Total Records:       {total_count}")
+    print(f"Embedding Model:     {model_info['model_name']}")
+    print(f"Embedding Dimension: {model_info['embedding_dim']}")
 
     # ─────────────────────────────────────────────────────────
     # DISPLAY ALL RECORDS FROM DATABASE
@@ -168,9 +149,10 @@ def run_pipeline(
 
     for i, record in enumerate(records, 1):
         print(f"\n[{i}] Engineer ID: {record['engineer_id']}")
+        print(f"    Filename:       {record['filename']}")
         print(f"    Content Length: {len(record['normalized_content'])} chars")
-        print(f"    Content Preview: {record['normalized_content'][:100]}...")
-        print(f"    Embedding: [{record['embedding'][0]:.4f}, {record['embedding'][1]:.4f}, {record['embedding'][2]:.4f}, ...] (dim={len(record['embedding'])})")
+        print(f"    Content Preview: {record['normalized_content'][:80]}...")
+        print(f"    Embedding:      [{record['embedding'][0]:.4f}, {record['embedding'][1]:.4f}, ...] (dim={len(record['embedding'])})")
 
     print("\n" + "=" * 60)
     print(f"✅ Total: {total_count} resumes processed and stored")
@@ -197,11 +179,19 @@ if __name__ == "__main__":
     # - 'all-mpnet-base-v2'    (768 dim, more accurate)
     EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 
+    # ID generation options:
+    # - ID_PREFIX = "ENG" → ENG-001, ENG-002, ENG-003, ...
+    # - USE_UUID = True   → A1B2C3D4, E5F6G7H8, ...
+    ID_PREFIX = "ENG"
+    USE_UUID = False
+
     # ══════════════════════════════════════════════════════════
 
     run_pipeline(
         resume_directory=RESUME_DIRECTORY,
         output_json=OUTPUT_JSON,
         output_sqlite=OUTPUT_SQLITE,
-        embedding_model=EMBEDDING_MODEL
+        embedding_model=EMBEDDING_MODEL,
+        id_prefix=ID_PREFIX,
+        use_uuid=USE_UUID
     )
