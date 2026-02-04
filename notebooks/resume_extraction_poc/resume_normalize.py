@@ -1,18 +1,4 @@
-"""
-Step 2: Resume Normalizer
--------------------------
-Cleans resume text by removing PII and unwanted data.
-
-Removes:
-- Phone numbers
-- Email addresses  
-- URLs (LinkedIn, GitHub, etc.)
-- Addresses (City, State, ZIP)
-- Dates (Jan 2020, 2019-Present, etc.)
-- GPA
-
-No external dependencies required (uses regex).
-"""
+"""Step 2: Resume Normalizer - Cleans resume text by removing PII and unwanted data."""
 
 import re
 from typing import Tuple, Dict, List
@@ -21,7 +7,6 @@ from dataclasses import dataclass
 
 @dataclass
 class NormalizedResume:
-    """Normalized resume data."""
     engineer_id: str
     filename: str
     normalized_content: str
@@ -29,9 +14,6 @@ class NormalizedResume:
 
 
 class ResumeNormalizer:
-    """Normalize resume text by removing PII and dates."""
-
-    # Regex patterns for items to remove
     PATTERNS = {
         'phone': [
             r'[\+]?[(]?[0-9]{1,3}[)]?[-\s\.]?[(]?[0-9]{1,4}[)]?[-\s\.]?[0-9]{1,4}[-\s\.]?[0-9]{1,9}',
@@ -82,19 +64,9 @@ class ResumeNormalizer:
         }
 
     def normalize(self, text: str) -> Tuple[str, Dict[str, List[str]]]:
-        """
-        Normalize a single resume text.
-
-        Args:
-            text: Raw resume text
-
-        Returns:
-            Tuple of (normalized_text, removed_items_dict)
-        """
         removed = {}
         normalized = text
 
-        # Apply each pattern category
         for category, should_remove in self.config.items():
             if not should_remove:
                 continue
@@ -110,54 +82,27 @@ class ResumeNormalizer:
             if category_matches:
                 removed[category] = list(set(category_matches))
 
-        # Clean up formatting
         normalized = self._clean_formatting(normalized)
-
         return normalized, removed
 
     def _clean_formatting(self, text: str) -> str:
-        """Clean up whitespace and special characters."""
-        # Remove bullet points and special chars
         text = re.sub(r'[•▪▸►◆◇○●■□–—|·]', ' ', text)
-
-        # Remove multiple spaces
         text = re.sub(r' +', ' ', text)
-
-        # Remove multiple newlines
         text = re.sub(r'\n\s*\n+', '\n', text)
-
-        # Remove leading/trailing whitespace per line
         lines = [line.strip() for line in text.split('\n')]
         text = '\n'.join(line for line in lines if line)
-
         return text.strip()
 
     def normalize_batch(self, extracted_resumes: List) -> List[NormalizedResume]:
-        """
-        Normalize multiple resumes.
-
-        Args:
-            extracted_resumes: List of ExtractedResume objects from Step 1
-
-        Returns:
-            List of NormalizedResume objects
-        """
         results = []
 
         for resume in extracted_resumes:
-            print(f"Normalizing: {resume.engineer_id} ({resume.filename})")
-
             normalized_text, removed = self.normalize(resume.raw_content)
-
-            normalized = NormalizedResume(
+            results.append(NormalizedResume(
                 engineer_id=resume.engineer_id,
                 filename=resume.filename,
                 normalized_content=normalized_text,
                 removed_items=removed
-            )
-            results.append(normalized)
-
-            removed_count = sum(len(v) for v in removed.values())
-            print(f"    ✓ Removed {removed_count} PII items")
+            ))
 
         return results
