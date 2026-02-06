@@ -87,7 +87,9 @@ class ResumeExtractor:
     with fitz.open(path) as doc:
       for page in doc:
         pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
-        img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+        img = Image.frombytes(
+          "RGB", (pix.width, pix.height), pix.samples
+        )
         text_parts.append(pytesseract.image_to_string(img))
 
     return "\n".join(text_parts).strip()

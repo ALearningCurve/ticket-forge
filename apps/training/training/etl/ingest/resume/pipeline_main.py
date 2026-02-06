@@ -3,14 +3,15 @@
 import json
 from pathlib import Path
 
-from resume_embed import ResumeEmbedder
-from resume_extract import ResumeExtractor
-from resume_normalize import ResumeNormalizer
-from resume_store import ResumeReader, ResumeStorage
 from shared.configuration import Paths
 
+from .resume_embed import ResumeEmbedder
+from .resume_extract import ResumeExtractor
+from .resume_normalize import ResumeNormalizer
+from .resume_store import ResumeReader, ResumeStorage
 
-def run_pipeline( # noqa: PLR0913
+
+def run_pipeline(
   resume_directory: str,
   output_dir: str = "output",
   output_json: str = "resumes_final.json",
