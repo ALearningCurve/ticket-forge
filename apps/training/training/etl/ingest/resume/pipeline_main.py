@@ -4,14 +4,13 @@ import json
 from pathlib import Path
 
 from shared.configuration import Paths
+from training.etl.ingest.resume.resume_embed import ResumeEmbedder
+from training.etl.ingest.resume.resume_extract import ResumeExtractor
+from training.etl.ingest.resume.resume_normalize import ResumeNormalizer
+from training.etl.ingest.resume.resume_store import ResumeReader, ResumeStorage
 
-from .resume_embed import ResumeEmbedder
-from .resume_extract import ResumeExtractor
-from .resume_normalize import ResumeNormalizer
-from .resume_store import ResumeReader, ResumeStorage
 
-
-def run_pipeline(
+def run_pipeline(  # noqa: PLR0913
   resume_directory: str,
   output_dir: str = "output",
   output_json: str = "resumes_final.json",
