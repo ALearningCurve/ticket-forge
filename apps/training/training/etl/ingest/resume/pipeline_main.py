@@ -10,7 +10,7 @@ from resume_store import ResumeReader, ResumeStorage
 from shared.configuration import Paths
 
 
-def run_pipeline(
+def run_pipeline( # noqa: PLR0913
   resume_directory: str,
   output_dir: str = "output",
   output_json: str = "resumes_final.json",
