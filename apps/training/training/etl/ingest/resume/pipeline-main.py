@@ -3,6 +3,7 @@
 from pathlib import Path
 import json
 
+from shared.configuration import Paths
 from resume_extract import ResumeExtractor
 from resume_normalize import ResumeNormalizer
 from resume_embed import ResumeEmbedder
@@ -62,8 +63,12 @@ def run_pipeline(
 
 
 if __name__ == "__main__":
-    RESUME_DIRECTORY = r"D:\Ticketforge-MLOps\ticket-forge\notebooks\resume_extraction_poc\test_resume"
-    OUTPUT_DIR = "output"
+    RESUME_DIRECTORY = r"./data/team_resume"
+
+
+    OUTPUT_DIR = Paths.data_root / r"apps/training/training/etl/ingest/resume/output"
+    OUTPUT_DIR.mkdir(exist_ok=True, parents=True)
+
     OUTPUT_JSON = "resumes_final.json"
     OUTPUT_SQLITE = "resumes_final.db"
     EMBEDDING_MODEL = "all-MiniLM-L6-v2"
@@ -80,7 +85,7 @@ if __name__ == "__main__":
         use_uuid=USE_UUID
     )
 
-    reader = ResumeReader("output/resumes_final.db")
+    reader = ResumeReader(str(OUTPUT_DIR / OUTPUT_SQLITE))
 
     for r in reader.get_all():
         print(json.dumps({
