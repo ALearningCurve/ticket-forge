@@ -2,10 +2,9 @@
 <!--- PR title should use conventional commits format [https://www.conventionalcommits.org/en/v1.0.0/].
 
 Some examples are
-[#1] feat: implement new system
-[#1] fix(auth): fix login bug
-[#1] !fix(auth): fix login bug
-[#23] chore: update workflow
+#1 feat: implement new system
+#1 !fix: fix login bug
+#1 chore: update workflow
 -->
 
 ## Description

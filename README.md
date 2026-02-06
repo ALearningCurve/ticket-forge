@@ -1,4 +1,4 @@
-# Ticket Forge
+# TicketForge
 TicketForge is an AI-Powered DevOps ticket assignment system capable of automating the time-consuming manual process of assigning tickets. It can recommend optimal assignments based on engineer skills, past performances and ticket requirements.
 
 ## Overview
@@ -32,6 +32,19 @@ TicketForge is an AI-Powered DevOps ticket assignment system capable of automati
 └── README.md
 ```
 
+## Workspace Documentation
+
+Each workspace has its own README with detailed setup and usage instructions:
+
+### Applications
+- [**training**](./apps/training/README.md) - ML model training pipeline for ticket time prediction
+- [**web-backend**](./apps/web-backend/README.md) - FastAPI service for model serving and business logic
+- [**web-frontend**](./apps/web-frontend/README.md) - Astro-based dashboard UI
+
+### Libraries
+- [**ml-core**](./libs/ml-core/README.md) - Core ML utilities and data schemas
+- [**shared**](./libs/shared/README.md) - Common utilities (caching, configuration, logging)
+
 ## Installation
 
 > [!IMPORTANT]
@@ -39,7 +52,7 @@ TicketForge is an AI-Powered DevOps ticket assignment system capable of automati
 
 Here we guide you through the steps to install the tooling and dependencies needed to run our application.
 
-1. Install [uv](https://docs.astral.sh/uv/getting-started/installation/), [node and npm](https://nodejs.org/en/download), and [just](https://github.com/casey/just)
+1. Install [uv](https://docs.astral.sh/uv/getting-started/installation/), [node 22 and npm](https://nodejs.org/en/download), and [just](https://github.com/casey/just)
 
 2. Then run: `just`
   - This command installs all packages and configures the workspaces
@@ -50,8 +63,12 @@ Here we guide you through the steps to install the tooling and dependencies need
 
 All usage scripts are defined in a `justfile` which can be run.
 ```sh
+$ just --list
 Available recipes:
     default               # Configure repository and install dependencies
+
+    [data-pipeline]
+    train *args=''        # runs the training script
 
     [lang-agnostic]
     check                 # runs all checks on the repo from repo-root
@@ -101,3 +118,17 @@ just pycheck apps/web-backend # just a single folder
 # All languages
 just check                   # entire project
 ```
+
+
+## Contributing
+
+1. Create a feature branch from `main`
+2. Follow conventional commit format: `[#issue] type: description`
+   - Example: `[#2] feat: implement GitHub issue scraper`
+3. Ensure all tests pass (when applicable)
+4. Update relevant documentation
+5. Submit a pull request with completed checklist
+
+## License
+
+[GNU APGL](LICENSE)
