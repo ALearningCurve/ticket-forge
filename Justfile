@@ -88,3 +88,13 @@ tf-apply *args='':
 [positional-arguments]
 tf *args='':
     terraform -chdir=terraform {{ args }}
+
+[group('terraform')]
+get-wif-provider:
+    @gcloud iam workload-identity-pools providers describe github-provider \
+        --project=${TF_VAR_project_id} --location="global" --workload-identity-pool=github-actions-pool \
+        --format="value(name)"
+
+[group('terraform')]
+get-repo-id repo='alearningcurve/ticket-forge':
+    @gh api -H "Accept: application/vnd.github+json" repos/{{repo}} | jq .id

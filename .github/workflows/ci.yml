@@ -7,8 +7,15 @@ on:
   # schedule:
   #   - cron: '21 13 * * 0'
 
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
-  # --- 1. CODE QUALITY (JUST/UV/NODE) ---
+  # ---------------------------------------
+  # --- CODE QUALITY & TESING JOBS
+  # ---------------------------------------
+
   checks:
     name: Run Just Checks
     runs-on: ubuntu-latest
@@ -36,7 +43,6 @@ jobs:
       - name: Run checks
         run: just check
 
-  # --- 2. SECURITY (CODEQL) ---
   analyze:
     name: CodeQL Analyze (${{ matrix.language }})
     runs-on: ${{ (matrix.language == 'swift' && 'macos-latest') || 'ubuntu-latest' }}
@@ -72,11 +78,9 @@ jobs:
         with:
           category: "/language:${{matrix.language}}"
 
-  # --- 3. TERRAFORM VALIDATION (Conditional) ---
   terraform-validate:
     name: Terraform Validate
     runs-on: ubuntu-latest
-    # This job provides an output so 'deploy' knows if it should run
     outputs:
       run_deploy: ${{ steps.filter.outputs.terraform }}
     steps:
@@ -103,35 +107,84 @@ jobs:
           terraform fmt -check -recursive
           terraform validate
 
-  # --- 4. DEPLOYMENT (Only on Main) ---
-  deploy:
-    name: Terraform Apply
-    needs: [checks, analyze, terraform-validate]
-    # Only run if:
-    # 1. We are on the main branch
-    # 2. It's a push (not a PR or Schedule)
-    # 3. Terraform files actually changed
-    if: |
-      github.ref == 'refs/heads/main' &&
-      github.event_name == 'push' &&
-      needs.terraform-validate.outputs.run_deploy == 'true'
+  terraform-plan:
+    name: Terraform Plan
+    needs: [terraform-validate]
+    if: needs.terraform-validate.outputs.run_deploy == 'true'
     runs-on: ubuntu-latest
-    environment: production # Highly recommended for secrets management
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Authenticate to Google (Plan SA)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER_ID }}
+          service_account: 'tf-plan-sa@${{ secrets.TF_VAR_PROJECT_ID }}.iam.gserviceaccount.com'
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
       - name: Terraform Init
         working-directory: terraform
+        run: terraform init -backend-config="bucket=${{ secrets.TF_VAR_STATE_BUCKET }}"
+
+      - name: Terraform Plan
+        working-directory: terraform
+        run: terraform plan -lock=false --no-color
+        env:
+          TF_VAR_region: ${{ secrets.TF_VAR_REGION }}
+          TF_VAR_state_bucket: ${{ secrets.TF_VAR_STATE_BUCKET }}
+          TF_VAR_project_id: ${{ secrets.TF_VAR_PROJECT_ID }}
+
+      - name: Generate Summary
         run: |
-          terraform init \
-            -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
-            -backend-config="key=prod/terraform.tfstate" \
-            -backend-config="region=us-east-1"
+          echo "### Terraform Plan" >> $GITHUB_STEP_SUMMARY
+          echo "<details><summary>Click to expand plan</summary>" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```hcl' >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.plan.outputs.stdout }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "</details>" >> $GITHUB_STEP_SUMMARY
+
+  # ---------------------------------------
+  # --- DEPLOYMENT JOBS
+  # ---------------------------------------
+
+  deploy-check:
+    name: Gatekeeper
+    needs: [checks, analyze, terraform-validate]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Conditions for deploy met."
+
+  deploy-tf-apply:
+    name: Deploy - Terraform Apply
+    needs: [deploy-check, terraform-validate]
+    if: needs.terraform-validate.outputs.run_deploy == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google (Apply SA)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER_ID }}
+          service_account: 'tf-apply-sa@${{ secrets.TF_VAR_PROJECT_ID }}.iam.gserviceaccount.com'
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init
+        working-directory: terraform
+        run: terraform init -backend-config="bucket=${{ secrets.TF_VAR_STATE_BUCKET }}"
 
       - name: Terraform Apply
         working-directory: terraform
         run: terraform apply -auto-approve
+        env:
+          TF_VAR_region: ${{ secrets.TF_VAR_REGION }}
+          TF_VAR_state_bucket: ${{ secrets.TF_VAR_STATE_BUCKET }}
+          TF_VAR_project_id: ${{ secrets.TF_VAR_PROJECT_ID }}

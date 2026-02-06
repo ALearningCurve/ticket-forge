@@ -12,6 +12,8 @@ This folder manages a demo GCP storage bucket and uses a GCS backend for state.
 
 ## First-time setup
 
+This needs to be done once per GCP project.
+
 1. Set the following environment varibles in a .env file (hint: use `gcloud config list` to see project id):
 
 ```
@@ -19,6 +21,8 @@ TF_VAR_project_id=YOUR_PROJECT_ID
 TF_VAR_region=us-east1
 TF_VAR_state_bucket=tf-demo-bucket-unique-name
 ```
+
+(note, if you have forked this repo, then set the `repository*` variables as well in `variables.tf`. There are helper scripts like `just get-repo-id YOUR-REPO` to help with this)
 
 2. First-time bootstrapping if the state bucket does not exist:
 - Phase 1 (Local): Comment out the backend `"gcs" {}` block in `main.tf`. Run terraform init (`just tf-init`) and terraform apply (`just tf-apply`).
@@ -41,3 +45,20 @@ From repo root:
   - `just tf-apply`
 - Run arbitrary terraform commands:
   - `just tf` (i.e. `just tf apply`)
+
+## Actions Setup
+
+1. Complete the [first-time setup ](#first-time-setup) to create infrastructure
+2. Then, run `just get-wif-provider`
+3. Set github actions secret variables (Settings > Secrets and variables > Actions):
+
+```sh
+# setup to link gh -> gcp
+WIF_PROVIDER_ID=${output from step 2}
+
+# the rest are the same as the initial setup...
+TF_VAR_PROJECT_ID=your-gcp-project-id
+TF_VAR_STATE_BUCKET=your-tf-state-bucket-name
+TF_VAR_REGION=us-east1
+...
+```
