@@ -3,7 +3,9 @@ name = "shared"
 version = "0.1.0"
 description = "Shared utilities for logging, configuration, and common helpers"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "joblib>=1.5.3",
+]
 
 [build-system]
 requires = ["hatchling"]
