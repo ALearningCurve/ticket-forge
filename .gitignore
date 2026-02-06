@@ -220,3 +220,7 @@ data
 .vscode
 
 node_modules
+
+
+terraform/backend.hcl
+terraform/.terraform

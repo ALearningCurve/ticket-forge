@@ -1,3 +1,5 @@
+set dotenv-load := true
+
 # Configure repository and install dependencies
 default: install-deps
 
@@ -39,8 +41,50 @@ precommit *args='run':
 check:
     just pycheck .
 
+    @if [ -d "terraform/.terraform" ]; then \
+        just tf-check; \
+    else \
+        echo "tf not initialized "; \
+    fi
+
+
 # runs the training script
 [group('data-pipeline')]
 [positional-arguments]
 train *args='':
     uv run python -m training.cmd.train {{ args }}
+
+# intializes terraform
+[group('terraform')]
+tf-init:
+    terraform -chdir=terraform init -backend-config="bucket=${TF_VAR_state_bucket}"
+
+# format terraform
+[group('terraform')]
+tf-lint:
+    terraform -chdir=terraform fmt -recursive
+
+# assert good linting
+[group('terraform')]
+tf-check:
+    terraform -chdir=terraform fmt -check -recursive
+    terraform -chdir=terraform validate
+
+
+# runs terraform plan
+[group('terraform')]
+[positional-arguments]
+tf-plan *args='':
+    terraform -chdir=terraform plan {{ args }}
+
+# runs terraform apply
+[group('terraform')]
+[positional-arguments]
+tf-apply *args='':
+    terraform -chdir=terraform apply {{ args }}
+
+# runs arbitray terraform command
+[group('terraform')]
+[positional-arguments]
+tf *args='':
+    terraform -chdir=terraform {{ args }}
