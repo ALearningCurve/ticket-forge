@@ -66,7 +66,7 @@ if __name__ == "__main__":
     RESUME_DIRECTORY = r"./data/team_resume"
 
 
-    OUTPUT_DIR = Paths.data_root / r"apps/training/training/etl/ingest/resume/output"
+    OUTPUT_DIR = Paths.data_root / r"data/resume_outputs"
     OUTPUT_DIR.mkdir(exist_ok=True, parents=True)
 
     OUTPUT_JSON = "resumes_final.json"
