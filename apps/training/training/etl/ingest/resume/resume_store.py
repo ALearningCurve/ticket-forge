@@ -2,138 +2,212 @@
 
 import json
 import sqlite3
+from dataclasses import asdict, dataclass
 from datetime import datetime
-from dataclasses import dataclass, asdict
-from typing import List, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 
 @dataclass
 class ResumeRecord:
-    engineer_id: str
-    filename: str
-    normalized_content: str
-    embedding: List[float]
-    embedding_model: str
-    embedding_dim: int
-    processed_at: str
+  """Represents a complete resume record with embeddings."""
+
+  engineer_id: str
+  filename: str
+  normalized_content: str
+  embedding: List[float]
+  embedding_model: str
+  embedding_dim: int
+  processed_at: str
 
 
 class ResumeStorage:
-    def __init__(self, embedded_resumes: List, embedding_model: str, embedding_dim: int):
-        self.records: List[ResumeRecord] = []
-        timestamp = datetime.utcnow().isoformat()
+  """Stores processed resumes to JSON and SQLite databases."""
 
-        for resume in embedded_resumes:
-            self.records.append(ResumeRecord(
-                engineer_id=resume.engineer_id,
-                filename=resume.filename,
-                normalized_content=resume.normalized_content,
-                embedding=resume.embedding,
-                embedding_model=embedding_model,
-                embedding_dim=embedding_dim,
-                processed_at=timestamp
-            ))
+  def __init__(
+    self,
+    embedded_resumes: List[Any],
+    embedding_model: str,
+    embedding_dim: int,
+  ) -> None:
+    """Initialize storage with embedded resumes.
 
-    def save_json(self, output_path: str):
-        data = [asdict(r) for r in self.records]
-        with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
+    Args:
+      embedded_resumes: List of embedded resume objects.
+      embedding_model: Name of the embedding model used.
+      embedding_dim: Dimension of the embedding vectors.
+    """
+    self.records: List[ResumeRecord] = []
+    timestamp = datetime.utcnow().isoformat()
 
-    def save_sqlite(self, output_path: str):
-        conn = sqlite3.connect(output_path)
-        cursor = conn.cursor()
+    for resume in embedded_resumes:
+      self.records.append(
+        ResumeRecord(
+          engineer_id=resume.engineer_id,
+          filename=resume.filename,
+          normalized_content=resume.normalized_content,
+          embedding=resume.embedding,
+          embedding_model=embedding_model,
+          embedding_dim=embedding_dim,
+          processed_at=timestamp,
+        )
+      )
 
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS resumes (
-                engineer_id TEXT PRIMARY KEY,
-                filename TEXT NOT NULL,
-                normalized_content TEXT NOT NULL,
-                embedding BLOB NOT NULL,
-                embedding_model TEXT NOT NULL,
-                embedding_dim INTEGER NOT NULL,
-                processed_at TEXT NOT NULL
-            )
-        ''')
+  def save_json(self, output_path: str) -> None:
+    """Save resumes to JSON file.
 
-        for record in self.records:
-            cursor.execute('''
-                INSERT OR REPLACE INTO resumes 
-                (engineer_id, filename, normalized_content, embedding, embedding_model, embedding_dim, processed_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                record.engineer_id,
-                record.filename,
-                record.normalized_content,
-                json.dumps(record.embedding),
-                record.embedding_model,
-                record.embedding_dim,
-                record.processed_at
-            ))
+    Args:
+      output_path: Path to output JSON file.
+    """
+    data = [asdict(r) for r in self.records]
+    with open(output_path, "w", encoding="utf-8") as f:
+      json.dump(data, f, indent=2, ensure_ascii=False)
 
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_engineer_id ON resumes(engineer_id)')
-        conn.commit()
-        conn.close()
+  def save_sqlite(self, output_path: str) -> None:
+    """Save resumes to SQLite database.
 
-    def save(self, json_path: str, sqlite_path: str):
-        self.save_json(json_path)
-        self.save_sqlite(sqlite_path)
+    Args:
+      output_path: Path to output SQLite database file.
+    """
+    conn = sqlite3.connect(output_path)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+      CREATE TABLE IF NOT EXISTS resumes (
+        engineer_id TEXT PRIMARY KEY,
+        filename TEXT NOT NULL,
+        normalized_content TEXT NOT NULL,
+        embedding BLOB NOT NULL,
+        embedding_model TEXT NOT NULL,
+        embedding_dim INTEGER NOT NULL,
+        processed_at TEXT NOT NULL
+      )
+    """)
+
+    for record in self.records:
+      cursor.execute(
+        """
+        INSERT OR REPLACE INTO resumes 
+        (engineer_id, filename, normalized_content, embedding, 
+         embedding_model, embedding_dim, processed_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      """,
+        (
+          record.engineer_id,
+          record.filename,
+          record.normalized_content,
+          json.dumps(record.embedding),
+          record.embedding_model,
+          record.embedding_dim,
+          record.processed_at,
+        ),
+      )
+
+    cursor.execute(
+      "CREATE INDEX IF NOT EXISTS idx_engineer_id "
+      "ON resumes(engineer_id)"
+    )
+    conn.commit()
+    conn.close()
+
+  def save(self, json_path: str, sqlite_path: str) -> None:
+    """Save resumes to both JSON and SQLite.
+
+    Args:
+      json_path: Path to output JSON file.
+      sqlite_path: Path to output SQLite database file.
+    """
+    self.save_json(json_path)
+    self.save_sqlite(sqlite_path)
 
 
 class ResumeReader:
-    def __init__(self, db_path: str):
-        self.db_path = db_path
+  """Reads resume data from SQLite database."""
 
-    def get_all(self) -> List[Dict]:
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
+  def __init__(self, db_path: str) -> None:
+    """Initialize reader with database path.
 
-        cursor.execute('SELECT * FROM resumes')
-        rows = cursor.fetchall()
+    Args:
+      db_path: Path to SQLite database file.
+    """
+    self.db_path = db_path
 
-        results = []
-        for row in rows:
-            record = dict(row)
-            record['embedding'] = json.loads(record['embedding'])
-            results.append(record)
+  def get_all(self) -> List[Dict[str, Any]]:
+    """Get all resumes from database.
 
-        conn.close()
-        return results
+    Returns:
+      List of resume dictionaries.
+    """
+    conn = sqlite3.connect(self.db_path)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
 
-    def get_by_id(self, engineer_id: str) -> Optional[Dict]:
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
+    cursor.execute("SELECT * FROM resumes")
+    rows = cursor.fetchall()
 
-        cursor.execute('SELECT * FROM resumes WHERE engineer_id = ?', (engineer_id,))
-        row = cursor.fetchone()
-        conn.close()
+    results = []
+    for row in rows:
+      record = dict(row)
+      record["embedding"] = json.loads(record["embedding"])
+      results.append(record)
 
-        if row:
-            record = dict(row)
-            record['embedding'] = json.loads(record['embedding'])
-            return record
-        return None
+    conn.close()
+    return results
 
-    def get_by_filename(self, filename: str) -> Optional[Dict]:
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
+  def get_by_id(self, engineer_id: str) -> Optional[Dict[str, Any]]:
+    """Get resume by engineer ID.
 
-        cursor.execute('SELECT * FROM resumes WHERE filename = ?', (filename,))
-        row = cursor.fetchone()
-        conn.close()
+    Args:
+      engineer_id: Engineer ID to search for.
 
-        if row:
-            record = dict(row)
-            record['embedding'] = json.loads(record['embedding'])
-            return record
-        return None
+    Returns:
+      Resume dictionary if found, None otherwise.
+    """
+    conn = sqlite3.connect(self.db_path)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
 
-    def count(self) -> int:
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute('SELECT COUNT(*) FROM resumes')
-        count = cursor.fetchone()[0]
-        conn.close()
-        return count
+    cursor.execute("SELECT * FROM resumes WHERE engineer_id = ?", (engineer_id,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if row:
+      record = dict(row)
+      record["embedding"] = json.loads(record["embedding"])
+      return record
+    return None
+
+  def get_by_filename(self, filename: str) -> Optional[Dict[str, Any]]:
+    """Get resume by filename.
+
+    Args:
+      filename: Filename to search for.
+
+    Returns:
+      Resume dictionary if found, None otherwise.
+    """
+    conn = sqlite3.connect(self.db_path)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT * FROM resumes WHERE filename = ?", (filename,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if row:
+      record = dict(row)
+      record["embedding"] = json.loads(record["embedding"])
+      return record
+    return None
+
+  def count(self) -> int:
+    """Get total number of resumes in database.
+
+    Returns:
+      Number of resumes.
+    """
+    conn = sqlite3.connect(self.db_path)
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM resumes")
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count
