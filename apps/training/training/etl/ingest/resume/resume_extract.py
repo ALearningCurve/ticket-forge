@@ -8,19 +8,8 @@ from dataclasses import dataclass
 
 import fitz
 from docx import Document
-
-try:
-    import pytesseract
-    from PIL import Image
-    HAS_OCR = True
-except ImportError:
-    HAS_OCR = False
-
-try:
-    import win32com.client
-    HAS_WIN32 = True
-except ImportError:
-    HAS_WIN32 = False
+import pytesseract
+from PIL import Image
 
 
 @dataclass
@@ -31,7 +20,7 @@ class ExtractedResume:
 
 
 class ResumeExtractor:
-    SUPPORTED = {'.pdf', '.docx', '.doc'}
+    SUPPORTED = {'.pdf', '.docx'}  # Removed .doc (Windows-only)
 
     def __init__(self, id_prefix: str = "ENG", use_uuid: bool = False):
         self.id_prefix = id_prefix
@@ -55,8 +44,6 @@ class ResumeExtractor:
             return self._extract_pdf(file_path)
         elif ext == '.docx':
             return self._extract_docx(file_path)
-        elif ext == '.doc':
-            return self._extract_doc(file_path)
 
     def _extract_pdf(self, path: str) -> str:
         text_parts = []
@@ -66,7 +53,8 @@ class ResumeExtractor:
 
         text = "\n".join(text_parts).strip()
 
-        if len(text) < 100 and HAS_OCR:
+        # Use OCR for scanned PDFs with minimal text
+        if len(text) < 100:
             return self._extract_pdf_ocr(path)
 
         return text
@@ -91,20 +79,6 @@ class ResumeExtractor:
                     parts.append(cell.text)
 
         return "\n".join(parts).strip()
-
-    def _extract_doc(self, path: str) -> str:
-        if not HAS_WIN32:
-            raise RuntimeError("DOC extraction requires pywin32 on Windows.")
-
-        word = win32com.client.Dispatch("Word.Application")
-        word.Visible = False
-        try:
-            doc = word.Documents.Open(os.path.abspath(path))
-            text = doc.Content.Text
-            doc.Close()
-            return text.strip()
-        finally:
-            word.Quit()
 
     def extract_directory(self, directory: str) -> List[ExtractedResume]:
         dir_path = Path(directory)
