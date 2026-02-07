@@ -17,7 +17,7 @@ jobs:
   # ---------------------------------------
 
   checks:
-    name: Check - Lint + All Tests
+    name: Check - Linting/Testing
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -79,7 +79,7 @@ jobs:
           category: "/language:${{matrix.language}}"
 
   terraform-validate-plan:
-    name: Check - Terraform Validate & Plan
+    name: Check - TF Validate/Plan
     runs-on: ubuntu-latest
     outputs:
       run_deploy: ${{ steps.filter.outputs.terraform }}
@@ -123,7 +123,7 @@ jobs:
         id: plan
         if: steps.filter.outputs.terraform == 'true'
         working-directory: terraform
-        run: terraform plan -lock=false --no-color
+        run: terraform plan -lock=false -no-color
         env:
           TF_VAR_region: ${{ secrets.TF_VAR_REGION }}
           TF_VAR_state_bucket: ${{ secrets.TF_VAR_STATE_BUCKET }}
@@ -141,7 +141,7 @@ jobs:
           echo "</details>" >> $GITHUB_STEP_SUMMARY
 
   all-checks-good:
-    name: Check - All Good
+    name: Check - Finished
     needs: [checks, analyze, terraform-validate-plan]
     runs-on: ubuntu-latest
     steps:
