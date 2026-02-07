@@ -19,7 +19,7 @@ def run_pipeline(  # noqa: PLR0913
   id_prefix: str = "ENG",
   use_uuid: bool = False,
 ) -> int:
-  """Run the complete resume processing pipeline.
+  """Run the complete resume processing pipeline to generate embeddings.
 
   Args:
     resume_directory: Path to directory containing resume files.
