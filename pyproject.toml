@@ -5,6 +5,10 @@ description = "Machine Learning project monorepo"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "pandas>=2.2.0",
+    "numpy>=2.0.0",
+    "scikit-learn>=1.5.0",
+    "tqdm>=4.65.0",
 ]
 
 [tool.uv.workspace]
@@ -86,3 +90,7 @@ extraPaths = [
     "libs/ml-core",
     "libs/shared",
 ]
+
+
+[tool.setuptools.packages.find]
+where = ["apps", "libs"]
