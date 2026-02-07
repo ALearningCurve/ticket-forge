@@ -65,20 +65,30 @@ All usage scripts are defined in a `justfile` which can be run.
 ```sh
 $ just --list
 Available recipes:
-    default               # Configure repository and install dependencies
+    default                                        # Configure repository and install dependencies
 
     [data-pipeline]
-    train *args=''        # runs the training script
+    train *args=''                                 # runs the training script
 
     [lang-agnostic]
-    check                 # runs all checks on the repo from repo-root
-    install-deps          # install all 3rd party packages
-    precommit *args='run' # Run pre-commit hooks
+    check                                          # runs all checks on the repo from repo-root
+    install-deps                                   # install all 3rd party packages
+    precommit *args='run'                          # Run pre-commit hooks
 
     [python]
-    pycheck *args="."     # Run all python checks on particular files and directories
-    pylint *args="."      # Runs python linting. Specify the directories/files to lint as positional args.
-    pytest *args=''       # Runs python tests. Any args are forwarded to pytest.
+    pycheck *args="."                              # Run all python checks on particular files and directories
+    pylint *args="."                               # Runs python linting. Specify the directories/files to lint as positional args.
+    pytest *args=''                                # Runs python tests. Any args are forwarded to pytest.
+
+    [terraform]
+    get-repo-id repo='alearningcurve/ticket-forge'
+    get-wif-provider
+    tf *args=''                                    # runs arbitray terraform command
+    tf-apply *args=''                              # runs terraform apply
+    tf-check                                       # assert good linting
+    tf-init                                        # intializes terraform
+    tf-lint                                        # format terraform
+    tf-plan *args=''                               # runs terraform plan
 ```
 
 ## Development
