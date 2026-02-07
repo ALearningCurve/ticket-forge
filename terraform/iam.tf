@@ -20,8 +20,16 @@ resource "google_iam_workload_identity_pool_provider" "github_provider" {
   attribute_mapping = {
     "google.subject"       = "assertion.sub"
     "attribute.repository" = "assertion.repository"
+    "attribute.ref"        = "assertion.ref"
+    "attribute.workflow"   = "assertion.workflow"
   }
-  attribute_condition = "attribute.repository=='${var.repository}' && assertion.repository_id=='${var.repository_id}'"
+  attribute_condition = <<EOT
+  attribute.repository == "${var.repository}" &&
+  assertion.repository_id == "${var.repository_id}" &&
+  attribute.ref == "refs/heads/main" &&
+  attribute.workflow == ".github/workflows/ci.yml"
+  EOT
+
   oidc {
     issuer_uri = "https://token.actions.githubusercontent.com"
   }
