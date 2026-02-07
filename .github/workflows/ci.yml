@@ -1,4 +1,4 @@
-name: CI/CD Pipeline
+name: CI/CD
 
 on:
   push:
@@ -17,7 +17,7 @@ jobs:
   # ---------------------------------------
 
   checks:
-    name: Check - Linting/Testing
+    name: Check / Linting/Testing
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -44,8 +44,9 @@ jobs:
         run: just check
 
   analyze:
-    name: Check - CodeQL (${{ matrix.language }})
+    name: Check / CodeQL (${{ matrix.language }})
     runs-on: ${{ (matrix.language == 'swift' && 'macos-latest') || 'ubuntu-latest' }}
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     permissions:
       security-events: write
       packages: read
@@ -79,7 +80,7 @@ jobs:
           category: "/language:${{matrix.language}}"
 
   terraform-validate-plan:
-    name: Check - TF Validate/Plan
+    name: Check / TF Validate/Plan
     runs-on: ubuntu-latest
     outputs:
       run_deploy: ${{ steps.filter.outputs.terraform }}
@@ -141,17 +142,24 @@ jobs:
           echo "</details>" >> $GITHUB_STEP_SUMMARY
 
   all-checks-good:
-    name: Check - Finished
+    name: Check / Finished
     needs: [checks, analyze, terraform-validate-plan]
+    # This ensures it runs even if 'analyze' was skipped,
+    # but still fails if any of them actually failed.
+    if: |
+      always() &&
+      needs.checks.result == 'success' &&
+      (needs.analyze.result == 'success' || needs.analyze.result == 'skipped') &&
+      needs.terraform-validate-plan.result == 'success'
     runs-on: ubuntu-latest
     steps:
-      - run: echo "All tests passed."
+      - run: echo "All required tests passed or were appropriately skipped."
   # ---------------------------------------
   # --- DEPLOYMENT JOBS
   # ---------------------------------------
 
   deploy-check:
-    name: Deploy - Gatekeeper
+    name: Deploy / Gatekeeper
     needs: [all-checks-good]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
@@ -159,7 +167,7 @@ jobs:
       - run: echo "Conditions for deploy met."
 
   deploy-tf-apply:
-    name: Deploy - Terraform Apply
+    name: Deploy / Terraform Apply
     needs: [deploy-check, terraform-validate-plan]
     if: needs.terraform-validate-plan.outputs.run_deploy == 'true'
     runs-on: ubuntu-latest
