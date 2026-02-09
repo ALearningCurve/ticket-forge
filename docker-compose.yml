@@ -1,0 +1,25 @@
+# Postgres with PgVector for storing engineered features and embeddings.
+# Usage: docker compose up -d
+# Connect: psql -h localhost -U ticketforge -d ticketforge
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: ticketforge-postgres
+    environment:
+      POSTGRES_USER: ticketforge
+      POSTGRES_PASSWORD: ticketforge
+      POSTGRES_DB: ticketforge
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/postgres/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ticketforge -d ticketforge"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
