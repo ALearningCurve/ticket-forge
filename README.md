@@ -57,7 +57,13 @@ Here we guide you through the steps to install the tooling and dependencies need
 2. Then run: `just`
   - This command installs all packages and configures the workspaces
 
-3. Good to go!
+3. DVC Setup:
+  - `dvc remote add -d myremote gs://ticket-forge-dvc`, to configure
+  - `dvc remote modify --local myremote credentialpath /absolute/path/to/your-key.json`, replace key path with service key path
+  - `dvc push`
+  - `dvc install` (optional, but adds git hooks for DVC for you!)
+
+4. Good to go!
 
 ## Usage
 

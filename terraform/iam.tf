@@ -25,9 +25,7 @@ resource "google_iam_workload_identity_pool_provider" "github_provider" {
   }
   attribute_condition = <<EOT
   attribute.repository == "${var.repository}" &&
-  assertion.repository_id == "${var.repository_id}" &&
-  attribute.ref == "refs/heads/main" &&
-  attribute.workflow == ".github/workflows/ci.yml"
+  assertion.repository_id == "${var.repository_id}"
   EOT
 
   oidc {
@@ -108,4 +106,22 @@ resource "google_storage_bucket_iam_member" "tf_apply_state_access" {
   bucket = var.state_bucket
   role   = "roles/storage.objectAdmin"
   member = "serviceAccount:${google_service_account.tf_apply.email}"
+}
+
+
+
+/****************************************
+The following defines the
+IAM permissions for DVC bucket
+****************************************/
+
+resource "google_service_account" "data_bucket_sa" {
+  account_id   = "data-bucket-sa"
+  display_name = "Data Bucket Service Account"
+}
+
+resource "google_storage_bucket_iam_member" "data_bucket_read_write" {
+  bucket = google_storage_bucket.data_bucket.name
+  role   = "roles/storage.objectAdmin"
+  member = "serviceAccount:${google_service_account.data_bucket_sa.email}"
 }

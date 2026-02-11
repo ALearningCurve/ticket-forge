@@ -230,3 +230,5 @@ resumes_final.json
 resumes_final.db
 *.db
 *.sqlite
+
+.dvc/config.local

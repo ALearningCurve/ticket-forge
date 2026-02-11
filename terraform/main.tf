@@ -25,3 +25,18 @@ resource "google_storage_bucket" "state_bucket" {
     prevent_destroy = true
   }
 }
+
+resource "google_storage_bucket" "data_bucket" {
+  name                        = var.data_bucket
+  location                    = var.region
+  uniform_bucket_level_access = true
+  public_access_prevention    = "enforced"
+
+  versioning {
+    enabled = false
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
