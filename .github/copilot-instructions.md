@@ -143,9 +143,9 @@ Run manually: `just precommit`
 
 Follow conventional commit format:
 ```
-[#issue] type: description
+[#<issue-number>] type: description
 
-Example: [#2] feat: implement GitHub issue scraper
+Example: [#123] feat: implement GitHub issue scraper
 ```
 
 Types: feat, fix, docs, style, refactor, test, chore
