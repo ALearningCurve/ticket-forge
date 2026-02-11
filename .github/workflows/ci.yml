@@ -1,12 +1,21 @@
-name: CI
+name: CI/CD
 
 on:
   push:
-    branches: [main]
+    branches: ["main"]
   pull_request:
 
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
+  # ---------------------------------------
+  # --- CODE QUALITY & TESTING JOBS
+  # ---------------------------------------
+
   checks:
+    name: Check / Linting/Testing
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -31,3 +40,157 @@ jobs:
 
       - name: Run checks
         run: just check
+
+  analyze:
+    name: Check / CodeQL (${{ matrix.language }})
+    runs-on: ${{ (matrix.language == 'swift' && 'macos-latest') || 'ubuntu-latest' }}
+    # if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    permissions:
+      security-events: write
+      packages: read
+      actions: read
+      contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: actions
+            build-mode: none
+          - language: javascript-typescript
+            build-mode: none
+          - language: python
+            build-mode: none
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:${{matrix.language}}"
+
+  terraform-validate-plan:
+    name: Check / TF Validate/Plan
+    runs-on: ubuntu-latest
+    outputs:
+      run_deploy: ${{ steps.filter.outputs.terraform }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check for Terraform Changes
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            terraform:
+              - 'terraform/**'
+
+      - name: Setup Terraform
+        if: steps.filter.outputs.terraform == 'true'
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init & Validate
+        if: steps.filter.outputs.terraform == 'true'
+        working-directory: terraform
+        run: |
+          terraform init -backend=false
+          terraform fmt -check -recursive
+          terraform validate
+
+      - name: Authenticate to Google (Plan SA)
+        if: steps.filter.outputs.terraform == 'true'
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER_ID }}
+          service_account: 'tf-plan-sa@${{ secrets.TF_VAR_PROJECT_ID }}.iam.gserviceaccount.com'
+
+      - name: Terraform Init
+        if: steps.filter.outputs.terraform == 'true'
+        working-directory: terraform
+        run: terraform init -backend-config="bucket=${{ secrets.TF_VAR_STATE_BUCKET }}"
+
+      - name: Terraform Plan
+        id: plan
+        if: steps.filter.outputs.terraform == 'true'
+        working-directory: terraform
+        run: terraform plan -lock=false -no-color | tee plan.txt
+        env:
+          TF_VAR_region: ${{ secrets.TF_VAR_REGION }}
+          TF_VAR_state_bucket: ${{ secrets.TF_VAR_STATE_BUCKET }}
+          TF_VAR_project_id: ${{ secrets.TF_VAR_PROJECT_ID }}
+
+      - name: Generate Summary
+        if: steps.filter.outputs.terraform == 'true'
+        working-directory: terraform
+        run: |
+          echo "### Terraform Plan" >> $GITHUB_STEP_SUMMARY
+          echo "<details><summary>Click to expand plan</summary>" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```hcl' >> $GITHUB_STEP_SUMMARY
+          cat plan.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "</details>" >> $GITHUB_STEP_SUMMARY
+
+  all-checks-good:
+    name: Check / Finished
+    needs: [checks, analyze, terraform-validate-plan]
+    # This ensures it runs even if 'analyze' was skipped,
+    # but still fails if any of them actually failed.
+    if: |
+      always() &&
+      needs.checks.result == 'success' &&
+      (needs.analyze.result == 'success' || needs.analyze.result == 'skipped') &&
+      needs.terraform-validate-plan.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "All required tests passed or were appropriately skipped."
+  # ---------------------------------------
+  # --- DEPLOYMENT JOBS
+  # ---------------------------------------
+
+  deploy-check:
+    name: Deploy / Gatekeeper
+    needs: [all-checks-good]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Conditions for deploy met."
+
+  deploy-tf-apply:
+    name: Deploy / Terraform Apply
+    needs: [deploy-check, terraform-validate-plan]
+    if: needs.terraform-validate-plan.outputs.run_deploy == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google (Apply SA)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER_ID }}
+          service_account: 'tf-apply-sa@${{ secrets.TF_VAR_PROJECT_ID }}.iam.gserviceaccount.com'
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init
+        working-directory: terraform
+        run: terraform init -backend-config="bucket=${{ secrets.TF_VAR_STATE_BUCKET }}"
+
+      - name: Terraform Apply
+        working-directory: terraform
+        run: terraform apply -auto-approve
+        env:
+          TF_VAR_region: ${{ secrets.TF_VAR_REGION }}
+          TF_VAR_state_bucket: ${{ secrets.TF_VAR_STATE_BUCKET }}
+          TF_VAR_project_id: ${{ secrets.TF_VAR_PROJECT_ID }}
