@@ -17,7 +17,7 @@ variable "state_bucket" {
 variable "repository" {
   description = "the github repository in format 'ORGANIZATION/REPO'"
   type        = string
-  default     = "ALearningCurve/ticket-forge"
+  default     = "alearningcurve/ticket-forge"
 }
 
 variable "repository_id" {

@@ -14,7 +14,7 @@ This folder manages a demo GCP storage bucket and uses a GCS backend for state.
 
 This needs to be done once per GCP project.
 
-1. Set the following environment varibles in a .env file (hint: use `gcloud config list` to see project id):
+1. Set the following environment variables in a .env file (hint: use `gcloud config list` to see project id):
 
 ```
 TF_VAR_project_id=YOUR_PROJECT_ID
@@ -50,7 +50,7 @@ From repo root:
 
 1. Complete the [first-time setup ](#first-time-setup) to create infrastructure
 2. Then, run `just get-wif-provider`
-3. Set github actions secret variables (Settings > Secrets and variables > Actions):
+3. Set github actions secret variables (Settings > Secrets and variables > Actions). Note that the variables for the environment are in all uppercase, but are mapped to the correct casing in the action file.
 
 ```sh
 # setup to link gh -> gcp

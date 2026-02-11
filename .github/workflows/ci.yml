@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   # ---------------------------------------
-  # --- CODE QUALITY & TESING JOBS
+  # --- CODE QUALITY & TESTING JOBS
   # ---------------------------------------
 
   checks:
@@ -124,7 +124,7 @@ jobs:
         id: plan
         if: steps.filter.outputs.terraform == 'true'
         working-directory: terraform
-        run: terraform plan -lock=false -no-color
+        run: terraform plan -lock=false -no-color > plan.txt
         env:
           TF_VAR_region: ${{ secrets.TF_VAR_REGION }}
           TF_VAR_state_bucket: ${{ secrets.TF_VAR_STATE_BUCKET }}
@@ -137,7 +137,7 @@ jobs:
           echo "<details><summary>Click to expand plan</summary>" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo '```hcl' >> $GITHUB_STEP_SUMMARY
-          echo "${{ steps.plan.outputs.stdout }}" >> $GITHUB_STEP_SUMMARY
+          cat plan.txt >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "</details>" >> $GITHUB_STEP_SUMMARY
 

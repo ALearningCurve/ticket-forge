@@ -47,14 +47,13 @@ check:
         echo "tf not initialized "; \
     fi
 
-
 # runs the training script
 [group('data-pipeline')]
 [positional-arguments]
 train *args='':
     uv run python -m training.cmd.train {{ args }}
 
-# intializes terraform
+# initializes terraform
 [group('terraform')]
 tf-init:
     terraform -chdir=terraform init -backend-config="bucket=${TF_VAR_state_bucket}"
@@ -70,7 +69,6 @@ tf-check:
     terraform -chdir=terraform fmt -check -recursive
     terraform -chdir=terraform validate
 
-
 # runs terraform plan
 [group('terraform')]
 [positional-arguments]
@@ -83,7 +81,7 @@ tf-plan *args='':
 tf-apply *args='':
     terraform -chdir=terraform apply {{ args }}
 
-# runs arbitray terraform command
+# runs arbitrary terraform command
 [group('terraform')]
 [positional-arguments]
 tf *args='':
@@ -97,4 +95,4 @@ get-wif-provider:
 
 [group('terraform')]
 get-repo-id repo='alearningcurve/ticket-forge':
-    @gh api -H "Accept: application/vnd.github+json" repos/{{repo}} | jq .id
+    @gh api -H "Accept: application/vnd.github+json" repos/{{ repo }} | jq .id
