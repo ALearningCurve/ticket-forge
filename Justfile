@@ -9,6 +9,7 @@ install-deps:
     uv sync --all-packages
     npm i
     uv run pre-commit install
+    uv tool install dvc
 
 # Runs python tests. Any args are forwarded to pytest.
 [group('python')]
