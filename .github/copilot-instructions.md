@@ -88,7 +88,7 @@ Use the `Justfile` for all common tasks. Run `just --list` to see available comm
 
 #### Python Style Guide
 - **Line Length**: 88 characters (Ruff default)
-- **Indentation**: 2 spaces
+- **Indentation**: 2 spaces (deviates from PEP 8's 4-space standard; configured in pyproject.toml)
 - **Type Hints**: Required (enforced by Pyright)
 - **Docstrings**: Google style (enforced by Ruff)
 - **Import Style**: Absolute imports only (no relative imports)
