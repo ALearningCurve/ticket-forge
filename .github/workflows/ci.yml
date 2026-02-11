@@ -132,6 +132,7 @@ jobs:
 
       - name: Generate Summary
         if: steps.filter.outputs.terraform == 'true'
+        working-directory: terraform
         run: |
           echo "### Terraform Plan" >> $GITHUB_STEP_SUMMARY
           echo "<details><summary>Click to expand plan</summary>" >> $GITHUB_STEP_SUMMARY
