@@ -29,7 +29,7 @@ TF_VAR_state_bucket=tf-demo-bucket-unique-name
 - Phase 2 (Migration): Uncomment the backend `"gcs" {}` block in `main.tf`. Run terraform init again (`just tf-init`).
   - TF detects local state and a newly configured remote backend from first init. It will ask: "Do you want to copy existing state to the new backend?"; type yes and then delete local .tfstate file
 
-3. Create DVC key. Terraform (at least as configured in these instructions) is unable to create service account credentials. Thus, you must manually create the DVC service account key.
+3. Create DVC key. While Terraform *can* create service account keys (for example, via the `google_service_account_key` resource), doing so would store the private key material in the Terraform state file, which is a security risk. For this demo, you must manually create the DVC service account key instead. For production use, prefer Workload Identity Federation over long‑lived service account keys wherever possible.
 
 4. Follow [action setup](#actions-setup) if not done so already.
 
