@@ -14,10 +14,16 @@ variable "state_bucket" {
   type        = string
 }
 
+variable "data_bucket" {
+  description = "Name for the data bucket (must be globally unique)."
+  type        = string
+  default     = "ticket-forge-dvc"
+}
+
 variable "repository" {
   description = "the github repository in format 'ORGANIZATION/REPO'"
   type        = string
-  default     = "alearningcurve/ticket-forge"
+  default     = "ALearningCurve/ticket-forge"
 }
 
 variable "repository_id" {
