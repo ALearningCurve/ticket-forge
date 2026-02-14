@@ -75,6 +75,8 @@ locals {
     "roles/run.admin",                       # Manage Cloud Run Services
     "roles/storage.admin",                   # Manage GCS Buckets
     "roles/iam.serviceAccountUser",          # REQUIRED: To attach Service Accounts to Compute/Cloud Run
+    "roles/iam.securityReviewer",            # View IAM policies
+    "roles/iam.workloadIdentityPoolAdmin",   # REQUIRED: To manage workload identity pools (includes iam.workloadIdentityPools.get)
     "roles/resourcemanager.projectIamAdmin", # REQUIRED: To manage IAM bindings on the project
     "roles/serviceusage.serviceUsageAdmin"   # Enable APIs (google_project_service)
   ]
