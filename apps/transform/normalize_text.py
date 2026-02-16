@@ -1,4 +1,7 @@
+"""Text normalization for tickets."""
+
 import re
+from typing import Match
 
 CODE_BLOCK_RE = re.compile(r"```(.*?)```", re.DOTALL)
 IMAGE_LINK_RE = re.compile(r"!\[.*?\]\(.*?\)")
@@ -7,34 +10,44 @@ INLINE_CODE_RE = re.compile(r"`([^`]*)`")
 
 
 def _truncate_code_block(code: str) -> str:
-    lines = code.strip().splitlines()
-    if len(lines) <= 4:
-        return "\n".join(lines)
-    return "\n".join(lines[:2] + ["..."] + lines[-2:])
+  """Truncate code block to first 2 and last 2 lines."""
+  lines = code.strip().splitlines()
+  if len(lines) <= 4:
+    return "\n".join(lines)
+  return "\n".join(lines[:2] + ["..."] + lines[-2:])
 
 
 def normalize_ticket_text(title: str, body: str) -> str:
-    body = body or ""
+  """Normalize ticket text by removing markdown and truncating code blocks.
 
-    # Handle fenced code blocks
-    def _code_repl(match):
-        return _truncate_code_block(match.group(1))
+  Args:
+      title: Ticket title
+      body: Ticket body
 
-    body = CODE_BLOCK_RE.sub(_code_repl, body)
+  Returns:
+      Normalized text string
+  """
+  body = body or ""
 
-    # Remove images and links
-    body = IMAGE_LINK_RE.sub("", body)
-    body = LINK_RE.sub("", body)
+  # Handle fenced code blocks
+  def _code_repl(match: Match[str]) -> str:
+    return _truncate_code_block(match.group(1))
 
-    # Inline code: keep content, remove backticks
-    body = INLINE_CODE_RE.sub(r"\1", body)
+  body = CODE_BLOCK_RE.sub(_code_repl, body)
 
-    # Remove markdown symbols
-    body = re.sub(r"[>#*_~-]", " ", body)
+  # Remove images and links
+  body = IMAGE_LINK_RE.sub("", body)
+  body = LINK_RE.sub("", body)
 
-    # Normalize whitespace
-    body = re.sub(r"\n{3,}", "\n\n", body)
-    body = re.sub(r"\s+", " ", body).strip()
+  # Inline code: keep content, remove backticks
+  body = INLINE_CODE_RE.sub(r"\1", body)
 
-    text = f"{title.strip()}\n\n{body}".strip()
-    return text[:4000]  # hard cap
+  # Remove markdown symbols
+  body = re.sub(r"[>#*_~-]", " ", body)
+
+  # Normalize whitespace
+  body = re.sub(r"\n{3,}", "\n\n", body)
+  body = re.sub(r"\s+", " ", body).strip()
+
+  text = f"{title.strip()}\n\n{body}".strip()
+  return text[:4000]  # hard cap

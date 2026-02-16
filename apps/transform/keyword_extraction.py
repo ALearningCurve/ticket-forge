@@ -1,20 +1,25 @@
-from sklearn.feature_extraction.text import TfidfVectorizer
+"""Keyword extraction using technical skills list."""
+
+from ml_core.keywords import get_keyword_extractor
 
 
-_vectorizer = TfidfVectorizer(
-    stop_words="english",
-    max_features=5000,
-    ngram_range=(1, 2),
-)
+def extract_keywords(texts: list[str], top_k: int = 10) -> list[list[str]]:
+  """Extract technical skill keywords from texts.
 
+  Args:
+      texts: List of text strings
+      top_k: Maximum number of keywords to extract per text
 
-def extract_keywords(texts, top_k=10):
-    tfidf = _vectorizer.fit_transform(texts)
-    feature_names = _vectorizer.get_feature_names_out()
+  Returns:
+      List of keyword lists
+  """
+  # Use the real keyword extractor from #11
+  keyword_extractor = get_keyword_extractor()
 
-    keywords = []
-    for row in tfidf:
-        indices = row.toarray()[0].argsort()[-top_k:][::-1]
-        keywords.append([feature_names[i] for i in indices])
+  keywords = []
+  for text in texts:
+    # Extract keywords and limit to top_k
+    extracted = keyword_extractor.extract(text, top_n=top_k)
+    keywords.append(extracted)
 
-    return keywords
+  return keywords
