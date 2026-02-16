@@ -220,3 +220,15 @@ data
 .vscode
 
 node_modules
+
+
+terraform/backend.hcl
+terraform/.terraform
+terraform/terraform.tfstate*
+config_local.py
+resumes_final.json
+resumes_final.db
+*.db
+*.sqlite
+
+.dvc/config.local

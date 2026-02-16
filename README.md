@@ -57,7 +57,19 @@ Here we guide you through the steps to install the tooling and dependencies need
 2. Then run: `just`
   - This command installs all packages and configures the workspaces
 
-3. Good to go!
+3. DVC Setup (one-time per developer machine):
+  Configure DVC to use the GCS bucket created by Terraform for storing data and models:
+  - `dvc remote add -d myremote gs://<your-dvc-bucket>`  
+    - Sets up `myremote` as the default remote storage. Replace `<your-dvc-bucket>` with the DVC bucket name created/configured via Terraform (see the Terraform README).
+  - `dvc remote modify --local myremote credentialpath /absolute/path/to/your-key.json`  
+    - Points DVC to the service account key file created in step 3 of the Terraform README. Replace the path with the absolute path to that JSON key on your machine. This only needs to be done once per developer machine.
+  - `dvc pull`  
+    - Downloads any data and models tracked by DVC from the remote. Run this when first setting up the project or whenever you need the latest tracked artifacts.
+  - `dvc push`  
+    - Uploads your local DVC-tracked data and models to the remote. Run this **only after** you have added or updated data/models (e.g., after training or modifying datasets).
+  - `dvc install` (optional, but adds Git hooks for DVC to automatically track changes to data and models)
+
+4. Good to go!
 
 ## Usage
 
@@ -65,20 +77,30 @@ All usage scripts are defined in a `justfile` which can be run.
 ```sh
 $ just --list
 Available recipes:
-    default               # Configure repository and install dependencies
+    default                                        # Configure repository and install dependencies
 
     [data-pipeline]
-    train *args=''        # runs the training script
+    train *args=''                                 # runs the training script
 
     [lang-agnostic]
-    check                 # runs all checks on the repo from repo-root
-    install-deps          # install all 3rd party packages
-    precommit *args='run' # Run pre-commit hooks
+    check                                          # runs all checks on the repo from repo-root
+    install-deps                                   # install all 3rd party packages
+    precommit *args='run'                          # Run pre-commit hooks
 
     [python]
-    pycheck *args="."     # Run all python checks on particular files and directories
-    pylint *args="."      # Runs python linting. Specify the directories/files to lint as positional args.
-    pytest *args=''       # Runs python tests. Any args are forwarded to pytest.
+    pycheck *args="."                              # Run all python checks on particular files and directories
+    pylint *args="."                               # Runs python linting. Specify the directories/files to lint as positional args.
+    pytest *args=''                                # Runs python tests. Any args are forwarded to pytest.
+
+    [terraform]
+    get-repo-id repo='alearningcurve/ticket-forge'
+    get-wif-provider
+    tf *args=''                                    # runs arbitray terraform command
+    tf-apply *args=''                              # runs terraform apply
+    tf-check                                       # assert good linting
+    tf-init                                        # intializes terraform
+    tf-lint                                        # format terraform
+    tf-plan *args=''                               # runs terraform plan
 ```
 
 ## Development
