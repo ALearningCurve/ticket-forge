@@ -87,9 +87,7 @@ class ResumeExtractor:
     with fitz.open(path) as doc:
       for page in doc:
         pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
-        img = Image.frombytes(
-          "RGB", (pix.width, pix.height), pix.samples
-        )
+        img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
         text_parts.append(pytesseract.image_to_string(img))
 
     return "\n".join(text_parts).strip()
@@ -117,9 +115,7 @@ class ResumeExtractor:
     """
     dir_path = Path(directory)
     results = []
-    files = [
-      f for f in dir_path.iterdir() if f.suffix.lower() in self.SUPPORTED
-    ]
+    files = [f for f in dir_path.iterdir() if f.suffix.lower() in self.SUPPORTED]
 
     if not files:
       return results
