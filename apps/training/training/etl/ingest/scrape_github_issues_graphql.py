@@ -36,7 +36,8 @@ class GitHubIssue(BaseModel):
 load_dotenv()
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 
-if not GITHUB_TOKEN:
+# Only check token when running as main, not when importing for tests
+if __name__ == "__main__" and not GITHUB_TOKEN:
   msg = "GITHUB_TOKEN missing."
   raise RuntimeError(msg)
 
