@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import Any, Dict, List
 
-from sentence_transformers import SentenceTransformer
+from ml_core.embeddings import get_embedding_service
 
 
 @dataclass
@@ -25,9 +25,10 @@ class ResumeEmbedder:
     Args:
       model_name: Name of the sentence transformer model to use.
     """
-    self.model = SentenceTransformer(model_name)
-    self.model_name = model_name
-    self.embedding_dim = self.model.get_sentence_embedding_dimension()
+    # Use the centralized embedding service to avoid duplicate model loads
+    self.service = get_embedding_service(model_name=model_name)
+    self.model_name = self.service.model_name
+    self.embedding_dim = self.service.get_embedding_dimension()
 
   def embed(self, text: str) -> List[float]:
     """Generate embedding vector for a single text.
@@ -38,8 +39,8 @@ class ResumeEmbedder:
     Returns:
       Embedding vector as list of floats.
     """
-    embedding = self.model.encode(text, convert_to_numpy=True)
-    return embedding.tolist()
+    emb = self.service.embed_text(text)
+    return emb.tolist()
 
   def embed_batch(
     self,
@@ -57,11 +58,7 @@ class ResumeEmbedder:
     """
     texts = [r.normalized_content for r in normalized_resumes]
 
-    embeddings = self.model.encode(
-      texts,
-      convert_to_numpy=True,
-      show_progress_bar=show_progress,
-    )
+    embeddings = self.service.embed_batch(texts, show_progress=show_progress)
 
     results = []
     for resume, embedding in zip(normalized_resumes, embeddings, strict=True):

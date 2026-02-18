@@ -21,5 +21,19 @@ services:
       timeout: 5s
       retries: 5
 
+  coldstart:
+    build:
+      context: .
+      dockerfile: docker/app.Dockerfile
+    image: ticketforge-coldstart
+    container_name: ticketforge-coldstart
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "postgresql://ticketforge:ticketforge@postgres:5432/ticketforge"
+    command: ["python", "apps/training/training/etl/ingest/resume/coldstart.py", "--pg", "--dsn", "postgresql://ticketforge:ticketforge@postgres:5432/ticketforge"]
+    restart: "no"
+
 volumes:
   postgres_data:

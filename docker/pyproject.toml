@@ -1,0 +1,17 @@
+[project]
+name = "ticketforge-coldstart"
+version = "0.1.0"
+description = "Runtime dependencies for coldstart job"
+dependencies = [
+  "psycopg2-binary",
+  "sentence-transformers",
+  "numpy",
+  "python-docx",
+  "pymupdf",
+  "pillow",
+  "pytesseract",
+]
+
+[build-system]
+requires = ["setuptools>=61.0","wheel"]
+build-backend = "setuptools.build_meta"
