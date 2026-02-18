@@ -6,7 +6,7 @@ import os
 import httpx
 import pandas as pd
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from shared.configuration import Paths
 from tqdm import tqdm
 
@@ -29,10 +29,7 @@ class GitHubIssue(BaseModel):
   comments_count: int = Field(alias="comments")
   url: str = Field(alias="html_url")
 
-  class Config:
-    """Pydantic configuration."""
-
-    populate_by_name = True
+  model_config = ConfigDict(populate_by_name=True)
 
 
 # --- Configuration ---
