@@ -5,8 +5,11 @@ import polars as pl
 from ml_core import Dataset, X_t, Y_t
 from shared.cache import JsonSaver, fs_cache
 from shared.configuration import Paths
+from shared.logging import get_logger
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import PredefinedSplit, RandomizedSearchCV
+
+logger = get_logger(__name__)
 
 
 def load_fit_dump(
@@ -74,8 +77,8 @@ def get_test_accuracy(
 
   metrics = compute_metrics()
 
-  print("test metrics")
-  print(metrics)
+  logger.info("test metrics")
+  logger.info(metrics)
 
 
 def pretty_print_gridsearch(
@@ -110,11 +113,9 @@ def pretty_print_gridsearch(
     )
     .sort(pl.col("rank_test_score"))
   )
-  print("Hyper-parameter search results:")
+  logger.info("Hyper-parameter search results:")
   with pl.Config(tbl_hide_dataframe_shape=True):
-    print(df)
+    logger.info(df)
     total_time = df["mean_fit_time"].sum() + df["mean_score_time"].sum()
-    print(f"total training time = {total_time}")
+    logger.info(f"total training time = {total_time}")
     get_test_accuracy(grid, run_id, model_name)
-
-    print()

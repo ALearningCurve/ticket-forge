@@ -7,7 +7,9 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 from shared.configuration import Paths
+from shared.logging import get_logger
 
+logger = get_logger(__name__)
 models = {"forest", "linear", "svm", "xgboost"}
 
 
@@ -49,24 +51,22 @@ def _train_models(models_list: set[str], run_id: str) -> None:
       models_list: Set of model names to train
       run_id: Run identifier for saving outputs
   """
-  first_iter = True
   for model in models_list:
     start = time.perf_counter()
     success = False
-    print(f"{'' if first_iter else '\n' * 6}---------- TRAINING {model} ----------")
+    logger.info(f"---------- TRAINING {model} ----------")
 
     try:
       mod = importlib.import_module(f"training.trainers.train_{model}", package="src")
       mod.main(run_id)
       success = True
 
-    except Exception as e:
-      print(f"\n\n[ERROR] {e=}\n\n")
+    except Exception:
+      logger.exception(f"Error training model {model}")
 
     train_time = datetime.timedelta(seconds=time.perf_counter() - start)
-    msg = "SUCEEDED" if success else "FAILED"
-    print(f"\n---------- TRAINING {model} {msg} in ({str(train_time)}) ----------")
-    first_iter = False
+    msg = "SUCCEEDED" if success else "FAILED"
+    logger.info(f"---------- TRAINING {model} {msg} in ({str(train_time)}) ----------")
 
 
 def _load_metrics(run_dir: Path) -> tuple[dict[str, dict[str, float]], list]:
@@ -117,10 +117,10 @@ def _save_best_model_info(best_models: list, run_dir: Path) -> None:
     for key, value in best_models[0][2].items():
       f.write(f"{key}: {value:.4f}\n")
 
-  print(f"\n{'=' * 50}")
-  print(f"Best model: {best_model_name} (R2: {best_model_score:.4f})")
-  print(f"Results saved to {best_file}")
-  print(f"{'=' * 50}")
+  logger.info(f"{'=' * 50}")
+  logger.info(f"Best model: {best_model_name} (R2: {best_model_score:.4f})")
+  logger.info(f"Results saved to {best_file}")
+  logger.info(f"{'=' * 50}")
 
 
 def main() -> None:
@@ -181,7 +181,7 @@ def _plot_metrics(metrics_data: dict[str, dict[str, float]], run_dir: Path) -> N
   # Save plot
   plot_file = run_dir / "performance.png"
   plt.savefig(plot_file, dpi=100, bbox_inches="tight")
-  print(f"Performance plot saved to {plot_file}")
+  logger.info(f"Performance plot saved to {plot_file}")
   plt.close()
 
 
