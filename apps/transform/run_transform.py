@@ -1,4 +1,3 @@
-
 import json
 from pathlib import Path
 
@@ -20,28 +19,27 @@ OUTPUT_PATH = Path("data/github_issues/tickets_transformed_improved.jsonl")
 # Data loader (robust)
 # -----------------------------
 def load_records(path: Path) -> list[dict]:
-    """
-    Load records from JSON file.
+  """Load records from JSON file.
 
-    Args:
-        path: Path to JSON file
+  Args:
+      path: Path to JSON file
 
-    Returns:
-        List of ticket dictionaries
-    """
-    with open(path, encoding="utf-8") as f:
-        data = json.load(f)
-    
-    # If it's already a list, return it
-    if isinstance(data, list):
-        return data
-    
-    # If it's an object with "tickets" key
-    if isinstance(data, dict) and "tickets" in data:
-        return data["tickets"]
-    
-    # Otherwise return as single-item list
-    return [data]
+  Returns:
+      List of ticket dictionaries
+  """
+  with open(path, encoding="utf-8") as f:
+    data = json.load(f)
+
+  # If it's already a list, return it
+  if isinstance(data, list):
+    return data
+
+  # If it's an object with "tickets" key
+  if isinstance(data, dict) and "tickets" in data:
+    return data["tickets"]
+
+  # Otherwise return as single-item list
+  return [data]
 
 
 # -----------------------------
@@ -81,12 +79,12 @@ def main() -> None:
   print("Computing temporal features...")
   df["completion_hours_business"] = df.apply(
     lambda r: compute_business_completion_hours(
-        r.get("created_at"),
-        r.get("assigned_at"),
-        r.get("closed_at"),
+      r.get("created_at"),
+      r.get("assigned_at"),
+      r.get("closed_at"),
     ),
     axis=1,
-)
+  )
 
   # -----------------------------
   # Engineer features
