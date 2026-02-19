@@ -120,8 +120,7 @@ if __name__ == "__main__":
           "normalized_content": r["normalized_content"][:200] + "...",
           "embedding": r["embedding"],
           "embedding_model": r["embedding_model"],
-        },
-        indent=2,
+        }
       )
     )
     logger.info("-" * 50)
