@@ -1,4 +1,4 @@
-import gzip
+
 import json
 from pathlib import Path
 
@@ -12,38 +12,36 @@ from temporal_features import compute_business_completion_hours
 # -----------------------------
 # Paths
 # -----------------------------
-INPUT_PATH = Path("data/github_issues/tickets_final.json.gz")
-OUTPUT_PATH = Path("data/github_issues/tickets_transformed.jsonl")
+INPUT_PATH = Path("data/github_issues/all_tickets.json")
+OUTPUT_PATH = Path("data/github_issues/tickets_transformed_improved.jsonl")
 
 
 # -----------------------------
 # Data loader (robust)
 # -----------------------------
 def load_records(path: Path) -> list[dict]:
-  """Load records from compressed JSON file.
+    """
+    Load records from JSON file.
 
-  Args:
-      path: Path to JSON.gz file
+    Args:
+        path: Path to JSON file
 
-  Returns:
-      List of ticket dictionaries
-  """
-  with gzip.open(path, "rt", encoding="utf-8") as f:
-    content = f.read().strip()
-
-    # JSON array
-    if content.startswith("["):
-      return json.loads(content)
-
-    # JSON object
-    if content.startswith("{"):
-      obj = json.loads(content)
-      if "tickets" in obj:
-        return obj["tickets"]
-      return [obj]
-
-    # JSONL
-    return [json.loads(line) for line in content.splitlines() if line.strip()]
+    Returns:
+        List of ticket dictionaries
+    """
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+    
+    # If it's already a list, return it
+    if isinstance(data, list):
+        return data
+    
+    # If it's an object with "tickets" key
+    if isinstance(data, dict) and "tickets" in data:
+        return data["tickets"]
+    
+    # Otherwise return as single-item list
+    return [data]
 
 
 # -----------------------------
@@ -82,9 +80,13 @@ def main() -> None:
   # -----------------------------
   print("Computing temporal features...")
   df["completion_hours_business"] = df.apply(
-    lambda r: compute_business_completion_hours(r["createdAt"], r["closedAt"]),
+    lambda r: compute_business_completion_hours(
+        r.get("created_at"),
+        r.get("assigned_at"),
+        r.get("closed_at"),
+    ),
     axis=1,
-  )
+)
 
   # -----------------------------
   # Engineer features
