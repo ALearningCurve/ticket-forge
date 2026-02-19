@@ -102,10 +102,7 @@ class ResumeStorage:
         ),
       )
 
-    cursor.execute(
-      "CREATE INDEX IF NOT EXISTS idx_engineer_id "
-      "ON resumes(engineer_id)"
-    )
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_engineer_id ON resumes(engineer_id)")
     conn.commit()
     conn.close()
 
