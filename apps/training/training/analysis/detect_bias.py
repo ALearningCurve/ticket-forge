@@ -3,8 +3,8 @@
 import json
 
 import pandas as pd
-from ml_core.bias import DataSlicer
 from shared.configuration import Paths
+from training.bias import DataSlicer
 
 
 def run_bias_analysis() -> None:

@@ -1,7 +1,7 @@
 """shared: Shared utilities for logging, configuration, and common helpers."""
 
+from shared.logger import configure_root_logger, get_logger
+
 __version__ = "0.1.0"
 
-from shared.logging import get_logger as get_logger
-
-__all__ = ["get_logger"]
+__all__ = ["configure_root_logger", "get_logger"]

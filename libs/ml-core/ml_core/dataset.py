@@ -4,6 +4,7 @@ from typing import Any
 
 import numpy as np
 import numpy.typing as npt
+import pandas as pd
 from pydantic import BaseModel
 from shared.configuration import Splits_t
 from sklearn.datasets import make_regression
@@ -57,6 +58,33 @@ class Dataset(BaseModel):
     if self.subset_size is not None:
       return y[: self.subset_size]  # type: ignore
     return y
+
+  def load_metadata(self) -> pd.DataFrame:
+    """Load metadata containing sensitive features for bias analysis.
+
+    Returns:
+        DataFrame with columns like 'repo', 'seniority', 'labels'
+        that can be used as sensitive features for bias detection.
+    """
+    # TODO: Load from actual data source when available, e.g.:
+    # return pd.read_parquet(Paths.data_root / self.split / "metadata.parquet")
+
+    # For now, generate synthetic metadata matching the dataset size
+    n_samples = 100
+    if self.subset_size is not None:
+      n_samples = self.subset_size
+
+    rng = np.random.default_rng(seed=42)
+    return pd.DataFrame(
+      {
+        "repo": rng.choice(["terraform", "ansible", "prometheus"], size=n_samples),
+        "seniority": rng.choice(["junior", "mid", "senior"], size=n_samples),
+        "labels": rng.choice(
+          ["bug", "enhancement", "feature", "bug,critical"], size=n_samples
+        ),
+        "completion_hours_business": rng.uniform(1, 100, size=n_samples),
+      }
+    )
 
   @staticmethod
   def as_sklearn_cv_split(

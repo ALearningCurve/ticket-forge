@@ -3,8 +3,8 @@
 import json
 
 import pandas as pd
-from ml_core.bias import BiasMitigator
 from shared.configuration import Paths
+from training.bias import BiasMitigator
 
 
 def main() -> None:
