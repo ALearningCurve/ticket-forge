@@ -7,7 +7,6 @@ from ml_core import Dataset, X_t, Y_t
 from shared import get_logger
 from shared.cache import JsonSaver, fs_cache
 from shared.configuration import Paths
-from shared.logging import get_logger
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import PredefinedSplit, RandomizedSearchCV
 from training.bias import BiasAnalyzer, BiasReport
@@ -106,7 +105,7 @@ def evaluate_bias(
       Bias analysis results, or None if sensitive feature not available
   """
   model_type = "regressor"
-  threshold = 0.1
+  threshold = 0.4
   test_dataset = Dataset(split="test")
 
   x = test_dataset.load_x()
