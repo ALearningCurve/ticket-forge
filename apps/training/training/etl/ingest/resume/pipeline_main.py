@@ -4,10 +4,13 @@ import json
 from pathlib import Path
 
 from shared.configuration import Paths
+from shared.logging import get_logger
 from training.etl.ingest.resume.resume_embed import ResumeEmbedder
 from training.etl.ingest.resume.resume_extract import ResumeExtractor
 from training.etl.ingest.resume.resume_normalize import ResumeNormalizer
 from training.etl.ingest.resume.resume_store import ResumeReader, ResumeStorage
+
+logger = get_logger(__name__)
 
 
 def run_pipeline(  # noqa: PLR0913
@@ -40,6 +43,7 @@ def run_pipeline(  # noqa: PLR0913
   input_dir = Path(resume_directory)
   if not input_dir.exists():
     msg = f"Directory not found: {resume_directory}"
+    logger.error(msg)
     raise FileNotFoundError(msg)
 
   output_path = Path(output_dir)
@@ -53,6 +57,7 @@ def run_pipeline(  # noqa: PLR0913
 
   if not extracted_resumes:
     msg = "No resumes extracted"
+    logger.error(msg)
     raise ValueError(msg)
 
   # Step 2: Normalize
@@ -107,7 +112,7 @@ if __name__ == "__main__":
   reader = ResumeReader(str(OUTPUT_DIR / OUTPUT_SQLITE))
 
   for r in reader.get_all():
-    print(
+    logger.info(
       json.dumps(
         {
           "engineer_id": r["engineer_id"],
@@ -115,8 +120,7 @@ if __name__ == "__main__":
           "normalized_content": r["normalized_content"][:200] + "...",
           "embedding": r["embedding"],
           "embedding_model": r["embedding_model"],
-        },
-        indent=2,
+        }
       )
     )
-    print("-" * 50)
+    logger.info("-" * 50)
