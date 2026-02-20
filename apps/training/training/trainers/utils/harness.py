@@ -16,12 +16,10 @@ logger = get_logger(__name__)
 # Default sensitive features to check for bias
 DEFAULT_SENSITIVE_FEATURES = ["repo", "seniority"]
 
-logger = get_logger(__name__)
-
 
 def load_fit_dump(
   fit_grid: Callable[
-    [X_t, Y_t, PredefinedSplit],
+    [X_t, Y_t, PredefinedSplit, Y_t | None],
     RandomizedSearchCV,
   ],
   run_id: str,
@@ -39,11 +37,11 @@ def load_fit_dump(
   # Define the cached fit function
   @fs_cache(Paths.models_root / run_id / f"{model_name}.pkl")
   def _run_search() -> RandomizedSearchCV:
-    # 1. Get the combined data and the PredefinedSplit
-    x_comp, y_comp, cv_split = Dataset.as_sklearn_cv_split()
+    # 1. Get the combined data, PredefinedSplit, and per-sample weights
+    x_comp, y_comp, cv_split, weights = Dataset.as_sklearn_cv_split_with_weights()
 
     # 2. Pass them into the fit_grid logic
-    return fit_grid(x_comp, y_comp, cv_split)
+    return fit_grid(x_comp, y_comp, cv_split, weights)
 
   # Execute (either loads from disk or runs the fit)
   res = _run_search()

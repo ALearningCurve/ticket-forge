@@ -1,65 +1,108 @@
-"""Demonstrate bias mitigation on ticket data."""
+"""Apply bias mitigation to ticket training data.
 
+Produces two outputs:
+  - tickets_balanced.jsonl  : resampled dataset for use as training input
+  - sample_weights.json     : per-sample inverse-frequency weights (alternative
+                              to resampling — use one or the other, not both)
+"""
+
+import argparse
 import json
 
 import pandas as pd
 from shared.configuration import Paths
 from training.bias import BiasMitigator
 
+GROUP_COL = "repo"
 
-def main() -> None:
-  """Run bias mitigation analysis."""
-  print("Starting bias mitigation demo...\n")
 
-  # Load data
-  data_path = Paths.data_root / "github_issues" / "tickets_transformed_improved.jsonl"
-  print("Loading data...")
-
+def load_tickets(path: str) -> pd.DataFrame:
+  """Load tickets from a JSONL file."""
   tickets = []
-  with open(data_path, encoding="utf-8") as f:
+  with open(path, encoding="utf-8") as f:
     for line in f:
       if line.strip():
         tickets.append(json.loads(line))
+  return pd.DataFrame(tickets)
 
-  df = pd.DataFrame(tickets)
-  print("Loaded", len(df), "tickets\n")
 
-  # Show original distribution
-  print("ORIGINAL DISTRIBUTION BY REPO:")
-  print(df["repo"].value_counts())
-  print()
+def print_distribution(df: pd.DataFrame, label: str) -> None:
+  """Print group distribution counts."""
+  print(f"\n{label}:")
+  for group, count in df[GROUP_COL].value_counts().items():
+    print(f"  {group}: {count:,}")
 
-  # Apply mitigation: Resample to balance repos
-  print("Applying resampling mitigation...")
-  mitigator = BiasMitigator()
-  balanced_df = mitigator.resample_underrepresented(df, "repo")
 
-  print("\nBALANCED DISTRIBUTION BY REPO:")
-  print(balanced_df["repo"].value_counts())
-  print()
+def main(mode: str = "weight") -> None:
+  """Run bias mitigation on ticket data."""
+  data_dir = Paths.data_root / "github_issues"
+  data_path = data_dir / "tickets_transformed_improved.jsonl"
 
-  # Compute sample weights
-  print("Computing sample weights for training...")
-  weights = mitigator.compute_sample_weights(df, "repo")
+  print(f"Loading data from {data_path}...")
+  df = load_tickets(str(data_path))
+  print(f"Loaded {len(df):,} tickets")
 
-  print("\nSAMPLE WEIGHTS BY REPO:")
-  for repo in df["repo"].unique():
-    repo_mask = df["repo"] == repo
-    if repo_mask.any():
-      repo_weight = weights[repo_mask].values[0]  # type: ignore[index]
-      print("  ", repo, ": weight =", round(repo_weight, 4))
+  print_distribution(df, "ORIGINAL DISTRIBUTION BY REPO")
 
-  # Save balanced data
-  output_path = Paths.data_root / "github_issues" / "tickets_balanced.jsonl"
-  print("\nSaving balanced dataset to", output_path)
+  if mode == "resample":
+    # --- Strategy: Resampling ---
+    # Upsample minority groups to match the largest group.
+    # Use this balanced dataset as the training input instead of the raw data.
+    # NOTE: do not apply sample weights on top of this — they solve the same problem.
+    print("\nApplying resampling...")
+    balanced_df = BiasMitigator.resample_underrepresented(df, GROUP_COL)
 
-  with open(output_path, "w", encoding="utf-8") as f:
-    for row in balanced_df.to_dict(orient="records"):
-      f.write(json.dumps(row) + "\n")
+    print_distribution(balanced_df, "BALANCED DISTRIBUTION BY REPO")
 
-  print("Saved", len(balanced_df), "tickets")
-  print("\nBias mitigation complete!")
+    balanced_path = data_dir / "tickets_balanced.jsonl"
+    with open(balanced_path, "w", encoding="utf-8") as f:
+      for row in balanced_df.to_dict(orient="records"):
+        f.write(json.dumps(row) + "\n")
+    print(f"\nSaved {len(balanced_df):,} tickets → {balanced_path}")
+    print("\nDone. Training input: tickets_balanced.jsonl")
+
+  elif mode == "weight":
+    # --- Strategy: Sample weights ---
+    # Computed on the ORIGINAL data. Pass these to the trainer via sample_weight=.
+    # Do NOT use in combination with the resampled dataset.
+    print("\nComputing sample weights (do not combine with resampled data)...")
+    weights = BiasMitigator.compute_sample_weights(df, GROUP_COL)
+
+    print("\nSAMPLE WEIGHTS BY REPO:")
+    weights_by_group: dict[str, float] = {}
+    for group in df[GROUP_COL].unique():
+      mask = df[GROUP_COL] == group
+      weight = float(weights.loc[mask].iloc[0])
+      weights_by_group[str(group)] = round(weight, 4)
+      print(f"  {group}: {weight:.4f}")
+
+    weights_path = data_dir / "sample_weights.json"
+    with open(weights_path, "w", encoding="utf-8") as f:
+      json.dump(
+        {
+          "group_col": GROUP_COL,
+          "weights_by_group": weights_by_group,
+          "note": (
+            "Apply via fit(sample_weight=...). Do not combine with resampled data."
+          ),
+        },
+        f,
+        indent=2,
+      )
+    print(f"\nSaved sample weights → {weights_path}")
+    print(
+      "\nDone. Training input: tickets_transformed_improved.jsonl + sample_weights.json"
+    )
 
 
 if __name__ == "__main__":
-  main()
+  parser = argparse.ArgumentParser(description="Apply bias mitigation to ticket data.")
+  parser.add_argument(
+    "--mode",
+    choices=["weight", "resample"],
+    default="weight",
+    help="Mitigation strategy: 'weight' (default) computes per-sample weights; "
+    "'resample' upsamples minority groups to a balanced dataset.",
+  )
+  _args = parser.parse_args()
+  main(_args.mode)
