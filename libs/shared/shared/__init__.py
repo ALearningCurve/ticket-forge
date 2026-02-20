@@ -1,6 +1,6 @@
 """shared: Shared utilities for logging, configuration, and common helpers."""
 
-from shared.logger import configure_root_logger, get_logger
+from shared.logging import configure_root_logger, get_logger
 
 configure_root_logger()
 

@@ -1,8 +1,8 @@
 """Tests for training models using different trainers."""
 
 import pytest
-from ml_core import Dataset
 from sklearn.model_selection import RandomizedSearchCV
+from training.dataset import Dataset
 from training.trainers.train_forest import fit_grid as fit_grid_forest
 from training.trainers.train_linear import fit_grid as fit_grid_linear
 from training.trainers.train_svm import fit_grid_approx as fit_grid_svm

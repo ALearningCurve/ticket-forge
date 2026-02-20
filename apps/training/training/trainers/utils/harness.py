@@ -3,13 +3,13 @@ from typing import Callable
 import numpy as np
 import pandas as pd
 import polars as pl
-from ml_core import Dataset, X_t, Y_t
 from shared import get_logger
 from shared.cache import JsonSaver, fs_cache
 from shared.configuration import Paths
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import PredefinedSplit, RandomizedSearchCV
 from training.bias import BiasAnalyzer, BiasReport
+from training.dataset import Dataset, X_t, Y_t
 
 logger = get_logger(__name__)
 
