@@ -18,13 +18,13 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Dict, Iterable, List, Optional
 
-from ml_core.keywords import get_keyword_extractor
 from ml_core.embeddings import get_embedding_service
+from ml_core.keywords import get_keyword_extractor
 
 from apps.training.training.etl.ingest.resume.resume_extract import ResumeExtractor
 from apps.training.training.etl.ingest.resume.resume_normalize import ResumeNormalizer
@@ -164,6 +164,7 @@ class ColdStartManager:
         """
         try:
             import os
+
             import psycopg2
             from psycopg2.extras import RealDictCursor
         except Exception as e:
@@ -240,6 +241,8 @@ def run_coldstart_postgres(resume_dir: str, dsn: Optional[str] = None) -> None:
     profiles = mgr.process_directory(resume_dir)
     mgr.save_profiles_postgres(profiles, dsn=dsn)
 
+
+print("hello")
 
 if __name__ == "__main__":
     import argparse

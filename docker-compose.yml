@@ -21,19 +21,49 @@ services:
       timeout: 5s
       retries: 5
 
-  coldstart:
+
+  webapp:
     build:
       context: .
-      dockerfile: docker/app.Dockerfile
-    image: ticketforge-coldstart
-    container_name: ticketforge-coldstart
+      dockerfile: docker/base.Dockerfile
+      args:
+        APP_NAME: web-backend
     depends_on:
       postgres:
         condition: service_healthy
     environment:
       DATABASE_URL: "postgresql://ticketforge:ticketforge@postgres:5432/ticketforge"
-    command: ["python", "apps/training/training/etl/ingest/resume/coldstart.py", "--pg", "--dsn", "postgresql://ticketforge:ticketforge@postgres:5432/ticketforge"]
     restart: "no"
+    command:
+      - "-m"
+      - "uvicorn"
+      - "web_backend.main:app"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8000"
+    ports:
+      - "80:8000"
+
+  trainer:
+    build:
+      context: .
+      dockerfile: docker/base.Dockerfile
+      args:
+        APP_NAME: training
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "postgresql://ticketforge:ticketforge@postgres:5432/ticketforge"
+      PYTHONUNBUFFERED: "1"
+    restart: "no"
+    command:
+      - "-m"
+      - "apps.training.training.etl.ingest.resume.coldstart"
+      - "--pg"
+      - "--dsn"
+      - "postgresql://ticketforge:ticketforge@postgres:5432/ticketforge"
 
 volumes:
   postgres_data:

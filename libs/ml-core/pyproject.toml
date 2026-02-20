@@ -9,10 +9,21 @@ dependencies = [
     "scikit-learn>=1.5.0",
     "sentence-transformers>=2.2.0",
     "shared",
+    "torch>=2.10.0",
 ]
 
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true  # Only use this index for packages that explicitly ask for it
+
 [tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+torchvision = { index = "pytorch-cpu" }
+torchaudio = { index = "pytorch-cpu" }
 shared = { workspace = true }
+
 
 [build-system]
 requires = ["hatchling"]
