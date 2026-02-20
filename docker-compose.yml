@@ -1,6 +1,6 @@
 # Postgres with PgVector for storing engineered features and embeddings.
 # Usage: docker compose up -d
-# Connect: psql -h localhost -U ticketforge -d ticketforge
+# pgAdmin: http://localhost:5050
 
 services:
   postgres:
@@ -8,7 +8,7 @@ services:
     container_name: ticketforge-postgres
     environment:
       POSTGRES_USER: ticketforge
-      POSTGRES_PASSWORD: ticketforge
+      POSTGRES_PASSWORD: root
       POSTGRES_DB: ticketforge
     ports:
       - "5432:5432"
@@ -21,6 +21,20 @@ services:
       timeout: 5s
       retries: 5
 
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: ticketforge-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@ticketforge.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
 
   webapp:
     build:
@@ -32,7 +46,7 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: "postgresql://ticketforge:ticketforge@postgres:5432/ticketforge"
+      DATABASE_URL: "postgresql://ticketforge:root@postgres:5432/ticketforge"
     restart: "no"
     command:
       - "-m"
@@ -55,7 +69,7 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: "postgresql://ticketforge:ticketforge@postgres:5432/ticketforge"
+      DATABASE_URL: "postgresql://ticketforge:root@postgres:5432/ticketforge"
       PYTHONUNBUFFERED: "1"
     restart: "no"
     command:
@@ -63,7 +77,8 @@ services:
       - "apps.training.training.etl.ingest.resume.coldstart"
       - "--pg"
       - "--dsn"
-      - "postgresql://ticketforge:ticketforge@postgres:5432/ticketforge"
+      - "postgresql://ticketforge:root@postgres:5432/ticketforge"
 
 volumes:
   postgres_data:
+  pgadmin_data:
