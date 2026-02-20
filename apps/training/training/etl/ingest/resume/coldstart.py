@@ -33,7 +33,8 @@ from training.etl.ingest.resume.resume_normalize import ResumeNormalizer
 @dataclass
 class EngineerProfile:
     engineer_id: str
-    username: Optional[str]
+    github_username: Optional[str]
+    full_name: Optional[str]
     embedding: List[float]
     keywords: List[str]
     confidence: float
@@ -67,7 +68,10 @@ class ColdStartManager:
     # ------------------------------------------------------------------ #
 
     def process_resume_file(
-        self, file_path: str, username: Optional[str] = None
+        self,
+        file_path: str,
+        github_username: Optional[str] = None,
+        full_name: Optional[str] = None,
     ) -> EngineerProfile:
         extracted = self.extractor.extract(str(file_path))
         text = (
@@ -84,7 +88,8 @@ class ColdStartManager:
             engineer_id=(
                 getattr(extracted, "engineer_id", None) or Path(file_path).stem
             ),
-            username=username,
+            github_username=github_username,
+            full_name=full_name or github_username or Path(file_path).stem,
             embedding=emb.tolist() if hasattr(emb, "tolist") else list(map(float, emb)),
             keywords=keywords,
             confidence=self.default_confidence,
@@ -109,12 +114,12 @@ class ColdStartManager:
 
         files = [p for p in dir_path.iterdir() if p.is_file()]
         for f in files:
-            uname = None
+            gh_user = None
             key = f.stem
             if username_map and key in username_map:
-                uname = username_map[key]
+                gh_user = username_map[key]
             try:
-                p = self.process_resume_file(str(f), username=uname)
+                p = self.process_resume_file(str(f), github_username=gh_user)
                 profiles.append(p)
             except Exception:
                 # skip failures for now; caller may log
@@ -129,50 +134,96 @@ class ColdStartManager:
     def _get_connection(self) -> psycopg2.extensions.connection:
         return psycopg2.connect(self.dsn)
 
-    def save_profiles(self, profiles: Iterable[EngineerProfile]) -> None:
-        """Save profiles into the Postgres `users` table.
+    def save_profile(self, profile: EngineerProfile) -> dict:
+        """Save a single profile. Returns member_id and action."""
+        return self._upsert_profiles([profile])[0]
+
+    def save_profiles(self, profiles: Iterable[EngineerProfile]) -> List[dict]:
+        """Save multiple profiles into the Postgres `users` table."""
+        return self._upsert_profiles(list(profiles))
+
+    def _upsert_profiles(self, profiles: List[EngineerProfile]) -> List[dict]:
+        """Upsert profiles using github_username as the lookup key.
 
         Expects the pgvector extension enabled and the schema from
         `scripts/postgres/init/02_schema.sql` applied.
         """
         conn = self._get_connection()
         cur = conn.cursor(cursor_factory=RealDictCursor)
+        results = []
 
         try:
             for p in profiles:
-                full_name = p.username or p.engineer_id
-                cur.execute(
-                    "SELECT member_id FROM users WHERE full_name = %s",
-                    (full_name,),
-                )
-                row = cur.fetchone()
-
                 vec_text = "[" + ",".join(map(str, p.embedding)) + "]"
                 keywords_text = " ".join(p.keywords) if p.keywords else ""
+
+                # Lookup by github_username first, fall back to full_name
+                row = None
+                if p.github_username:
+                    cur.execute(
+                        "SELECT member_id FROM users WHERE github_username = %s",
+                        (p.github_username,),
+                    )
+                    row = cur.fetchone()
+
+                if not row and p.full_name:
+                    cur.execute(
+                        "SELECT member_id FROM users WHERE full_name = %s",
+                        (p.full_name,),
+                    )
+                    row = cur.fetchone()
 
                 if row:
                     cur.execute(
                         """
                         UPDATE users SET
+                          github_username    = COALESCE(%s, github_username),
+                          full_name          = COALESCE(%s, full_name),
                           resume_base_vector = %s::vector,
                           profile_vector     = %s::vector,
                           skill_keywords     = to_tsvector('english', %s),
+                          confidence         = %s,
+                          experience_weight  = %s,
                           updated_at         = now()
                         WHERE member_id = %s
+                        RETURNING member_id
                         """,
-                        (vec_text, vec_text, keywords_text, row["member_id"]),
+                        (
+                            p.github_username,
+                            p.full_name,
+                            vec_text,
+                            vec_text,
+                            keywords_text,
+                            p.confidence,
+                            p.experience_weight,
+                            row["member_id"],
+                        ),
                     )
+                    result = cur.fetchone()
+                    results.append({"member_id": str(result["member_id"]), "action": "updated"})
                 else:
                     cur.execute(
                         """
                         INSERT INTO users
-                          (full_name, resume_base_vector, profile_vector, skill_keywords)
+                          (github_username, full_name, resume_base_vector, profile_vector,
+                           skill_keywords, confidence, experience_weight)
                         VALUES
-                          (%s, %s::vector, %s::vector, to_tsvector('english', %s))
+                          (%s, %s, %s::vector, %s::vector,
+                           to_tsvector('english', %s), %s, %s)
                         RETURNING member_id
                         """,
-                        (full_name, vec_text, vec_text, keywords_text),
+                        (
+                            p.github_username,
+                            p.full_name,
+                            vec_text,
+                            vec_text,
+                            keywords_text,
+                            p.confidence,
+                            p.experience_weight,
+                        ),
                     )
+                    result = cur.fetchone()
+                    results.append({"member_id": str(result["member_id"]), "action": "created"})
 
             conn.commit()
         except Exception:
@@ -182,6 +233,8 @@ class ColdStartManager:
             cur.close()
             conn.close()
 
+        return results
+
 
 # ---------------------------------------------------------------------- #
 #  Convenience runner
@@ -190,8 +243,10 @@ class ColdStartManager:
 def run_coldstart(resume_dir: str, dsn: Optional[str] = None) -> None:
     mgr = ColdStartManager(dsn=dsn)
     profiles = mgr.process_directory(resume_dir)
-    mgr.save_profiles(profiles)
-    print(f"Saved {len(profiles)} profile(s) to Postgres.")
+    results = mgr.save_profiles(profiles)
+    print(f"Saved {len(results)} profile(s) to Postgres.")
+    for r in results:
+        print(f"  {r['member_id']} → {r['action']}")
 
 
 if __name__ == "__main__":
