@@ -26,8 +26,8 @@ from typing import Dict, Iterable, List, Optional
 from ml_core.embeddings import get_embedding_service
 from ml_core.keywords import get_keyword_extractor
 
-from apps.training.training.etl.ingest.resume.resume_extract import ResumeExtractor
-from apps.training.training.etl.ingest.resume.resume_normalize import ResumeNormalizer
+from training.training.etl.ingest.resume.resume_extract import ResumeExtractor
+from training.training.etl.ingest.resume.resume_normalize import ResumeNormalizer
 
 
 @dataclass
