@@ -2,6 +2,7 @@
 
 from shared.logger import configure_root_logger, get_logger
 
-__version__ = "0.1.0"
+configure_root_logger()
 
-__all__ = ["configure_root_logger", "get_logger"]
+__version__ = "0.1.0"
+__all__ = ["get_logger"]
