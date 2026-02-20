@@ -8,14 +8,17 @@ CREATE TYPE ticket_status AS ENUM ('open', 'in-progress', 'closed');
 -- Users: engineer profiles with dynamic profile vectors and skill keywords.
 -- Profile vectors evolve as tickets are completed (moving average with decay).
 CREATE TABLE IF NOT EXISTS users (
-  member_id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  full_name           TEXT NOT NULL,
-  resume_base_vector  vector(384) NOT NULL,
-  profile_vector      vector(384) NOT NULL,
-  skill_keywords      tsvector NOT NULL,
+  member_id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  github_username      TEXT UNIQUE,
+  full_name            TEXT NOT NULL,
+  resume_base_vector   vector(384) NOT NULL,
+  profile_vector       vector(384) NOT NULL,
+  skill_keywords       tsvector NOT NULL,
+  confidence           REAL NOT NULL DEFAULT 0.3,
+  experience_weight    REAL NOT NULL DEFAULT 0.3,
   tickets_closed_count INTEGER NOT NULL DEFAULT 0,
-  created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS idx_users_profile_vector ON users
