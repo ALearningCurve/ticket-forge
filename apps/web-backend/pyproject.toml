@@ -10,6 +10,7 @@ dependencies = [
     "pydantic>=2.12.5",
     "uvicorn>=0.41.0",
     "python-dotenv>=1.2.1",
+    "psycopg2-binary>=2.9.11",
 ]
 
 [tool.uv.sources]
