@@ -38,7 +38,7 @@ def _get_resume_base_dir() -> Path:
 
 def _validate_resume_path(file_path_str: str) -> Path:
     """Validate that a resume file path is inside the allowed base directory."""
-    base_dir = _get_resume_base_dir()
+    base_dir = _get_resume_base_dir().resolve()
 
     requested = Path(file_path_str)
     if requested.is_absolute():
@@ -80,7 +80,7 @@ def _validate_resume_path(file_path_str: str) -> Path:
 
 def _validate_resume_dir(dir_path_str: str) -> Path:
     """Validate that a resume directory path is inside the allowed base directory."""
-    base_dir = _get_resume_base_dir()
+    base_dir = _get_resume_base_dir().resolve()
 
     requested = Path(dir_path_str)
     if requested.is_absolute():
