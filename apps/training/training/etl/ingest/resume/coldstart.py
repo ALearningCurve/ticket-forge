@@ -204,6 +204,9 @@ class ColdStartManager:
                         ),
                     )
                     result = cur.fetchone()
+                    if result is None:
+                        msg = "Expected RETURNING to produce a row"
+                        raise RuntimeError(msg)
                     results.append({
                         "member_id": str(result["member_id"]),
                         "action": "updated",
@@ -232,6 +235,9 @@ class ColdStartManager:
                         ),
                     )
                     result = cur.fetchone()
+                    if result is None:
+                        msg = "Expected RETURNING to produce a row"
+                        raise RuntimeError(msg)
                     results.append({
                         "member_id": str(result["member_id"]),
                         "action": "created",
