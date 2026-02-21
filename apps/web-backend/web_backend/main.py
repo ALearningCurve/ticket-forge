@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from pydantic import BaseModel
 
-from web_backend.routes.coldstart import router as coldstart_router
+from web_backend.routes.resumes import router as coldstart_router
 
 load_dotenv()
 

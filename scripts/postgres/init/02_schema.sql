@@ -11,11 +11,9 @@ CREATE TABLE IF NOT EXISTS users (
   member_id            BIGINT PRIMARY KEY DEFAULT floor(random() * 9000000000 + 1000000000)::bigint,
   github_username      TEXT UNIQUE,
   full_name            TEXT NOT NULL,
-  resume_base_vector   vector(384) NOT NULL,
+  resume_base_vector   vector(384),
   profile_vector       vector(384) NOT NULL,
   skill_keywords       tsvector NOT NULL,
-  confidence           REAL NOT NULL DEFAULT 0.3,
-  experience_weight    REAL NOT NULL DEFAULT 0.3,
   tickets_closed_count INTEGER NOT NULL DEFAULT 0,
   created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
