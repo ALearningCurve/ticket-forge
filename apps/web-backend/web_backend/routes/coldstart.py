@@ -22,22 +22,84 @@ def _get_manager() -> ColdStartManager:
     return ColdStartManager(dsn=dsn)
 
 
+def _get_resume_base_dir() -> Path:
+    """Return the base directory under which resume paths must reside."""
+    base_dir = os.environ.get("RESUME_BASE_DIR")
+    if not base_dir:
+        raise HTTPException(status_code=500, detail="RESUME_BASE_DIR not configured")
+    base_path = Path(base_dir).resolve()
+    if not base_path.exists() or not base_path.is_dir():
+        raise HTTPException(
+            status_code=500,
+            detail=f"Resume base directory invalid: {base_path}",
+        )
+    return base_path
+
+
+def _validate_resume_path(file_path_str: str) -> Path:
+    """Validate that a resume file path is inside the allowed base directory."""
+    base_dir = _get_resume_base_dir()
+
+    # Only allow filename or relative path — reject absolute paths
+    requested = Path(file_path_str)
+    if requested.is_absolute():
+        raise HTTPException(
+            status_code=400,
+            detail="Absolute file paths are not allowed. Provide a filename or relative path.",
+        )
+
+    # Resolve against base dir and ensure it stays inside
+    full_path = (base_dir / requested).resolve()
+
+    if not full_path.is_relative_to(base_dir):
+        raise HTTPException(
+            status_code=400,
+            detail="Resume path is outside the allowed base directory.",
+        )
+    if not full_path.exists():
+        raise HTTPException(
+            status_code=400,
+            detail=f"Resume file not found: {requested}",
+        )
+    if not full_path.is_file():
+        raise HTTPException(
+            status_code=400,
+            detail=f"Path is not a file: {requested}",
+        )
+    return full_path
+
+
+def _validate_resume_dir(dir_path_str: str) -> Path:
+    """Validate that a resume directory path is inside the allowed base directory."""
+    base_dir = _get_resume_base_dir()
+
+    requested = Path(dir_path_str)
+    if requested.is_absolute():
+        raise HTTPException(
+            status_code=400,
+            detail="Absolute directory paths are not allowed. Provide a relative path.",
+        )
+
+    full_path = (base_dir / requested).resolve()
+
+    if not full_path.is_relative_to(base_dir):
+        raise HTTPException(
+            status_code=400,
+            detail="Resume directory is outside the allowed base directory.",
+        )
+    if not full_path.exists() or not full_path.is_dir():
+        raise HTTPException(
+            status_code=400,
+            detail=f"Resume directory not found: {requested}",
+        )
+    return full_path
+
+
 @router.post("/", response_model=ColdStartResponse)
 def create_coldstart_profile(req: ColdStartRequest):
     """Process a single resume and upsert the engineer profile into Postgres."""
 
-    file_path = Path(req.resume_file_path)
-    if not file_path.exists():
-        raise HTTPException(
-            status_code=400,
-            detail=f"Resume file not found: {req.resume_file_path}",
-        )
-    if not file_path.is_file():
-        raise HTTPException(
-            status_code=400,
-            detail=f"Path is not a file: {req.resume_file_path}",
-        )
-
+    file_path = _validate_resume_path(req.resume_file_path)
     mgr = _get_manager()
 
     try:
@@ -47,6 +109,8 @@ def create_coldstart_profile(req: ColdStartRequest):
             full_name=req.full_name,
         )
         result = mgr.save_profile(profile)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -65,13 +129,7 @@ def create_coldstart_profile(req: ColdStartRequest):
 def create_coldstart_batch(req: ColdStartBatchRequest):
     """Process all resumes in a directory and upsert profiles into Postgres."""
 
-    dir_path = Path(req.resume_dir)
-    if not dir_path.exists() or not dir_path.is_dir():
-        raise HTTPException(
-            status_code=400,
-            detail=f"Resume directory not found: {req.resume_dir}",
-        )
-
+    dir_path = _validate_resume_dir(req.resume_dir)
     mgr = _get_manager()
 
     try:
@@ -80,6 +138,8 @@ def create_coldstart_batch(req: ColdStartBatchRequest):
             username_map=req.username_map,
         )
         db_results = mgr.save_profiles(profiles)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
