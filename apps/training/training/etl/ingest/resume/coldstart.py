@@ -12,8 +12,6 @@ Requires a running Postgres instance with the pgvector extension and
 the schema from `scripts/postgres/init/02_schema.sql` applied.
 """
 
-from __future__ import annotations
-
 import os
 from dataclasses import dataclass
 from datetime import datetime

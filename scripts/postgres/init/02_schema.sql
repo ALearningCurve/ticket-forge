@@ -8,7 +8,7 @@ CREATE TYPE ticket_status AS ENUM ('open', 'in-progress', 'closed');
 -- Users: engineer profiles with dynamic profile vectors and skill keywords.
 -- Profile vectors evolve as tickets are completed (moving average with decay).
 CREATE TABLE IF NOT EXISTS users (
-  member_id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  member_id            BIGINT PRIMARY KEY DEFAULT floor(random() * 9000000000 + 1000000000)::bigint,
   github_username      TEXT UNIQUE,
   full_name            TEXT NOT NULL,
   resume_base_vector   vector(384) NOT NULL,
@@ -71,7 +71,7 @@ COMMENT ON TABLE tickets IS 'Ticket/issue records with semantic embeddings and m
 CREATE TABLE IF NOT EXISTS assignments (
   assignment_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   ticket_id            TEXT NOT NULL REFERENCES tickets(ticket_id) ON DELETE CASCADE,
-  engineer_id          UUID NOT NULL REFERENCES users(member_id) ON DELETE CASCADE,
+  engineer_id          BIGINT NOT NULL REFERENCES users(member_id) ON DELETE CASCADE,
   assigned_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE(ticket_id, engineer_id)
 );

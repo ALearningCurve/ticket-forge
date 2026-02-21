@@ -9,6 +9,7 @@ dependencies = [
     "httpx>=0.25.0",
     "pydantic>=2.12.5",
     "uvicorn>=0.41.0",
+    "python-dotenv>=1.2.1",
 ]
 
 [tool.uv.sources]
