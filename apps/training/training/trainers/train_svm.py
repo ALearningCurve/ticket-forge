@@ -19,6 +19,7 @@ def fit_grid_approx(
   x: X_t,
   y: Y_t,
   cv_split: PredefinedSplit,
+  sample_weight: Y_t | None = None,
 ) -> RandomizedSearchCV:
   """Performs grid search with kernel approximation and then returns the result!
 
@@ -26,7 +27,7 @@ def fit_grid_approx(
     x: x data to use for training
     y: true labels of dataset
     cv_split: the predefined split to use
-    n_grams: the number of n_grams to fit
+    sample_weight: per-sample weights (not used; Pipeline routing not implemented)
 
   Returns:
       result of the grid search.
@@ -57,6 +58,8 @@ def fit_grid_approx(
     error_score="raise",  # type: ignore
   )
 
+  # sample_weight is not passed: sklearn Pipelines require per-step fit-param
+  # routing (set_output API), which adds complexity for minimal gain here.
   return grid.fit(x, y)
 
 
@@ -64,6 +67,7 @@ def fit_grid_full(
   x: X_t,
   y: Y_t,
   cv_split: PredefinedSplit,
+  sample_weight: Y_t | None = None,  # noqa: ARG001 — SVR does not support sample_weight
 ) -> RandomizedSearchCV:
   """Performs grid search with full SVM (no approximation) and returns result!
 
@@ -71,6 +75,7 @@ def fit_grid_full(
     x: x data to use for training
     y: true labels of dataset
     cv_split: the predefined split to use
+    sample_weight: per-sample weights (not used; SVR does not support sample_weight)
 
   Returns:
       result of the grid search.
@@ -96,6 +101,7 @@ def fit_grid_full(
     n_jobs=-1,
   )
 
+  # SVR does not support sample_weight in fit(); weights are silently ignored.
   return grid.fit(x, y)
 
 

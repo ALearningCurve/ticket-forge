@@ -8,19 +8,24 @@ import pandas as pd
 from dotenv import load_dotenv
 from github import Auth, Github
 from shared.configuration import Paths
+from shared.logging import get_logger
+
+logger = get_logger(__name__)
 
 # Load GitHub token
 load_dotenv()
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 
+
 if not GITHUB_TOKEN:
   msg = "GITHUB_TOKEN missing. Add it to a .env file."
+  logger.error(msg)
   raise RuntimeError(msg)
 
 auth = Auth.Token(GITHUB_TOKEN)
 g = Github(auth=auth)
 
-print(f"✅ Authenticated as: {g.get_user().login}")
+logger.info(f"✅ Authenticated as: {g.get_user().login}")
 
 # Repos defining the issue board
 REPOS = ["hashicorp/terraform", "ansible/ansible", "prometheus/prometheus"]
@@ -38,7 +43,7 @@ def scrape_repo_closed_issues(repo_name: str, limit: int) -> list[dict[str, Any]
   Returns:
       A list of dictionaries containing issue data.
   """
-  print(f"\n📦 Scraping CLOSED issues with assignees from {repo_name}")
+  logger.info(f"📦 Scraping CLOSED issues with assignees from {repo_name}")
   repo = g.get_repo(repo_name)
 
   issues = repo.get_issues(state="closed", sort="created", direction="desc")
@@ -76,7 +81,7 @@ def scrape_repo_closed_issues(repo_name: str, limit: int) -> list[dict[str, Any]
     # Be nice to GitHub API
     time.sleep(0.5)
 
-  print(f"  ✅ Scraped {len(rows)} closed issues with assignees")
+  logger.info(f"  ✅ Scraped {len(rows)} closed issues with assignees")
   return rows
 
 
@@ -95,18 +100,18 @@ df = pd.DataFrame(all_rows)
 output_csv = DATA_DIR / "tickets_raw.csv"
 df.to_csv(output_csv, index=False)
 
-print("\n🎉 Scraping complete")
-print(f"📄 tickets_raw.csv created at {output_csv} with {len(df)} total tickets")
+logger.info("🎉 Scraping complete")
+logger.info(f"📄 tickets_raw.csv created at {output_csv} with {len(df)} total tickets")
 
 
 # --------------------
 # Assignee summary
 # --------------------
-print("\n👤 Assignee summary:")
+logger.info("👤 Assignee summary:")
 
 assignee_counts = df["assignee"].value_counts()
 
 for assignee, count in assignee_counts.items():
-  print(f"  - {assignee}: {count} tickets")
+  logger.info(f"  - {assignee}: {count} tickets")
 
-print(f"\n📊 Total unique assignees: {assignee_counts.size}")
+logger.info(f"📊 Total unique assignees: {assignee_counts.size}")
