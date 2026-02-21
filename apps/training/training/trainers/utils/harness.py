@@ -1,20 +1,25 @@
 from typing import Callable
 
 import numpy as np
+import pandas as pd
 import polars as pl
-from ml_core import Dataset, X_t, Y_t
+from shared import get_logger
 from shared.cache import JsonSaver, fs_cache
 from shared.configuration import Paths
-from shared.logging import get_logger
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import PredefinedSplit, RandomizedSearchCV
+from training.bias import BiasAnalyzer, BiasReport
+from training.dataset import Dataset, X_t, Y_t
 
 logger = get_logger(__name__)
+
+# Default sensitive features to check for bias
+DEFAULT_SENSITIVE_FEATURES = ["repo", "seniority"]
 
 
 def load_fit_dump(
   fit_grid: Callable[
-    [X_t, Y_t, PredefinedSplit],
+    [X_t, Y_t, PredefinedSplit, Y_t | None],
     RandomizedSearchCV,
   ],
   run_id: str,
@@ -32,11 +37,11 @@ def load_fit_dump(
   # Define the cached fit function
   @fs_cache(Paths.models_root / run_id / f"{model_name}.pkl")
   def _run_search() -> RandomizedSearchCV:
-    # 1. Get the combined data and the PredefinedSplit
-    x_comp, y_comp, cv_split = Dataset.as_sklearn_cv_split()
+    # 1. Get the combined data, PredefinedSplit, and per-sample weights
+    x_comp, y_comp, cv_split, weights = Dataset.as_sklearn_cv_split_with_weights()
 
     # 2. Pass them into the fit_grid logic
-    return fit_grid(x_comp, y_comp, cv_split)
+    return fit_grid(x_comp, y_comp, cv_split, weights)
 
   # Execute (either loads from disk or runs the fit)
   res = _run_search()
@@ -77,8 +82,90 @@ def get_test_accuracy(
 
   metrics = compute_metrics()
 
-  logger.info("test metrics")
-  logger.info(metrics)
+  logger.info("Test metrics: %s", metrics)
+
+
+def evaluate_bias(
+  grid: RandomizedSearchCV,
+  run_id: str,
+  model_name: str,
+  sensitive_feature: str = "repo",
+) -> dict | None:
+  """Run bias analysis on model predictions.
+
+  Args:
+      grid: Fitted grid search with best model
+      run_id: UUID of the training run
+      model_name: Identifier of the model type
+      sensitive_feature: Feature to use for bias analysis
+
+  Returns:
+      Bias analysis results, or None if sensitive feature not available
+  """
+  model_type = "regressor"
+  threshold = 0.4
+  test_dataset = Dataset(split="test")
+
+  x = test_dataset.load_x()
+  y = test_dataset.load_y()
+  y_pred = grid.predict(x)
+
+  # Try to get sensitive features from test data metadata
+  try:
+    test_meta = test_dataset.load_metadata()
+    if sensitive_feature not in test_meta.columns:
+      logger.warning(
+        "Bias analysis skipped: %r not in test metadata", sensitive_feature
+      )
+      return None
+    sensitive_features = pd.Series(test_meta[sensitive_feature].to_numpy())
+  except (AttributeError, FileNotFoundError):
+    logger.warning("Bias analysis skipped: metadata not available")
+    return None
+
+  # Run bias analysis
+  analyzer = BiasAnalyzer(threshold=threshold, model_type=model_type)
+  analysis = analyzer.detect_bias_fairlearn(
+    y_true=pd.Series(y),
+    y_pred=pd.Series(y_pred),
+    sensitive_features=sensitive_features,
+  )
+
+  # Save bias report
+  report_path = (
+    Paths.models_root / run_id / f"bias_{model_name}_{sensitive_feature}.txt"
+  )
+  report_data = {
+    "summary": {
+      "model_type": model_type,
+      "total_dimensions_checked": 1,
+      "biased_dimensions": [sensitive_feature] if analysis["bias_detected"] else [],
+      "bias_count": 1 if analysis["bias_detected"] else 0,
+      "overall_bias_detected": analysis["bias_detected"],
+    },
+    "detailed_results": {sensitive_feature: analysis},
+  }
+  BiasReport.save_report(report_data, str(report_path))
+
+  # Log summary
+  primary_metric = analysis["primary_metric"]
+  logger.info(
+    "Bias Analysis (%s): Best=%s (%s=%.4f), Worst=%s (%s=%.4f), Gap=%.1f%%",
+    sensitive_feature,
+    analysis["best_group"]["name"],
+    primary_metric,
+    analysis["best_group"][primary_metric],
+    analysis["worst_group"]["name"],
+    primary_metric,
+    analysis["worst_group"][primary_metric],
+    analysis["relative_gap"] * 100,
+  )
+  if analysis["bias_detected"]:
+    logger.warning("Bias detected for sensitive feature: %s", sensitive_feature)
+  else:
+    logger.info("No significant bias detected for: %s", sensitive_feature)
+
+  return analysis
 
 
 def pretty_print_gridsearch(
@@ -115,7 +202,11 @@ def pretty_print_gridsearch(
   )
   logger.info("Hyper-parameter search results:")
   with pl.Config(tbl_hide_dataframe_shape=True):
-    logger.info(df)
+    logger.info("\n%s", df)
     total_time = df["mean_fit_time"].sum() + df["mean_score_time"].sum()
-    logger.info(f"total training time = {total_time}")
+    logger.info("Total training time: %s", total_time)
     get_test_accuracy(grid, run_id, model_name)
+
+    # Run bias analysis on test set for all sensitive features
+    for feature in DEFAULT_SENSITIVE_FEATURES:
+      evaluate_bias(grid, run_id, model_name, sensitive_feature=feature)

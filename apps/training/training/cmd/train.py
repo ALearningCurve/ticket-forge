@@ -11,6 +11,7 @@ from shared.logging import get_logger
 
 logger = get_logger(__name__)
 models = {"forest", "linear", "svm", "xgboost"}
+models_with_sample_weight = models.difference(set(["svm"]))
 
 
 def _parse_arguments() -> tuple[set[str], str]:
@@ -28,9 +29,9 @@ def _parse_arguments() -> tuple[set[str], str]:
     "-m",
     nargs="*",
     type=str,
-    help="the models to train, defaults to all",
+    help="the models to train, defaults to those which support sample weights",
     choices=models,
-    default=models,
+    default=models_with_sample_weight,
   )
   parser.add_argument(
     "--runid",
