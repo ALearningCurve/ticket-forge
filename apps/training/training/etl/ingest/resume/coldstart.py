@@ -135,6 +135,14 @@ class ColdStartManager:
     #  Postgres persistence
     # ------------------------------------------------------------------ #
 
+    @staticmethod
+    def _ensure_row(result: Optional[dict]) -> dict:
+        """Guarantee a RETURNING row was produced."""
+        if result is None:
+            msg = "Expected RETURNING to produce a row"
+            raise RuntimeError(msg)
+        return result
+
     def _get_connection(self) -> psycopg2.extensions.connection:
         return psycopg2.connect(self.dsn)
 
@@ -203,10 +211,7 @@ class ColdStartManager:
                             row["member_id"],
                         ),
                     )
-                    result = cur.fetchone()
-                    if result is None:
-                        msg = "Expected RETURNING to produce a row"
-                        raise RuntimeError(msg)
+                    result = self._ensure_row(cur.fetchone())
                     results.append({
                         "member_id": str(result["member_id"]),
                         "action": "updated",
@@ -234,10 +239,7 @@ class ColdStartManager:
                             p.experience_weight,
                         ),
                     )
-                    result = cur.fetchone()
-                    if result is None:
-                        msg = "Expected RETURNING to produce a row"
-                        raise RuntimeError(msg)
+                    result = self._ensure_row(cur.fetchone())
                     results.append({
                         "member_id": str(result["member_id"]),
                         "action": "created",
