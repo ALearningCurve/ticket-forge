@@ -23,10 +23,56 @@ def _get_manager() -> ColdStartManager:
 
 
 def _get_resume_base_dir() -> Path:
-    """Return the base directory under which resume paths must reside."""
+    """Get the base directory under which resume paths must reside."""
     base_dir = os.environ.get("RESUME_BASE_DIR")
     if not base_dir:
         raise HTTPException(status_code=500, detail="RESUME_BASE_DIR not configured")
+    try:
+        resolved_base = Path(base_dir).resolve(strict=True)
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=500,
+            detail=f"RESUME_BASE_DIR does not exist: {base_dir}",
+        )
+    if not resolved_base.is_dir():
+        raise HTTPException(
+            status_code=500,
+            detail=f"RESUME_BASE_DIR is not a directory: {base_dir}",
+        )
+    return resolved_base
+
+
+def _resolve_under_base(base_dir: Path, user_path: str, kind: str) -> Path:
+    """
+    Resolve a user-supplied path under a trusted base directory.
+
+    Raises HTTPException(400) if the resolved path escapes the base directory.
+    """
+    candidate = (base_dir / user_path).resolve()
+    try:
+        # Python 3.9+: Path.is_relative_to
+        is_within_base = candidate.is_relative_to(base_dir)  # type: ignore[attr-defined]
+    except AttributeError:
+        # Fallback for older Python versions
+        try:
+            candidate.relative_to(base_dir)
+            is_within_base = True
+        except ValueError:
+            is_within_base = False
+    if not is_within_base:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{kind} is outside of the allowed directory",
+        )
+    return candidate
+
+
+def _get_resume_base_dir() -> Path:
+    """Return the base directory under which resume paths must reside."""
+    base_dir = os.environ.get("RESUME_BASE_DIR")
+    if not base_dir:
+    base_dir = _get_resume_base_dir()
+    file_path = _resolve_under_base(base_dir, req.resume_file_path, "Resume file path")
     base_path = Path(base_dir).resolve()
     if not base_path.exists() or not base_path.is_dir():
         raise HTTPException(
@@ -65,7 +111,8 @@ def create_coldstart_profile(req: ColdStartRequest):
             status_code=400,
             detail="Resume file path is outside the allowed directory",
         )
-
+    base_dir = _get_resume_base_dir()
+    dir_path = _resolve_under_base(base_dir, req.resume_dir, "Resume directory")
     if not file_path.exists():
         raise HTTPException(
             status_code=400,
