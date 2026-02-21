@@ -7,7 +7,7 @@ a real database.  All Postgres / embedding interactions are mocked.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -37,7 +37,7 @@ def _make_profile(
     full_name=ghuser.title(),
     embedding=embedding if embedding is not None else [1.0] * EMBEDDING_DIM,
     keywords=keywords if keywords is not None else ["python"],
-    created_at=datetime.utcnow().isoformat(),
+    created_at=datetime.now(tz=UTC).isoformat(),
   )
 
 

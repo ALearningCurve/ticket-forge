@@ -18,7 +18,7 @@ the schema from `scripts/postgres/init/02_schema.sql`` applied.
 
 import os
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
@@ -105,7 +105,7 @@ class ColdStartManager:
       full_name=full_name or github_username or Path(file_path).stem,
       embedding=emb.tolist() if hasattr(emb, "tolist") else list(map(float, emb)),
       keywords=keywords,
-      created_at=datetime.utcnow().isoformat(),
+      created_at=datetime.now(tz=UTC).isoformat(),
     )
 
   def process_directory(
@@ -159,7 +159,7 @@ class ColdStartManager:
           full_name=tu.full_name or tu.github_username,
           embedding=[0.0] * EMBEDDING_DIM,
           keywords=[],
-          created_at=datetime.utcnow().isoformat(),
+          created_at=datetime.now(tz=UTC).isoformat(),
         )
       )
     return profiles

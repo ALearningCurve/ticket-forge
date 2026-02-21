@@ -14,7 +14,7 @@ import logging
 import os
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, Dict, Optional
 
@@ -49,7 +49,7 @@ class DagRunResult:
 
     def __post_init__(self) -> None:
         if not self.triggered_at:
-            self.triggered_at = datetime.utcnow().isoformat()
+            self.triggered_at = datetime.now(tz=UTC).isoformat()
 
 
 # The DAG id that handles the resume-ingestion cold-start pipeline
@@ -107,7 +107,7 @@ def _remote_trigger_dag(
         run_id=data.get("dag_run_id", ""),
         status=_map_airflow_state(data.get("state", "queued")),
         conf=data.get("conf", conf),
-        triggered_at=data.get("execution_date", datetime.utcnow().isoformat()),
+        triggered_at=data.get("execution_date", datetime.now(tz=UTC).isoformat()),
     )
 
 
