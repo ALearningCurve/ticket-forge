@@ -153,6 +153,9 @@ def create_coldstart_batch(req: ColdStartBatchRequest):
 
     base_dir = _get_resume_base_dir()
     try:
+        # Ensure base_dir is an absolute, normalized path for safe comparisons.
+        base_dir = Path(base_dir).resolve()
+
         requested_dir = Path(req.resume_dir)
         if requested_dir.is_absolute():
             raise HTTPException(
@@ -169,7 +172,9 @@ def create_coldstart_batch(req: ColdStartBatchRequest):
         )
 
     # Ensure the resolved directory path is still within the base directory.
-    if not str(dir_path).startswith(str(base_dir) + os.sep) and dir_path != base_dir:
+    try:
+        dir_path.relative_to(base_dir)
+    except ValueError:
         raise HTTPException(
             status_code=400,
             detail="Resume directory is outside the allowed base directory",
