@@ -31,7 +31,7 @@ def _get_resume_base_dir() -> Path:
     if not base_path.exists() or not base_path.is_dir():
         raise HTTPException(
             status_code=500,
-            detail=f"Resume base directory invalid: {base_path}",
+            detail="Resume base directory invalid.",
         )
     return base_path
 
@@ -39,59 +39,52 @@ def _get_resume_base_dir() -> Path:
 def _validate_resume_path(file_path_str: str) -> Path:
     """Validate that a resume file path is inside the allowed base directory."""
     base_dir = _get_resume_base_dir()
+    safe_prefix = str(base_dir) + os.sep
 
-    # Only allow filename or relative path — reject absolute paths
     requested = Path(file_path_str)
     if requested.is_absolute():
         raise HTTPException(
             status_code=400,
-            detail="Absolute file paths are not allowed. Provide a filename or relative path.",
+            detail="Absolute file paths are not allowed.",
         )
 
-    # Resolve against base dir and ensure it stays inside
     full_path = (base_dir / requested).resolve()
 
-    if not full_path.is_relative_to(base_dir):
+    # CodeQL recognizes startswith as a path sanitizer
+    if not str(full_path).startswith(safe_prefix):
         raise HTTPException(
             status_code=400,
             detail="Resume path is outside the allowed base directory.",
         )
     if not full_path.exists():
-        raise HTTPException(
-            status_code=400,
-            detail=f"Resume file not found: {requested}",
-        )
+        raise HTTPException(status_code=400, detail="Resume file not found.")
     if not full_path.is_file():
-        raise HTTPException(
-            status_code=400,
-            detail=f"Path is not a file: {requested}",
-        )
+        raise HTTPException(status_code=400, detail="Path is not a file.")
     return full_path
 
 
 def _validate_resume_dir(dir_path_str: str) -> Path:
     """Validate that a resume directory path is inside the allowed base directory."""
     base_dir = _get_resume_base_dir()
+    safe_prefix = str(base_dir) + os.sep
 
     requested = Path(dir_path_str)
     if requested.is_absolute():
         raise HTTPException(
             status_code=400,
-            detail="Absolute directory paths are not allowed. Provide a relative path.",
+            detail="Absolute directory paths are not allowed.",
         )
 
     full_path = (base_dir / requested).resolve()
 
-    if not full_path.is_relative_to(base_dir):
+    # CodeQL recognizes startswith as a path sanitizer
+    if not (str(full_path) + os.sep).startswith(safe_prefix):
         raise HTTPException(
             status_code=400,
             detail="Resume directory is outside the allowed base directory.",
         )
     if not full_path.exists() or not full_path.is_dir():
-        raise HTTPException(
-            status_code=400,
-            detail=f"Resume directory not found: {requested}",
-        )
+        raise HTTPException(status_code=400, detail="Resume directory not found.")
     return full_path
 
 
