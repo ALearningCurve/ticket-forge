@@ -22,11 +22,50 @@ def _get_manager() -> ColdStartManager:
     return ColdStartManager(dsn=dsn)
 
 
+def _get_resume_base_dir() -> Path:
+    """Return the base directory under which resume paths must reside."""
+    base_dir = os.environ.get("RESUME_BASE_DIR")
+    if not base_dir:
+        raise HTTPException(status_code=500, detail="RESUME_BASE_DIR not configured")
+    base_path = Path(base_dir).resolve()
+    if not base_path.exists() or not base_path.is_dir():
+        raise HTTPException(
+            status_code=500,
+            detail=f"Resume base directory invalid: {base_path}",
+        )
+    return base_path
+
+
 @router.post("/", response_model=ColdStartResponse)
 def create_coldstart_profile(req: ColdStartRequest):
     """Process a single resume and upsert the engineer profile into Postgres."""
 
-    file_path = Path(req.resume_file_path)
+    base_dir = _get_resume_base_dir()
+    try:
+        # Treat the provided path as relative to the configured base directory.
+        requested_path = Path(req.resume_file_path)
+        if requested_path.is_absolute():
+            raise HTTPException(
+                status_code=400,
+                detail="Absolute resume paths are not allowed",
+            )
+        file_path = (base_dir / requested_path).resolve()
+    except HTTPException:
+        # Re-raise HTTPExceptions unchanged.
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid resume file path",
+        )
+
+    # Ensure the resolved path is still within the base directory.
+    if not str(file_path).startswith(str(base_dir) + os.sep) and file_path != base_dir:
+        raise HTTPException(
+            status_code=400,
+            detail="Resume file path is outside the allowed directory",
+        )
+
     if not file_path.exists():
         raise HTTPException(
             status_code=400,
@@ -65,7 +104,30 @@ def create_coldstart_profile(req: ColdStartRequest):
 def create_coldstart_batch(req: ColdStartBatchRequest):
     """Process all resumes in a directory and upsert profiles into Postgres."""
 
-    dir_path = Path(req.resume_dir)
+    base_dir = _get_resume_base_dir()
+    try:
+        requested_dir = Path(req.resume_dir)
+        if requested_dir.is_absolute():
+            raise HTTPException(
+                status_code=400,
+                detail="Absolute resume directories are not allowed",
+            )
+        dir_path = (base_dir / requested_dir).resolve()
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid resume directory path",
+        )
+
+    # Ensure the resolved directory path is still within the base directory.
+    if not str(dir_path).startswith(str(base_dir) + os.sep) and dir_path != base_dir:
+        raise HTTPException(
+            status_code=400,
+            detail="Resume directory is outside the allowed base directory",
+        )
+
     if not dir_path.exists() or not dir_path.is_dir():
         raise HTTPException(
             status_code=400,
