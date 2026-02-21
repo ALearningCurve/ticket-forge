@@ -30,6 +30,8 @@ from training.etl.ingest.resume.resume_normalize import ResumeNormalizer
 
 @dataclass
 class EngineerProfile:
+    """Represents an engineer's cold-start profile derived from a resume."""
+
     engineer_id: str
     github_username: Optional[str]
     full_name: Optional[str]
@@ -41,6 +43,8 @@ class EngineerProfile:
 
 
 class ColdStartManager:
+    """Manages cold-start profile creation from resumes and persistence to Postgres."""
+
     def __init__(
         self,
         dsn: Optional[str] = None,
@@ -48,11 +52,11 @@ class ColdStartManager:
         default_confidence: float = 0.3,
         default_experience_weight: float = 0.3,
     ) -> None:
+        """Initialize the manager with a Postgres DSN and embedding config."""
         self.dsn = dsn or os.environ.get("DATABASE_URL")
         if not self.dsn:
-            raise RuntimeError(
-                "No Postgres DSN provided. Pass `dsn` or set the DATABASE_URL env var."
-            )
+            msg = "No Postgres DSN provided. Pass `dsn` or set the DATABASE_URL env var."
+            raise RuntimeError(msg)
 
         self.extractor = ResumeExtractor()
         self.normalizer = ResumeNormalizer()
@@ -71,6 +75,7 @@ class ColdStartManager:
         github_username: Optional[str] = None,
         full_name: Optional[str] = None,
     ) -> EngineerProfile:
+        """Extract, normalize, and embed a single resume into an EngineerProfile."""
         extracted = self.extractor.extract(str(file_path))
         text = (
             extracted
@@ -82,7 +87,7 @@ class ColdStartManager:
         keywords = self.keyword_extractor.extract(normalized_text)
         emb = self.embed_service.embed_text(normalized_text)
 
-        profile = EngineerProfile(
+        return EngineerProfile(
             engineer_id=(
                 getattr(extracted, "engineer_id", None) or Path(file_path).stem
             ),
@@ -94,8 +99,6 @@ class ColdStartManager:
             experience_weight=self.default_experience_weight,
             created_at=datetime.utcnow().isoformat(),
         )
-
-        return profile
 
     def process_directory(
         self,
@@ -198,13 +201,18 @@ class ColdStartManager:
                         ),
                     )
                     result = cur.fetchone()
-                    results.append({"member_id": str(result["member_id"]), "action": "updated"})
+                    results.append({
+                        "member_id": str(result["member_id"]),
+                        "action": "updated",
+                    })
                 else:
                     cur.execute(
                         """
                         INSERT INTO users
-                          (github_username, full_name, resume_base_vector, profile_vector,
-                           skill_keywords, confidence, experience_weight)
+                          (github_username, full_name,
+                           resume_base_vector, profile_vector,
+                           skill_keywords, confidence,
+                           experience_weight)
                         VALUES
                           (%s, %s, %s::vector, %s::vector,
                            to_tsvector('english', %s), %s, %s)
@@ -221,7 +229,10 @@ class ColdStartManager:
                         ),
                     )
                     result = cur.fetchone()
-                    results.append({"member_id": str(result["member_id"]), "action": "created"})
+                    results.append({
+                        "member_id": str(result["member_id"]),
+                        "action": "created",
+                    })
 
             conn.commit()
         except Exception:
@@ -239,6 +250,7 @@ class ColdStartManager:
 # ---------------------------------------------------------------------- #
 
 def run_coldstart(resume_dir: str, dsn: Optional[str] = None) -> None:
+    """Process all resumes in a directory and save profiles to Postgres."""
     mgr = ColdStartManager(dsn=dsn)
     profiles = mgr.process_directory(resume_dir)
     results = mgr.save_profiles(profiles)

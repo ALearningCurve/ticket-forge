@@ -54,7 +54,7 @@ def _validate_resume_path(file_path_str: str) -> Path:
         raise HTTPException(
             status_code=400,
             detail="Resume path is outside the allowed base directory.",
-        )
+        ) from None
     if not full_path.exists():
         raise HTTPException(status_code=400, detail="Resume file not found.")
     if not full_path.is_file():
@@ -80,14 +80,14 @@ def _validate_resume_dir(dir_path_str: str) -> Path:
         raise HTTPException(
             status_code=400,
             detail="Resume directory is outside the allowed base directory.",
-        )
+        ) from None
     if not full_path.exists() or not full_path.is_dir():
         raise HTTPException(status_code=400, detail="Resume directory not found.")
     return full_path
 
 
 @router.post("/", response_model=ColdStartResponse)
-def create_coldstart_profile(req: ColdStartRequest):
+def create_coldstart_profile(req: ColdStartRequest) -> ColdStartResponse:
     """Process a single resume and upsert the engineer profile into Postgres."""
 
     file_path = _validate_resume_path(req.resume_file_path)
@@ -103,7 +103,7 @@ def create_coldstart_profile(req: ColdStartRequest):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
     return ColdStartResponse(
         member_id=result["member_id"],
@@ -117,7 +117,7 @@ def create_coldstart_profile(req: ColdStartRequest):
 
 
 @router.post("/batch", response_model=ColdStartBatchResponse)
-def create_coldstart_batch(req: ColdStartBatchRequest):
+def create_coldstart_batch(req: ColdStartBatchRequest) -> ColdStartBatchResponse:
     """Process all resumes in a directory and upsert profiles into Postgres."""
 
     dir_path = _validate_resume_dir(req.resume_dir)
@@ -132,10 +132,10 @@ def create_coldstart_batch(req: ColdStartBatchRequest):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
     responses = []
-    for profile, db_result in zip(profiles, db_results):
+    for profile, db_result in zip(profiles, db_results, strict=True):
         responses.append(
             ColdStartResponse(
                 member_id=db_result["member_id"],

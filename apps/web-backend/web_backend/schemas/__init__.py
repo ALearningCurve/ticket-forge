@@ -5,7 +5,9 @@ from typing import List, Optional
 class ColdStartRequest(BaseModel):
     """POST body for single resume cold start."""
 
-    resume_file_path: str = Field(..., description="Local path to the resume file (PDF/DOCX)")
+    resume_file_path: str = Field(
+        ..., description="Local path to the resume file (PDF/DOCX)"
+    )
     github_username: str = Field(..., description="GitHub username of the engineer")
     full_name: str = Field(..., description="Full name of the engineer")
 
@@ -33,5 +35,7 @@ class ColdStartBatchRequest(BaseModel):
 
 
 class ColdStartBatchResponse(BaseModel):
+    """Response model for batch cold-start processing."""
+
     total_processed: int
     results: List[ColdStartResponse]
