@@ -88,14 +88,7 @@ def create_coldstart_profile(req: ColdStartRequest):
 
     base_dir = _get_resume_base_dir()
     try:
-        # Treat the provided path as relative to the configured base directory.
-        requested_path = Path(req.resume_file_path)
-        if requested_path.is_absolute():
-            raise HTTPException(
-                status_code=400,
-                detail="Absolute resume paths are not allowed",
-            )
-        file_path = (base_dir / requested_path).resolve()
+        file_path = _resolve_under_base(base_dir, req.resume_file_path, "Resume file path")
     except HTTPException:
         # Re-raise HTTPExceptions unchanged.
         raise
@@ -105,13 +98,6 @@ def create_coldstart_profile(req: ColdStartRequest):
             detail="Invalid resume file path",
         )
 
-    # Ensure the resolved path is still within the base directory.
-    if not str(file_path).startswith(str(base_dir) + os.sep) and file_path != base_dir:
-        raise HTTPException(
-            status_code=400,
-            detail="Resume file path is outside the allowed directory",
-        )
-    base_dir = _get_resume_base_dir()
     dir_path = _resolve_under_base(base_dir, req.resume_dir, "Resume directory")
     if not file_path.exists():
         raise HTTPException(
