@@ -55,7 +55,10 @@ class ColdStartManager:
         """Initialize the manager with a Postgres DSN and embedding config."""
         self.dsn = dsn or os.environ.get("DATABASE_URL")
         if not self.dsn:
-            msg = "No Postgres DSN provided. Pass `dsn` or set the DATABASE_URL env var."
+            msg = (
+                "No Postgres DSN provided. "
+                "Pass `dsn` or set the DATABASE_URL env var."
+            )
             raise RuntimeError(msg)
 
         self.extractor = ResumeExtractor()
