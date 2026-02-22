@@ -126,6 +126,8 @@ class SchemaValidator:
 
     categorical_cols = data.select_dtypes(include=[object]).columns
     for col in categorical_cols:
+      if isinstance(data[col].iloc[0], list):
+        continue
       unique_count = data[col].nunique()
       if unique_count < 100:
         stats["categorical_stats"][col] = {
