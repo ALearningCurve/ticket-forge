@@ -24,11 +24,22 @@ dependencies = [
     "pandas>=3.0.0",
     "python-dotenv>=1.2.1",
     "sentence-transformers>=5.2.2",
+    "torch>=2.10.0",
 ]
 
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true  # Only use this index for packages that explicitly ask for it
+
 [tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+torchvision = { index = "pytorch-cpu" }
+torchaudio = { index = "pytorch-cpu" }
 ml-core = { workspace = true }
 shared = { workspace = true }
+
 
 [build-system]
 requires = ["hatchling"]
