@@ -1,6 +1,6 @@
 """Tests for Dataset class."""
 
-from ml_core import Dataset
+from training.dataset import Dataset
 
 
 class TestDatasetSubsetLoading:

@@ -61,8 +61,9 @@ class KeywordExtractor:
 
     # Word boundary regex for each skill
     for skill_lower, canonical in self.normalized_skills.items():
-      # Use word boundaries to match whole words
-      pattern = r"\b" + re.escape(skill_lower) + r"\b"
+      # Use lookaround-based boundaries to match whole tokens, including
+      # skills containing punctuation like C++ or C#.
+      pattern = r"(?<!\w)" + re.escape(skill_lower) + r"(?!\w)"
       if re.search(pattern, text_lower):
         found_keywords.append(canonical)
 

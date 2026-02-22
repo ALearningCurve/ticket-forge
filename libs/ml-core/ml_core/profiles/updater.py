@@ -10,11 +10,11 @@ from ml_core.profiles.models import EngineerProfile
 class ProfileUpdater:
   """Update engineer profiles using Experience Decay Method."""
 
-  def __init__(self, alpha: float = 0.9) -> None:
+  def __init__(self, alpha: float = 0.95) -> None:
     """Initialize the profile updater.
 
     Args:
-        alpha: Decay weight (0.9 = 90% old profile, 10% new ticket)
+        alpha: Decay weight (0.95 = 95% old profile, 5% new ticket)
               Higher alpha = more memory, slower adaptation
               Lower alpha = less memory, faster adaptation
     """

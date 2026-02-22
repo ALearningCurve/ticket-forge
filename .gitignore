@@ -212,8 +212,8 @@ __marimo__/
 
 
 # temporary files from our pov
-models
-data
+/models/
+/data/
 !models/README.md
 !data/README.md
 

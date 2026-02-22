@@ -15,6 +15,7 @@ def fit_grid(
   x: X_t,
   y: Y_t,
   cv_split: PredefinedSplit,
+  sample_weight: Y_t | None = None,
 ) -> RandomizedSearchCV:
   """Performs grid search and then returns the result!
 
@@ -22,6 +23,7 @@ def fit_grid(
     x: x data to use for training
     y: true labels of dataset
     cv_split: the predefined split to use
+    sample_weight: per-sample weights for bias-aware training, or None
     n_grams: the number of ngrams being fit
 
   Returns:
@@ -47,7 +49,7 @@ def fit_grid(
     error_score="raise",  # type: ignore
   )
 
-  return grid.fit(x, y)
+  return grid.fit(x, y, sample_weight=sample_weight)
 
 
 def main(run_id: str) -> None:

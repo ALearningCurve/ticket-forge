@@ -6,8 +6,14 @@ This includes ETL and model training.
 
 ```
 training
-
+├── analysis                # standalone analysis scripts
+├── bias                    # bias detection and mitigation
+│   ├── analyzer.py
+│   ├── mitigation.py
+│   ├── report.py
+│   └── slicer.py
 ├── cmd                     # scripts to run
+├── dataset.py              # Dataset class
 ├── etl
 │   └── ingest              # "Extract" part of ETL
 └── trainers                # ML model trainers
@@ -49,13 +55,15 @@ This module trains and evaluates various machine learning models to predict tick
 - **SVM (with kernel approximation)** - Non-linear modeling with scalability
 - **XGBoost** - Gradient boosting for high performance
 
+After each training run, the harness automatically runs bias evaluation (via `evaluate_bias`) across `repo` and `seniority` sensitive features and saves a per-feature bias report alongside the eval metrics.
+
 ### Quick Start
 
 #### Run Training
 
 ```bash
 # Validates the training pipeline
-just pytest
+just pytest .
 
 # Train specific models (from repo root)
 just train -m forest linear
@@ -70,6 +78,7 @@ Training outputs are saved to `models/{run_id}/`:
 
 - `{model_name}.pkl` - Trained model file
 - `eval_{model_name}.json` - Performance metrics (MAE, MSE, RMSE, R²)
+- `bias_{model_name}_{feature}.txt` - Bias report per sensitive feature (e.g. `bias_forest_repo.txt`)
 - `best.txt` - contains name of the best performing model
 
 #### Performance Visualization
@@ -109,9 +118,83 @@ To add a new model:
 
 4. **Test with subset data**:
    ```python
-   from training.trainers.utils.harness import Dataset
+   from training.dataset import Dataset
    x, y, cv_split = Dataset.as_sklearn_cv_split(subset_size=20)
    ```
+
+## Bias Detection and Mitigation
+
+The `training.bias` module provides tools for detecting and mitigating bias in model predictions. Bias detection ensures the ticket assignment model performs fairly across subgroups such as repositories, seniority levels, and ticket types.
+
+### Components
+
+- **`DataSlicer` (`slicer.py`)** — Splits data into subgroups for analysis. Supports slicing by repository, seniority level, labels, completion time buckets, and technical keywords.
+- **`BiasAnalyzer` (`analyzer.py`)** — Detects bias by comparing model performance across slices using Fairlearn's `MetricFrame`. Supports both regressor (MAE/RMSE/R²) and recommendation (NDCG/MRR) metric sets, and flags groups exceeding a configurable relative gap threshold.
+- **`BiasMitigator` (`mitigation.py`)** — Provides resampling to balance underrepresented groups, inverse-frequency sample weights for fair training, prediction adjustment (mean equalisation and variance scaling), and Fairlearn `ExponentiatedGradient` constrained training.
+- **`BiasReport` (`report.py`)** — Generates formatted text reports summarising which dimensions show bias and the per-slice performance metrics.
+
+### Bias Analysis Results
+
+Analysis of 61,271 tickets revealed the following distribution imbalances:
+
+| Dimension | Group | Count |
+|---|---|---|
+| Repository | Ansible | 33,286 |
+| Repository | Terraform | 21,611 |
+| Repository | Prometheus | 6,374 |
+| Completion time | Slow (>24 h) | 36,088 |
+| Completion time | Fast (<5 h) | 14,457 |
+| Completion time | Medium | 7,874 |
+| Completion time | Unknown | 2,852 |
+
+Repository imbalance is ~5× between the largest and smallest group. All tickets are currently mapped to mid seniority — the seniority mapping logic needs improvement.
+
+### Mitigation Applied
+
+**Resampling** duplicates Terraform and Prometheus tickets to match Ansible (33,286 each), yielding a balanced dataset of 99,858 tickets.
+
+**Sample weighting** assigns inverse-frequency weights so underrepresented groups receive higher importance during training:
+
+| Repo | Weight |
+|---|---|
+| Prometheus | 3.2042 |
+| Terraform | 0.9451 |
+| Ansible | 0.6136 |
+
+**Conclusion**
+
+Resampling increases dataset size without adding new information and may overfit to duplicated patterns. Sample weighting preserves original data but requires the training algorithm to support per-sample weights. Both approaches prioritise fairness while accepting a potential minor reduction in overall performance. Because we use sklearn, we
+are only training models which enable us to use sample weighting.
+
+### Usage
+
+```python
+from training.bias import DataSlicer, BiasAnalyzer, BiasMitigator, BiasReport
+
+# Slice data
+slicer = DataSlicer(data)
+slices = slicer.slice_by_repo()
+
+# Detect bias
+analyzer = BiasAnalyzer(threshold=0.1)
+result = analyzer.compare_slices(slices, "y_true", "y_pred")
+
+# Mitigate
+balanced_data = BiasMitigator.resample_underrepresented(data, "repo")
+weights = BiasMitigator.compute_sample_weights(data, "repo")
+
+# Report
+report = BiasReport.generate_text_report(analysis)
+BiasReport.save_report(analysis, "bias_report.txt")
+```
+
+### Standalone Analysis Script
+
+```bash
+uv run python -m training.analysis.detect_bias
+```
+
+This script loads `data/github_issues/tickets_transformed_improved.jsonl` and prints a data-distribution breakdown by repository, seniority, completion-time bucket, and label.
 
 ## Testing
 

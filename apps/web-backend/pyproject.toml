@@ -7,11 +7,17 @@ dependencies = [
     "ml-core",
     "fastapi>=0.110.0",
     "httpx>=0.25.0",
-    "pydantic>=2.12.5"
+    "pydantic>=2.12.5",
+    "uvicorn>=0.41.0",
+    "python-dotenv>=1.2.1",
+    "psycopg2-binary>=2.9.11",
 ]
 
 [tool.uv.sources]
 ml-core = { workspace = true }
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"training".msg = "Don't import across app boundaries"
 
 [build-system]
 requires = ["hatchling"]
