@@ -23,6 +23,7 @@ dependencies = [
     "pygithub>=2.8.1",
     "pandas>=3.0.0",
     "python-dotenv>=1.2.1",
+    "psycopg2-binary>=2.9.11",
     "sentence-transformers>=5.2.2",
     "torch>=2.10.0",
 ]
