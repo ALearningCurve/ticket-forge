@@ -10,11 +10,14 @@ INLINE_CODE_RE = re.compile(r"`([^`]*)`")
 
 
 def _truncate_code_block(code: str) -> str:
-  """Truncate code block to first 2 and last 2 lines."""
+  """Truncate code block intelligently based on size."""
   lines = code.strip().splitlines()
-  if len(lines) <= 4:
+
+  if len(lines) <= 15:
     return "\n".join(lines)
-  return "\n".join(lines[:2] + ["..."] + lines[-2:])
+  if len(lines) <= 50:
+    return "\n".join(lines[:5] + ["..."] + lines[-5:])
+  return "\n".join(lines[:10] + ["..."] + lines[-10:])
 
 
 def normalize_ticket_text(title: str, body: str) -> str:

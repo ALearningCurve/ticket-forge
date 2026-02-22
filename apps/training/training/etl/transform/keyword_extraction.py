@@ -1,6 +1,7 @@
 """Keyword extraction using technical skills list."""
 
 from ml_core.keywords import get_keyword_extractor
+from tqdm import tqdm
 
 
 def extract_keywords(texts: list[str], top_k: int = 10) -> list[list[str]]:
@@ -13,12 +14,10 @@ def extract_keywords(texts: list[str], top_k: int = 10) -> list[list[str]]:
   Returns:
       List of keyword lists
   """
-  # Use the real keyword extractor from #11
   keyword_extractor = get_keyword_extractor()
 
   keywords = []
-  for text in texts:
-    # Extract keywords and limit to top_k
+  for text in tqdm(texts, desc="Extracting keywords"):
     extracted = keyword_extractor.extract(text, top_n=top_k)
     keywords.append(extracted)
 

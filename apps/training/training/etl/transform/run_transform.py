@@ -2,6 +2,8 @@ import json
 from pathlib import Path
 
 import pandas as pd
+import torch
+from tqdm import tqdm
 from training.etl.transform.embed import embed_text
 from training.etl.transform.engineer_features import enrich_engineer_features
 from training.etl.transform.keyword_extraction import extract_keywords
@@ -47,16 +49,17 @@ def load_records(path: Path) -> list[dict]:
 # -----------------------------
 def main() -> None:
   """Run the complete ticket transformation pipeline."""
+  device = "GPU" if torch.cuda.is_available() else "CPU"
+  print("Using device:", device)
+
   records = load_records(INPUT_PATH)
   df = pd.DataFrame(records)
 
-  print(f"Loaded {len(df)} tickets")
+  print("Loaded", len(df), "tickets\n")
 
-  # Ensure required fields exist
+  # Ensure required fields
   df["title"] = df.get("title", "")
   df["body"] = df.get("body", "")
-  df["createdAt"] = df.get("createdAt")
-  df["closedAt"] = df.get("closedAt")
 
   if "assignee" not in df.columns:
     df["assignee"] = pd.NA
@@ -66,20 +69,18 @@ def main() -> None:
   if "seniority" not in df.columns:
     df["seniority"] = "mid"
 
-  # -----------------------------
-  # Text normalization
-  # -----------------------------
+  # Text normalization with progress
   print("Normalizing text...")
-  df["normalized_text"] = df.apply(
+  tqdm.pandas(desc="Normalizing")
+  df["normalized_text"] = df.progress_apply(
     lambda r: normalize_ticket_text(r["title"], r["body"]),
     axis=1,
   )
 
-  # -----------------------------
-  # Temporal features
-  # -----------------------------
-  print("Computing temporal features...")
-  df["completion_hours_business"] = df.apply(
+  # Temporal features with progress
+  print("\nComputing temporal features...")
+  tqdm.pandas(desc="Temporal features")
+  df["completion_hours_business"] = df.progress_apply(
     lambda r: compute_business_completion_hours(
       r.get("created_at"),
       r.get("assigned_at"),
@@ -88,35 +89,28 @@ def main() -> None:
     axis=1,
   )
 
-  # -----------------------------
   # Engineer features
-  # -----------------------------
-  print("Enriching engineer features...")
+  print("\nEnriching engineer features...")
   df = enrich_engineer_features(df)
 
-  # -----------------------------
-  # Keyword extraction
-  # -----------------------------
-  print("Extracting keywords...")
+  # Keyword extraction (already has tqdm in keyword_extraction.py)
+  print("\nExtracting keywords...")
   df["keywords"] = extract_keywords(df["normalized_text"].tolist())
 
-  # -----------------------------
-  # Embeddings (stub)
-  # -----------------------------
-  print("Generating embeddings...")
+  # Embeddings (has progress bar in embed_text)
+  print("\nGenerating embeddings...")
   df["embedding"] = embed_text(df["normalized_text"].tolist())
   df["embedding_model"] = "all-MiniLM-L6-v2"
 
-  # -----------------------------
-  # Write output (JSONL)
-  # -----------------------------
+  # Write output
   OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
 
+  print("\nSaving to", OUTPUT_PATH)
   with open(OUTPUT_PATH, "w", encoding="utf-8") as f:
     for row in df.to_dict(orient="records"):
       f.write(json.dumps(row) + "\n")
 
-  print(f"✓ Saved {len(df)} records to {OUTPUT_PATH}")
+  print("Saved", len(df), "records")
 
 
 if __name__ == "__main__":
