@@ -6,6 +6,10 @@ from typing import Any, Callable, ParamSpec, TypeVar
 
 import joblib
 
+from shared.logging import get_logger
+
+logger = get_logger(__name__)
+
 P = ParamSpec("P")
 R = TypeVar("R")
 
@@ -98,13 +102,13 @@ def fs_cache(
     @wraps(func)
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
       if cache_path.exists():
-        print(f"Loading cached result from: {cache_path}")
+        logger.info(f"Loading cached result from: {cache_path}")
         return saver.load(cache_path)  # type: ignore
 
       result = func(*args, **kwargs)
 
       cache_path.parent.mkdir(parents=True, exist_ok=True)
-      print(f"Saving result to: {cache_path}")
+      logger.info(f"Saving result to: {cache_path}")
       saver.dump(result, cache_path)  # pyright: ignore[reportUnknownMemberType]
 
       return result
