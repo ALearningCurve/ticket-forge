@@ -2,12 +2,13 @@
 
 Exercises the replay logic by mocking the Postgres connection so no
 real database is required.  Validates chronological ordering, the
-Experience Decay SQL parameters, commit-per-ticket semantics, and
+Experience Decay SQL parameters, atomic commit semantics, and
 edge cases (no tickets, alpha validation).
 """
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -168,7 +169,7 @@ class TestReplaySingle:
     assert sql_args[2] == assignment.ticket_id
     assert sql_args[4] == assignment.engineer_id
 
-    # commit per ticket
+    # single atomic commit after all updates
     assert mock_conn.commit.call_count == 1
 
 
@@ -206,8 +207,8 @@ class TestReplayMultiple:
     count = replayer.replay(["T-1", "T-2", "T-3"])
 
     assert count == 3
-    # One commit per ticket
-    assert mock_conn.commit.call_count == 3
+    # Single atomic commit for all tickets
+    assert mock_conn.commit.call_count == 1
 
     # Verify ticket_ids were passed in chronological order
     update_calls = [
@@ -362,15 +363,13 @@ class TestCLI:
     assert "nothing to replay" in captured.out.lower()
 
   @patch("training.etl.postload.replay_tickets.TicketReplayer")
-  def test_main_from_file(
-    self, mock_cls: MagicMock, tmp_path: pytest.TempPathFactory
-  ) -> None:
+  def test_main_from_file(self, mock_cls: MagicMock, tmp_path: Path) -> None:
     """--file reads ticket IDs from a text file."""
     mock_instance = MagicMock()
     mock_instance.replay.return_value = 3
     mock_cls.return_value = mock_instance
 
-    id_file = tmp_path / "ids.txt"  # type: ignore[operator]
+    id_file = tmp_path / "ids.txt"
     id_file.write_text("T-10\nT-20\nT-30\n")
 
     main(["--dsn", "postgresql://x", "--file", str(id_file)])

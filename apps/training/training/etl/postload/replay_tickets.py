@@ -14,8 +14,11 @@ ticket is closed.  During the initial ETL we "replay" history instead:
        profile_vector  ← α · profile_vector + (1 − α) · ticket_vector
        skill_keywords  ← skill_keywords ∪ ticket_keywords
        tickets_closed_count += 1
-4. Commit after every ticket so that the next ticket sees the updated
-   state, exactly as it would have happened in real time.
+4. Commit once after all tickets have been processed.  Within a single
+   Postgres transaction each UPDATE already sees the effects of prior
+   UPDATEs (read-your-own-writes), so chronological fidelity is
+   preserved while keeping the entire replay **atomic** — if any
+   ticket fails, every change is rolled back.
 
 Requires:
 - A running Postgres instance with the ``02_schema.sql`` schema applied.
@@ -129,6 +132,7 @@ class TicketReplayer:
         JOIN assignments a ON a.ticket_id = t.ticket_id
         JOIN users u       ON u.member_id = a.engineer_id
       WHERE t.ticket_id = ANY(%s)
+        AND t.status = 'closed'
       ORDER BY t.updated_at ASC
       """,
       (ticket_ids,),
@@ -181,8 +185,10 @@ class TicketReplayer:
                     database, joined with their assignments, and processed
                     in chronological order.
 
-    Each ticket is committed individually so downstream tickets operate
-    on the most up-to-date profile vector (matching real-time behavior).
+    All updates run inside a single transaction so the replay is
+    **atomic**: if any ticket fails, every change is rolled back.
+    Within the transaction each UPDATE still sees prior UPDATEs
+    (Postgres read-your-own-writes), preserving chronological fidelity.
     """
     if not ticket_ids:
       logger.info("No ticket IDs provided — nothing to replay.")
@@ -206,11 +212,8 @@ class TicketReplayer:
         self.alpha,
       )
 
-      applied = 0
       for idx, assignment in enumerate(assignments, start=1):
         self._apply_ticket_update(cur, assignment)
-        conn.commit()
-        applied += 1
 
         if idx % 100 == 0 or idx == total:
           logger.info(
@@ -221,14 +224,15 @@ class TicketReplayer:
             assignment.github_username or assignment.engineer_id,
           )
 
-      logger.info("Replay complete. %d update(s) applied.", applied)
+      conn.commit()
+      logger.info("Replay complete. %d update(s) applied.", total)
 
     except Exception:
       conn.rollback()
-      logger.exception("Replay failed — rolling back last in-flight update.")
+      logger.exception("Replay failed — rolling back all updates.")
       raise
     else:
-      return applied
+      return total
     finally:
       cur.close()
       conn.close()
