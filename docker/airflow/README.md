@@ -37,7 +37,7 @@ UIs:
 ## DAGs
 
 - `ticket_etl` (scrape -> transform -> tickets/assignments load)
-- `resume_ingest` (resume payload ingest)
+- `resume_etl` (resume payload ingest)
 
 Trigger ticket ETL:
 
@@ -54,13 +54,13 @@ docker compose exec airflow airflow dags trigger ticket_etl --conf '{"limit_per_
 Trigger resume ingest:
 
 ```powershell
-docker compose exec airflow airflow dags trigger resume_ingest
+docker compose exec airflow airflow dags trigger resume_etl
 ```
 
 Trigger resume ingest with payload:
 
 ```powershell
-docker compose exec airflow airflow dags trigger resume_ingest --conf '{"resumes":[{"filename":"john_doe.pdf","content_base64":"<base64_pdf>","github_username":"johndoe","full_name":"John Doe"}]}'
+docker compose exec airflow airflow dags trigger resume_etl --conf '{"resumes":[{"filename":"john_doe.pdf","content_base64":"<base64_pdf>","github_username":"johndoe","full_name":"John Doe"}]}'
 ```
 
 ## Stop
@@ -74,3 +74,5 @@ Remove volumes too:
 ```powershell
 docker compose down -v
 ```
+
+

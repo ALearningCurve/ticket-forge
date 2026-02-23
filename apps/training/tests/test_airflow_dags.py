@@ -45,7 +45,7 @@ class TestDagFiles:
       ),
       (
         "resume_ingest.py",
-        "resume_ingest",
+        "resume_etl",
         {"validate_runtime_config", "ingest_resumes_from_conf", "resume_ingest_dag"},
       ),
     ],
@@ -68,3 +68,5 @@ class TestDagFiles:
     function_names = _top_level_function_names(module)
     for fn in expected_functions:
       assert fn in function_names
+
+

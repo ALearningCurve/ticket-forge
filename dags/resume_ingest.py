@@ -28,14 +28,14 @@ for path in (
 
 from training.etl.ingest.resume.coldstart import ColdStartManager
 
-DAG_ID = "resume_ingest"
+DAG_ID = "resume_etl"
 
 
 def _require_database_url() -> str:
   """Return DATABASE_URL from env or raise a task failure."""
   dsn = os.environ.get("DATABASE_URL")
   if not dsn:
-    msg = "DATABASE_URL is required for resume_ingest DAG."
+    msg = "DATABASE_URL is required for resume_etl DAG."
     raise AirflowFailException(msg)
   return dsn
 
@@ -121,3 +121,4 @@ def resume_ingest_dag() -> None:
 
 
 dag = resume_ingest_dag()
+
