@@ -1,2 +1,1 @@
-class AirflowFailException(Exception): ...
-
+class AirflowFailException(Exception): ...  # noqa: N818
