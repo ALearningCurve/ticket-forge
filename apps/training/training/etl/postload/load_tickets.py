@@ -155,23 +155,87 @@ def upsert_tickets(
   return processed
 
 
+def upsert_assignments(
+  tickets: Iterable[dict],
+  dsn: str | None = None,
+) -> tuple[int, int]:
+  """Upsert ticket assignments for rows with assignees that exist in `users`.
+
+  Returns:
+      Tuple of (inserted_or_updated_count, missing_user_count).
+  """
+  resolved_dsn = dsn or os.environ.get("DATABASE_URL")
+  if not resolved_dsn:
+    msg = "No Postgres DSN provided. Pass `dsn` or set DATABASE_URL."
+    raise RuntimeError(msg)
+
+  sql = """
+  INSERT INTO assignments (ticket_id, engineer_id, assigned_at)
+  SELECT
+    %s,
+    u.member_id,
+    COALESCE(%s::timestamptz, now())
+  FROM users u
+  WHERE u.github_username = %s
+  ON CONFLICT (ticket_id, engineer_id)
+  DO UPDATE SET
+    assigned_at = EXCLUDED.assigned_at
+  """
+
+  upserted = 0
+  missing_user = 0
+  conn = psycopg2.connect(resolved_dsn)
+
+  try:
+    with conn, conn.cursor() as cur:
+      for ticket in tickets:
+        ticket_id = str(ticket.get("id", "")).strip()
+        assignee = str(ticket.get("assignee") or "").strip()
+
+        if not ticket_id or not assignee:
+          continue
+
+        assigned_at = ticket.get("assigned_at") or ticket.get("created_at")
+
+        cur.execute(sql, (ticket_id, assigned_at, assignee))
+
+        if cur.rowcount == 0:
+          missing_user += 1
+        else:
+          upserted += cur.rowcount
+  except Exception:
+    conn.rollback()
+    raise
+  finally:
+    conn.close()
+
+  return upserted, missing_user
+
+
 async def run_pipeline(
   dsn: str | None = None,
   limit_per_state: int | None = None,
 ) -> int:
   """Execute scrape -> transform -> upsert pipeline end-to-end."""
-  print("Step 1/3: Scraping GitHub issues...")
+  print("Step 1/4: Scraping GitHub issues...")
   raw_records = await scrape_all_issues(limit_per_state=limit_per_state)
   print(f"Scraped {len(raw_records)} records")
 
-  print("Step 2/3: Transforming records...")
+  print("Step 2/4: Transforming records...")
   transformed = transform_records(raw_records)
   print(f"Transformed {len(transformed)} records")
 
-  print("Step 3/3: Upserting into Postgres...")
-  loaded = upsert_tickets(transformed, dsn=dsn)
-  print(f"Upserted {loaded} ticket(s) into Postgres")
-  return loaded
+  print("Step 3/4: Upserting tickets...")
+  loaded_tickets = upsert_tickets(transformed, dsn=dsn)
+  print(f"Upserted {loaded_tickets} ticket(s) into Postgres")
+
+  print("Step 4/4: Upserting assignments...")
+  assigned_count, missing_user_count = upsert_assignments(transformed, dsn=dsn)
+  print(f"Upserted {assigned_count} assignment row(s)")
+  if missing_user_count:
+    print(f"Skipped {missing_user_count} assignment(s): assignee not found in users")
+
+  return loaded_tickets
 
 
 def main() -> None:
