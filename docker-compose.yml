@@ -64,8 +64,9 @@ services:
       - airflow_plugins:/opt/airflow/plugins
     command: >
       bash -c "
-      airflow db init &&
-      airflow users create --username airflow --password airflow --firstname Air --lastname Flow --role Admin --email airflow@example.com || true &&
+      airflow db migrate &&
+      airflow connections create-default-connections &&
+      (airflow users create --username airflow --password airflow --firstname Air --lastname Flow --role Admin --email airflow@example.com || true) &&
       airflow scheduler &
       exec airflow webserver
       "
@@ -118,4 +119,5 @@ volumes:
   pgadmin_data:
   airflow_logs:
   airflow_plugins:
+
 
