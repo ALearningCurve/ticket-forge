@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+import math
 import os
 from typing import Iterable
 
@@ -61,6 +62,24 @@ def _map_status(issue_type: object, state: object) -> str:
   return "open"
 
 
+def _optional_timestamptz(value: object) -> str | None:
+  """Return a safe timestamp string or None for invalid/empty values."""
+  if value is None:
+    return None
+
+  if isinstance(value, float) and not math.isfinite(value):
+    return None
+
+  text = str(value).strip()
+  if not text:
+    return None
+
+  if text.lower() in {"nan", "nat", "none", "null"}:
+    return None
+
+  return text
+
+
 def upsert_tickets(
   tickets: Iterable[dict],
   dsn: str | None = None,
@@ -90,7 +109,7 @@ def upsert_tickets(
     %s::vector,
     %s::jsonb,
     %s::ticket_status,
-    CASE WHEN %s IS NULL THEN NULL ELSE make_interval(hours => %s) END,
+    CASE WHEN %s IS NULL THEN NULL ELSE (%s * interval '1 hour') END,
     COALESCE(%s::timestamptz, now()),
     now()
   )
@@ -126,10 +145,12 @@ def upsert_tickets(
         if hours is not None:
           try:
             hours = float(hours)
+            if (not math.isfinite(hours)) or hours < 0 or hours > 1000000:
+              hours = None
           except (TypeError, ValueError):
             hours = None
 
-        created_at = ticket.get("created_at")
+        created_at = _optional_timestamptz(ticket.get("created_at"))
 
         cur.execute(
           sql,
@@ -159,11 +180,7 @@ def upsert_assignments(
   tickets: Iterable[dict],
   dsn: str | None = None,
 ) -> tuple[int, int]:
-  """Upsert ticket assignments for rows with assignees that exist in `users`.
-
-  Returns:
-      Tuple of (inserted_or_updated_count, missing_user_count).
-  """
+  """Upsert assignments for rows with assignees that exist in `users`."""
   resolved_dsn = dsn or os.environ.get("DATABASE_URL")
   if not resolved_dsn:
     msg = "No Postgres DSN provided. Pass `dsn` or set DATABASE_URL."
@@ -195,7 +212,9 @@ def upsert_assignments(
         if not ticket_id or not assignee:
           continue
 
-        assigned_at = ticket.get("assigned_at") or ticket.get("created_at")
+        assigned_at = _optional_timestamptz(ticket.get("assigned_at"))
+        if assigned_at is None:
+          assigned_at = _optional_timestamptz(ticket.get("created_at"))
 
         cur.execute(sql, (ticket_id, assigned_at, assignee))
 
