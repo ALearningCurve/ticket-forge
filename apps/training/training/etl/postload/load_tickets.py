@@ -20,8 +20,9 @@ def _vector_to_pg(value: object) -> str:
     msg = "embedding is missing"
     raise ValueError(msg)
 
-  if hasattr(value, "tolist"):
-    value = value.tolist()
+  tolist_fn = getattr(value, "tolist", None)
+  if callable(tolist_fn):
+    value = tolist_fn()
 
   if not isinstance(value, list):
     msg = f"embedding must be a list, got: {type(value).__name__}"
@@ -280,3 +281,4 @@ def main() -> None:
 
 if __name__ == "__main__":
   main()
+
