@@ -11,10 +11,12 @@ WORKDIR /opt/ticket-forge
 COPY apps /opt/ticket-forge/apps
 COPY libs /opt/ticket-forge/libs
 
+RUN chown -R airflow:0 /opt/ticket-forge
+
+USER airflow
 RUN pip install --no-cache-dir \
     -e /opt/ticket-forge/libs/shared \
     -e /opt/ticket-forge/libs/ml-core \
     -e /opt/ticket-forge/apps/training
 
-USER airflow
 ENV PYTHONPATH=/opt/ticket-forge/apps/training:/opt/ticket-forge/libs/ml-core:/opt/ticket-forge/libs/shared
