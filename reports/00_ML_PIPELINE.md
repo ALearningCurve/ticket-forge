@@ -20,6 +20,7 @@ TicketForge is an AI-Powered DevOps ticket assignment system that automates the 
 Repository: [https://github.com/ALearningCurve/ticket-forge](https://github.com/ALearningCurve/ticket-forge)
 
 Team Members: William Walling-Sotolongo, Sameer Saxena, Aditya Rajendra Prasad, Skandhan Madhusudhana, Vikas Neriyanuru, Darshan Ravindra Konnur
+
 ---
 
 ### 1 Data Acquisition
@@ -48,6 +49,8 @@ Data Collected:
 
 Raw output gets stored in `data/github_issues/all_tickets.json`. The cleaned and transformed data is in `tickets_transformed_improved.jsonl`. The `data/` directory is tracked in DVC and also shared via OneDrive:
 [Submission 2 - Data Pipeline - Relevant Files](https://northeastern-my.sharepoint.com/:f:/r/personal/saxena_same_northeastern_edu/Documents/Ticket-Forge/Submission%202%20-%20Data%20Pipeline%20-%20Relevant%20Files?csf=1&web=1&e=EjH7hG)
+
+Airflow outputs are stored in timestamped dataset containers. Example runs include [data/github_issues-2026-02-24T204631Z](../data/github_issues-2026-02-24T204631Z) with ~30,000 samples and [data/github_issues-2026-02-24T201901Z](../data/github_issues-2026-02-24T201901Z) with 17,842 tickets from the new pipeline. These containers include the full artifact set (transformed data, anomaly report, bias report, sample weights, and schema/profile outputs). The older [data/github_issues](../data/github_issues) dataset does not include bias reports, while the timestamped runs do.
 
 Sample Data structure of one ticket in the json file.
 
