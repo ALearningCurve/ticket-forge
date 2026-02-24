@@ -232,3 +232,4 @@ resumes_final.db
 *.sqlite
 
 .dvc/config.local
+/data
