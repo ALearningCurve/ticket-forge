@@ -323,7 +323,6 @@ Resume ETL DAG:
 - Because we run our pipeline in airflow, we take advantage of the airflow logger to capture our logs for our ml pipeline
 - For scripts that run outside of Airflow, we use a python logger (rather than print) to better capture semantic and make things like warning more visible (see apps/training/training/trainers module and libs/ml-core/ml_core/embeddings/service.py)
 - For error tracking, the anomaly detection report and bias detection report are both included in the status email that Airflow sends at the end of each DAG run via send_status_email. This enables quick alerting of any important schema or data quality issues without needing to check the Airflow UI manually.
-	![][image1]
 - Pipeline outputs are saved under ./data with timestamped run folders (for example [data/github_issues-2026-02-24T201901Z](../data/github_issues-2026-02-24T201901Z)) containing transformed data and bias/anomaly reports; trained models and evaluation artifacts are written under [models/2026-02-24_160024](../models/2026-02-24_160024). Both directories are tracked in DVC.
 
 ## 7 Data Schema & Statistics Generation
