@@ -1,10 +1,13 @@
 #!/bin/bash
 set -e
 
-# Ensure data directory exists and is writable
+# Ensure data directory exists; permissions/ownership should be managed by Dockerfile or host
 mkdir -p /opt/ticket-forge/data
-chmod 777 /opt/ticket-forge/data
 
+# Warn (but do not fail) if directory is not writable by current user
+if [ ! -w /opt/ticket-forge/data ]; then
+  echo "WARNING: /opt/ticket-forge/data is not writable by $(whoami). Airflow may fail to write data." >&2
+fi
 # Wait for database to be ready with retries
 MAX_RETRIES=30
 RETRY_COUNT=0
