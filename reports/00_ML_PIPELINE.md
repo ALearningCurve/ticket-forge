@@ -46,7 +46,7 @@ Data Collected:
 - Open + Unassigned: 2,640 (backlog)
 - Assignment Timestamps: 7,265 captured (11.9%)
 
-Raw output gets stored in data/github_issues/all_tickets.json. The cleaned and transformed data is in `tickets_transformed_improved.jsonl`. The data/ is included in the dvc as 'data/github_issues' and also in onedrive:
+Raw output gets stored in `data/github_issues/all_tickets.json`. The cleaned and transformed data is in `tickets_transformed_improved.jsonl`. The `data/` directory is tracked in DVC and also shared via OneDrive:
 [Submission 2 - Data Pipeline - Relevant Files](https://northeastern-my.sharepoint.com/:f:/r/personal/saxena_same_northeastern_edu/Documents/Ticket-Forge/Submission%202%20-%20Data%20Pipeline%20-%20Relevant%20Files?csf=1&web=1&e=EjH7hG)
 
 Sample Data structure of one ticket in the json file.
@@ -68,7 +68,7 @@ Sample Data structure of one ticket in the json file.
 }
 ```
 
-To reproduce the results: export GITHUB_TOKEN = your_token and then run scraper using "python apps/training/training/etl/ingest/scrape_github_issues_improved.py"
+To reproduce the results: export `GITHUB_TOKEN=your_token` and then run the scraper using `python apps/training/training/etl/ingest/scrape_github_issues_improved.py`.
 
 **1.2 Resume Ingress**
 
@@ -131,7 +131,7 @@ Sample Data structure of one user in the json file.
 }
 ```
 
-To reproduce the resume ingress results: add DATABASE_URL to your .env, then trigger the resume pipeline via POST /api/v1/resumes/upload with a resumes batch payload (filename, content_base64, github_username, optional full_name).
+To reproduce the resume ingress results: add `DATABASE_URL` to your `.env`, then trigger the resume pipeline via `POST /api/v1/resumes/upload` with a resumes batch payload (`filename`, `content_base64`, `github_username`, optional `full_name`).
 
 ## 2 Data Preprocessing
 
@@ -254,9 +254,34 @@ Example: "Database timeout error" -> np.ndarray of shape (384,)
 | **Device** | GPU (if available) | GPU (if available) |
 | **Output size** | ~5-10MB | ~1000MB |
 
-# 3 Test Modules
+**2.6 Resume Preprocessing - apps/training/training/etl/ingest/resume/**
 
-# 3 Test Modules
+Resume ingestion has its own preprocessing pipeline, separate from ticket preprocessing, because resumes are file documents (PDF/DOCX) and require document parsing plus profile initialization.
+
+Implementation: File-based resume preprocessing with cold-start profile creation
+
+Location:
+
+* resume_extract.py
+* resume_normalize.py
+* coldstart.py
+
+Processes raw resume files by:
+
+* Extracting text from .pdf files using PyMuPDF
+* OCR fallback via Tesseract for scanned PDFs with low machine-readable text
+* Extracting .docx content from paragraphs and tables
+* Removing PII-like patterns: phone numbers, emails, URLs, addresses, dates, GPA values
+* Cleaning formatting artifacts and normalizing whitespace
+* Extracting technical skill keywords via `ml_core.keywords.get_keyword_extractor()`
+* Generating 384-dimensional embedding via `ml_core.embeddings.get_embedding_service()` (all-MiniLM-L6-v2)
+* Upserting engineer records in the Postgres users table with `resume_base_vector`, `profile_vector`, `skill_keywords`, and identity metadata (`github_username`, `full_name`)
+
+This pipeline enables cold-start profiling where new engineers can be represented in the system before they have enough ticket history, improving assignment quality from the first recommendation.
+
+Note: Ticket embeddings and resume/profile embeddings use the same 384-dimensional model so cosine-similarity comparisons remain valid across tickets and engineers.
+
+## 3 Test Modules
 
 - apps/training/tests/test_scrape_github_issues_graphql.py
 - apps/training/tests/test_transform_pipeline.py
@@ -264,32 +289,40 @@ Example: "Database timeout error" -> np.ndarray of shape (384,)
 - libs/ml-core/ml_core/tests/test_embeddings.py
 - libs/ml-core/ml_core/tests/test_keywords.py
 - libs/ml-core/ml_core/tests/test_profiles.py
+- apps/training/tests/test_coldstart.py
+- apps/web-backend/tests/test_coldstart_router.py
+- apps/training/tests/test_airflow_dags.py
 
-# 4 Airflow DAGs
+## 4 Airflow DAGs
 - In-depth DAG overview, execution flow, and design decisions are documented in [docker/README.md](../docker/README.md#dags).
 - The `ticket_etl` pipeline handles GitHub ingest, transform, anomaly/bias checks, and DB load; `resume_etl` handles on-demand resume ingestion.
 
+Ticket ETL DAG:
 ![Ticket ETL DAG](../docker/assets/ticket_etl_dag.png)
 
-# 5 Data Versioning with DVC
+Resume ETL DAG:
+
+![Resume ETL DAG](../docker/assets/resume_etl_dag.png)
+
+## 5 Data Versioning with DVC
 - Data (in `data` directory) and models (in `models` directory) are git-ignored but tracked in DVC for reproducibility and sharing.
 - Setup steps (GCP auth, `dvc pull`, permission fixes) are documented in [README.md](../README.md#installation).
 - Use `dvc push` after adding/updating datasets or models; Airflow runs update the data directory and must be DVC-added and pushed to persist.
 - Airflow pipeline out puts to these directories new datasets/models with timestamps. This makes it easy to instantly add these files from pipeline to DVC.
 
-# 6 Tracking and Logging
+## 6 Tracking and Logging
 - Because we run our pipeline in airflow, we take advantage of the airflow logger to capture our logs for our ml pipeline
 - For scripts that run outside of Airflow, we use a python logger (rather than print) to better capture semantic and make things like warning more visible (see apps/training/training/trainers module and libs/ml-core/ml_core/embeddings/service.py)
 - For error tracking, the anomaly detection report and bias detection report are both included in the status email that Airflow sends at the end of each DAG run via send_status_email. This enables quick alerting of any important schema or data quality issues without needing to check the Airflow UI manually.
 	![][image1]
 - Pipeline outputs are saved under ./data with timestamped run folders (for example [data/github_issues-2026-02-24T201901Z](../data/github_issues-2026-02-24T201901Z)) containing transformed data and bias/anomaly reports; trained models and evaluation artifacts are written under [models/2026-02-24_160024](../models/2026-02-24_160024). Both directories are tracked in DVC.
 
-# 7 Data Schema & Statistics Generation
+## 7 Data Schema & Statistics Generation
 
 The project uses two complementary approaches. The custom SchemaValidator which validates a DataFrame against a declared expected schema (column presence, type checking for str/int/float) and can auto-infer a schema from live data via generate_schema_from_data(). It also generates descriptive statistics per run like row/column counts, numeric stats (mean, std, min, max, missing count), and categorical value distributions via generate_statistics().
 On top of that, a GreatExpectationsValidator is integrated using the great_expectations library, which auto-generates an ExpectationSuite called ticket_data_suite from the first batch of data, persists it to JSON via save_schema(), and runs formal ValidationDefinition checks on subsequent batches, reporting total vs. failed expectations.
 
-# 8 Anomaly Detection & Alerts
+## 8 Anomaly Detection & Alerts
 
 The anomaly detector runs three checks via a single run_all_checks() call:
 
@@ -301,14 +334,14 @@ These checks are run against the transformed ticket data (tickets_transformed_im
 
 The alerting system receives the anomaly report and triggers if total_anomalies >= alert_threshold (default 1). Alerts include a timestamped message listing problematic columns, missing value percentages, and outlier counts. The actual delivery is via Gmail SMTP (smtp.gmail.com:587 with STARTTLS) and the credentials are loaded from a .env file (GMAIL_APP_PASSWORD) and alerts are sent to [mlopsgroup29@gmail.com](mailto:mlopsgroup29@gmail.com) (specified with GMAIL_APP_USERNAME).
 
-# 9 Pipeline Flow Optimization
+## 9 Pipeline Flow Optimization
 - Parallelization strategy, bottlenecks, and optimization rationale are documented in [docker/README.md](../docker/README.md#pipeline-optimization).
 - Refer to the execution timeline diagrams for how tasks overlap in practice.
 - Refer to the linked readme for more insights into what was possible to optimize and what we struggled with.
 
 ![Ticket ETL Gantt Chart](../docker/assets/ticket_etl_gantt.png)
 
-# 10 Data Bias Detection Using Data Slicing
+## 10 Data Bias Detection Using Data Slicing
 
 Bias detection in TicketForge is implemented through the DataSlicer class located in libs/ml-core/ml_core/bias/slicer.py. This component systematically partitions the ticket dataset into meaningful subgroups across multiple categorical and operational dimensions. The dataset is sliced by repository (for example, hashicorp/terraform versus ansible/ansible), engineer seniority level, presence of a "bug" label, completion time buckets (fast, medium, slow), and extracted technical keywords. The get_all_slices() method serves as the primary entry point and returns a structured dictionary of named subgroups across all defined dimensions. This design ensures that fairness analysis can be conducted consistently and reproducibly across multiple bias axes within a single pipeline execution.
 
@@ -320,14 +353,14 @@ To ensure transparency and reproducibility, bias evaluation results are document
 
 Bias detection is executed during ML model training, and the resulting reports and sample weights are packaged alongside model artifacts. For example, see [models/2026-02-24_160024](../models/2026-02-24_160024) (DVC access required).
 
-# 11 Complete Pipeline Architecture
+## 11 Complete Pipeline Architecture
 - A full architecture walkthrough is documented in [docker/README.md](../docker/README.md#dags).
 - Summary: Airflow orchestrates the `ticket_etl` training pipeline (ingest, transform, quality checks, bias mitigation, DB load, and profile replay) and the `resume_etl` pipeline (on-demand resume ingestion into Postgres).
 
-# 12 Acknowledging AI
+## 12 Acknowledging AI
 - AI coding agents were used to code portions of this assignment (i.e. co-pilot and claude), but were used in a "human in the loop manner" rather than purely letting the AI code everything
 - AI chatbots (gemini, chatgpt) were used in developing some architecture decisions
-# 13 Meeting Evaluation Criteria
+## 13 Meeting Evaluation Criteria
 
 - Proper documentation: repository structure and setup are documented in [README.md](../README.md), with module-specific guides in [apps/training/README.md](../apps/training/README.md) and [docker/README.md](../docker/README.md).
 - Modular syntax and code: pipeline stages are separated into ingest/transform modules in [apps/training/training/etl](../apps/training/training/etl) with reusable ML utilities in [libs/ml-core](../libs/ml-core).
@@ -348,6 +381,7 @@ The TicketForge MLOps data pipeline successfully implements all required compone
 
 * Data acquisition via GraphQL scraper (61,271 tickets from 3 repos)
 * Multi-stage preprocessing with text normalization, temporal features, keyword extraction, and 384-dim embeddings
+* Resume ingress via API-triggered Airflow pipeline (POST upload -> `resume_etl` DAG -> Postgres users upsert) with dedicated preprocessing (PDF/DOCX extraction, OCR fallback, PII cleanup) for cold-start engineer profiling
 * Comprehensive test coverage (170 tests passing)
 * Full Airflow DAG orchestration with parallel task execution
 * DVC data versioning with GCP remote storage
