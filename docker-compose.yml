@@ -58,6 +58,7 @@ services:
       PYTHONPATH: "/opt/ticket-forge/apps/training:/opt/ticket-forge/libs/ml-core:/opt/ticket-forge/libs/shared"
       GMAIL_APP_PASSWORD: ${GMAIL_APP_PASSWORD}
       GMAIL_APP_USERNAME: ${GMAIL_APP_USERNAME}
+      PYTHONUNBUFFERED: "1"
       # Email/SMTP Configuration
       AIRFLOW__EMAIL__EMAIL_BACKEND: "airflow.utils.email.send_email_smtp"
       AIRFLOW__EMAIL__EMAIL_CONN_ID: "smtp_default"
@@ -76,6 +77,7 @@ services:
       - ./dags:/opt/airflow/dags
       - ./apps:/opt/ticket-forge/apps
       - ./libs:/opt/ticket-forge/libs
+      - ./data:/opt/ticket-force/data
       - airflow_logs:/opt/airflow/logs
       - airflow_plugins:/opt/airflow/plugins
 

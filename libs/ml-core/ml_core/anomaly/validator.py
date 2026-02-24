@@ -58,6 +58,7 @@ class SchemaValidator:
         and len(extra_columns) == 0
         and len(type_mismatches) == 0
       ),
+      "num_amiss": len(missing_columns) + len(extra_columns) + len(type_mismatches),
     }
 
   def _is_compatible_type(self, actual_dtype: object, expected_type: type) -> bool:

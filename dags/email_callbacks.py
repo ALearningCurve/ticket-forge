@@ -16,8 +16,20 @@ def _build_email_body(
   is_success: bool,
   failed_tasks: list[str] | None = None,
   successful_tasks: list[str] | None = None,
+  additional_text: str | None = None,
 ) -> str:
-  """Build email body with task status and warnings."""
+  """Build email body with task status and optional additional details.
+
+  Args:
+      context: Airflow context
+      is_success: Whether the DAG succeeded
+      failed_tasks: List of failed task IDs
+      successful_tasks: List of successful task IDs
+      additional_text: Optional extra section appended to email
+
+  Returns:
+      Formatted email body string
+  """
   dag_id = context.get("dag_run").dag_id
   task_id = context.get("task_instance").task_id
   execution_date = context.get("execution_date")
@@ -50,6 +62,17 @@ def _build_email_body(
       ]
     )
 
+  # Add optional appendix section
+  if additional_text:
+    body_lines.extend(
+      [
+        "ADDITIONAL DETAILS:",
+        "",
+        additional_text.strip(),
+        "",
+      ]
+    )
+
   # Add exception info for failures
   if not is_success:
     exception = context.get("exception")
@@ -65,8 +88,13 @@ def _build_email_body(
   return "\n".join(body_lines)
 
 
-def send_dag_status_email(**context: Any) -> None:
-  """Send email based on DAG run status. Always runs at the end of the DAG."""
+def send_dag_status_email(additional_text: str | None = None, **context: Any) -> None:
+  """Send email based on DAG run status with optional extra details.
+
+  Args:
+      additional_text: Optional extra section appended to email
+      **context: Airflow context
+  """
   logger.info("DAG status email task triggered")
 
   email = os.environ.get("GMAIL_APP_USERNAME")
@@ -106,6 +134,7 @@ def send_dag_status_email(**context: Any) -> None:
     is_success=is_success,
     failed_tasks=failed_tasks,
     successful_tasks=successful_tasks,
+    additional_text=additional_text,
   )
 
   logger.info(
