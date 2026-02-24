@@ -1,8 +1,10 @@
 """Data profiling script using Great Expectations and custom skew detection."""
 
+import argparse
 import json
 import logging
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -14,6 +16,13 @@ from shared.configuration import Paths
 logging.getLogger("great_expectations").setLevel(logging.ERROR)
 logging.getLogger("great_expectations.data_context").setLevel(logging.ERROR)
 logging.getLogger("great_expectations.data_context.types.base").setLevel(logging.ERROR)
+
+NUMERIC_COLS = [
+  "completion_hours_business",
+  "seniority_enum",
+  "historical_avg_completion_hours",
+]
+CATEGORICAL_COLS = ["repo", "issue_type", "state"]
 
 
 class NumpyEncoder(json.JSONEncoder):
@@ -30,19 +39,6 @@ class NumpyEncoder(json.JSONEncoder):
     if isinstance(o, np.ndarray):
       return o.tolist()
     return super().default(o)
-
-
-SAMPLE_PATH = Paths.data_root / "github_issues" / "sample_tickets_transformed.jsonl"
-FULL_PATH = Paths.data_root / "github_issues" / "tickets_transformed_improved.jsonl"
-SCHEMA_OUTPUT = Paths.data_root / "github_issues" / "ticket_schema.json"
-PROFILE_OUTPUT = Paths.data_root / "github_issues" / "data_profile_report.json"
-
-NUMERIC_COLS = [
-  "completion_hours_business",
-  "seniority_enum",
-  "historical_avg_completion_hours",
-]
-CATEGORICAL_COLS = ["repo", "issue_type", "state"]
 
 
 def load_jsonl(path: Path) -> pd.DataFrame:
@@ -112,43 +108,61 @@ def detect_skew(sample_df: pd.DataFrame, full_df: pd.DataFrame) -> dict:
   return skew_results
 
 
-def main() -> None:
-  """Run data profiling on sample tickets."""
-  print("Loading sample dataset...")
-  sample_df = load_jsonl(SAMPLE_PATH)
-  print("Loaded", len(sample_df), "sample tickets")
+def run_data_profiling(
+  data_path: str | Path,
+  reference_path: str | Path | None = None,
+  output_dir: str | Path | None = None,
+) -> dict[str, Any]:
+  """Run data profiling on transformed tickets.
 
+  Args:
+      data_path: Path to transformed tickets JSONL file.
+      reference_path: Optional path to full dataset for skew detection.
+      output_dir: Optional directory to save profile outputs.
+
+  Returns:
+      Dictionary with profiling results including GE validation and skew.
+  """
+  data_path = Path(data_path)
+  output_dir = Path(output_dir) if output_dir else data_path.parent
+
+  print("Loading dataset...")
+  df = load_jsonl(data_path)
+  print("Loaded", len(df), "tickets")
+
+  # Load reference dataset for skew detection
   full_df = None
-  if FULL_PATH.exists():
-    print("Loading full dataset for skew detection...")
-    full_df = load_jsonl(FULL_PATH)
-    print("Loaded", len(full_df), "full tickets")
+  if reference_path and Path(reference_path).exists():
+    print("Loading reference dataset for skew detection...")
+    full_df = load_jsonl(Path(reference_path))
+    print("Loaded", len(full_df), "reference tickets")
 
-  # 1. Schema statistics using SchemaValidator
+  # 1. Schema statistics
   print("\nGenerating statistics...")
   validator = SchemaValidator({})
-  stats = validator.generate_statistics(sample_df)
-  schema = validator.generate_schema_from_data(sample_df)
+  stats = validator.generate_statistics(df)
+  schema = validator.generate_schema_from_data(df)
   print("Rows:", stats["row_count"])
   print("Columns:", stats["column_count"])
 
   # 2. Great Expectations validation
   print("\nRunning Great Expectations validation...")
   ge_validator = GreatExpectationsValidator()
-  ge_validator.create_expectations(sample_df)
-  validation_results = ge_validator.validate_data(sample_df)
+  ge_validator.create_expectations(df)
+  validation_results = ge_validator.validate_data(df)
   print("Validation passed:", validation_results["success"])
   print("Total expectations:", validation_results["total_expectations"])
   print("Failed expectations:", validation_results["failed_expectations"])
 
   # 3. Save GE schema
-  ge_validator.save_schema(str(SCHEMA_OUTPUT))
+  schema_output = output_dir / "ticket_schema.json"
+  ge_validator.save_schema(str(schema_output))
 
   # 4. Skew detection
   skew_results = {}
   if full_df is not None:
-    print("\nDetecting skew between sample and full dataset...")
-    skew_results = detect_skew(sample_df, full_df)
+    print("\nDetecting skew between datasets...")
+    skew_results = detect_skew(df, full_df)
     skewed_cols = [col for col, res in skew_results.items() if res["skewed"]]
     if skewed_cols:
       print("Skewed columns:", skewed_cols)
@@ -157,21 +171,51 @@ def main() -> None:
 
   # 5. Save full profile report
   profile = {
-    "dataset": str(SAMPLE_PATH),
+    "dataset": str(data_path),
     "row_count": stats["row_count"],
     "column_count": stats["column_count"],
     "schema": {col: t.__name__ for col, t in schema.items()},
     "numeric_stats": stats["numeric_stats"],
     "categorical_stats": stats["categorical_stats"],
     "ge_validation": validation_results,
-    "skew_vs_full_dataset": skew_results,
+    "skew_vs_reference": skew_results,
   }
 
-  with open(PROFILE_OUTPUT, "w", encoding="utf-8") as f:
+  profile_output = output_dir / "data_profile_report.json"
+  with open(profile_output, "w", encoding="utf-8") as f:
     json.dump(profile, f, indent=2, cls=NumpyEncoder)
 
-  print("\nProfile report saved to", PROFILE_OUTPUT)
+  print("\nProfile report saved to", profile_output)
   print("Done!")
+
+  return profile
+
+
+def main() -> None:
+  """Run data profiling from command line."""
+  parser = argparse.ArgumentParser(
+    description="Run data profiling on transformed ticket data."
+  )
+  parser.add_argument(
+    "--data-path",
+    type=str,
+    default=str(Paths.data_root / "github_issues" / "sample_tickets_transformed.jsonl"),
+    help="Path to transformed tickets JSONL file.",
+  )
+  parser.add_argument(
+    "--reference-path",
+    type=str,
+    default=str(
+      Paths.data_root / "github_issues" / "tickets_transformed_improved.jsonl"
+    ),
+    help="Path to full dataset for skew detection.",
+  )
+  args = parser.parse_args()
+
+  run_data_profiling(
+    data_path=args.data_path,
+    reference_path=args.reference_path,
+  )
 
 
 if __name__ == "__main__":
