@@ -1,6 +1,10 @@
 #!/bin/bash
 set -e
 
+# Ensure data directory exists and is writable
+mkdir -p /opt/ticket-forge/data
+chmod 777 /opt/ticket-forge/data
+
 # Wait for database to be ready with retries
 MAX_RETRIES=30
 RETRY_COUNT=0

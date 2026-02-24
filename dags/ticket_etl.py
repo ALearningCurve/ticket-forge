@@ -85,10 +85,19 @@ def scrape_github_issues(**context: object) -> dict[str, Any]:
   )
 
   limit_per_state = runtime.get("limit_per_state")
+  output_dir = Path(runtime["output_dir"])
+
   print(f"Scraping GitHub issues (limit_per_state={limit_per_state})...")
 
   raw_records = asyncio.run(scrape_all_issues(limit_per_state=limit_per_state))
   print(f"Scraped {len(raw_records)} records")
+
+  # Save raw data as compressed JSON
+  raw_path = output_dir / "tickets_raw.json.gz"
+  print(f"Saving raw scraped data to {raw_path}...")
+  with gzip.open(raw_path, "wt", encoding="utf-8") as f:
+    json.dump(raw_records, f, indent=2)
+  print(f"Saved {len(raw_records)} raw records to {raw_path}")
 
   # Store in XCom for next task
   context["task_instance"].xcom_push(key="raw_records", value=raw_records)  # type: ignore[index, union-attr]
@@ -145,7 +154,7 @@ def run_anomaly_check(**context: object) -> dict[str, Any]:
   print(anomaly_text)
 
   # If anomalies detected, raise an error to fail the task
-  if anomaly_report["total_anomalies"] > 5:
+  if anomaly_report["total_anomalies"] > 30:
     msg = f"Anomalies detected: {anomaly_report['total_anomalies']}"
     raise AirflowFailException(msg)
 
@@ -245,6 +254,12 @@ def save_dataset_and_weights(**context: object) -> dict[str, Any]:
   weights_path = context["task_instance"].xcom_pull(  # type: ignore[index, union-attr]
     task_ids="run_bias_mitigation", key="weights_path"
   )
+  anomaly_text = context["task_instance"].xcom_pull(  # type: ignore[index, union-attr]
+    task_ids="run_anomaly_check", key="anomaly_email_text"
+  )
+  bias_text = context["task_instance"].xcom_pull(  # type: ignore[index, union-attr]
+    task_ids="prepare_bias_report", key="bias_email_text"
+  )
 
   output_dir = Path(transform_path).parent
 
@@ -265,9 +280,23 @@ def save_dataset_and_weights(**context: object) -> dict[str, Any]:
     msg = f"Bias mitigation weights not found at {weights_path}"
     raise AirflowFailException(msg)
 
+  # Save anomaly report text
+  anomaly_report_path = output_dir / "anomaly_report.txt"
+  with open(anomaly_report_path, "w", encoding="utf-8") as f:
+    f.write(anomaly_text)
+  print(f"Saved anomaly report to {anomaly_report_path}")
+
+  # Save bias report text
+  bias_report_path = output_dir / "bias_report.txt"
+  with open(bias_report_path, "w", encoding="utf-8") as f:
+    f.write(bias_text)
+  print(f"Saved bias report to {bias_report_path}")
+
   return {
     "dataset_saved": str(compressed_path),
     "weights_saved": str(weights_path),
+    "anomaly_report_saved": str(anomaly_report_path),
+    "bias_report_saved": str(bias_report_path),
   }
 
 

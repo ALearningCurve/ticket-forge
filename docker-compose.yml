@@ -77,7 +77,7 @@ services:
       - ./dags:/opt/airflow/dags
       - ./apps:/opt/ticket-forge/apps
       - ./libs:/opt/ticket-forge/libs
-      - ./data:/opt/ticket-force/data
+      - ./data:/opt/ticket-forge/data
       - airflow_logs:/opt/airflow/logs
       - airflow_plugins:/opt/airflow/plugins
 
