@@ -66,7 +66,10 @@ class TestRunAnomalyCheck:
     yield temp_path
     temp_path.unlink(missing_ok=True)
 
-  def test_run_anomaly_check_returns_results(self, sample_tickets_jsonl: Path) -> None:
+  @patch("training.analysis.run_anomaly_check.AlertSystem.send_gmail_alert")
+  def test_run_anomaly_check_returns_results(
+    self, mock_send_alert, sample_tickets_jsonl: Path
+  ) -> None:
     """Anomaly check returns structured results."""
     with patch.dict(
       "os.environ",
@@ -81,7 +84,10 @@ class TestRunAnomalyCheck:
       assert "schema_result" in result
       assert "text_report" in result
 
-  def test_run_anomaly_check_loads_data(self, sample_tickets_jsonl: Path) -> None:
+  @patch("training.analysis.run_anomaly_check.AlertSystem.send_gmail_alert")
+  def test_run_anomaly_check_loads_data(
+    self, mock_send_alert, sample_tickets_jsonl: Path
+  ) -> None:
     """Anomaly check loads JSONL correctly."""
     with patch.dict(
       "os.environ",
