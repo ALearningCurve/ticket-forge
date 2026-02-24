@@ -27,6 +27,8 @@ Airflow runs from the **root** `docker-compose.yml` to avoid duplicate Postgres 
 From repo root:
 
 ```bash
+# working
+chmod +777 ./data ./models
 docker compose up -d postgres pgadmin airflow
 
 # Or use the justfile command
@@ -78,7 +80,7 @@ NOTE: some of these steps run in parallel  (see diagram below for more details):
 **Trigger Examples:**
 
 ```bash
-# Full production scrape (WARNING: takes hours due to rate limits)
+# Full production scrape (WARNING: 1-2 hours due to rate limits)
 # Also might not be desired since full history can be irrelevant (i.e. tickets from 20 years
 # ago likely have poor predictive power for ticekts written 6 months ago)
 docker compose exec airflow airflow dags trigger ticket_etl
@@ -86,7 +88,7 @@ docker compose exec airflow airflow dags trigger ticket_etl
 # Limited test run (recommended for evaluation)
 ## scrape 20 per state (open/close) per repo (we scrape 3) => maximum 120 tickets (~1-2 minutes to run)
 docker compose exec airflow airflow dags trigger ticket_etl --conf '{"limit_per_state": 20}'
-## scrape 10000 per state (open/close)  per repo (we scrape 3) => maximum 60,000 tickets (~1 hr to run)
+## scrape 10000 per state (open/close)  per repo (we scrape 3) => maximum 60,000 tickets (~30-60 minutes to run)
 docker compose exec airflow airflow dags trigger ticket_etl --conf '{"limit_per_state": 10000 }'
 ```
 
@@ -107,6 +109,16 @@ docker compose exec airflow airflow dags trigger ticket_etl --conf '{"limit_per_
 **Schedule:** None (triggered by API)
 
 **Flow:** API uploads resume → DAG triggered → Extract text → Generate embeddings → Update engineer profile in DB. This isn't used to train an ML model and we control the schema the entire time, hence the lack of bias/anomaly detection.
+
+**Inputs** (via `dag_run.conf`):
+- `resumes` (array): List of resume payloads, each containing:
+  - `filename`: Resume filename (e.g., `john_doe.pdf`)
+  - `content_base64`: Base64-encoded PDF content
+  - `github_username`: Engineer's GitHub username
+  - `full_name` (optional): Engineer's full name
+
+**Outputs**:
+- No file outputs — directly updates Postgres
 
 **Trigger Examples:**
 
