@@ -55,6 +55,15 @@ services:
       DATABASE_URL: "postgresql://ticketforge:root@postgres:5432/ticketforge"
       GITHUB_TOKEN: ${GITHUB_TOKEN}
       PYTHONPATH: "/opt/ticket-forge/apps/training:/opt/ticket-forge/libs/ml-core:/opt/ticket-forge/libs/shared"
+      AIRFLOW__SMTP__SMTP_HOST: smtp.gmail.com
+      AIRFLOW__SMTP__SMTP_PORT: "587" # Use quotes for port numbers
+      AIRFLOW__SMTP__SMTP_USER: ${GMAIL_APP_USERNAME}
+      AIRFLOW__SMTP__SMTP_PASSWORD: ${GMAIL_APP_PASSWORD} # Or an app-specific password
+      AIRFLOW__SMTP__SMTP_MAIL_FROM: ${GMAIL_APP_USERNAME}
+      AIRFLOW__SMTP__SMTP_STARTTLS: "True"
+      AIRFLOW__SMTP__SMTP_SSL: "False"
+      AIRFLOW__SMTP__SMTP_TIMEOUT: "30"
+      AIRFLOW__SMTP__RETRY_LIMIT: "5"
     ports:
       - "8080:8080"
     volumes:
@@ -63,14 +72,6 @@ services:
       - ./libs:/opt/ticket-forge/libs
       - airflow_logs:/opt/airflow/logs
       - airflow_plugins:/opt/airflow/plugins
-    command: >
-      bash -c "
-      airflow db migrate &&
-      airflow connections create-default-connections &&
-      (airflow users create --username airflow --password airflow --firstname Air --lastname Flow --role Admin --email airflow@example.com || true) &&
-      airflow scheduler &
-      exec airflow webserver
-      "
 
   webapp:
     build:

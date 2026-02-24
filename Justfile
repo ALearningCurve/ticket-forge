@@ -97,3 +97,7 @@ get-wif-provider:
 [group('terraform')]
 get-repo-id repo='alearningcurve/ticket-forge':
     @gh api -H "Accept: application/vnd.github+json" repos/{{ repo }} | jq .id
+
+[group('airflow')]
+airflow-up:
+    docker compose up -d --build postgres pgadmin airflow

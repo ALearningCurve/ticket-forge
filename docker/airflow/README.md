@@ -13,13 +13,9 @@ Single source of truth:
 ## Prerequisites
 
 - Docker Desktop / Docker Compose
-- GitHub token for ticket scraping
+- GitHub token for ticket scraping (see [setup](../../apps/training/README.md)) in `.env`
+- Google mail application token (see [setup](../../apps/training/README.md)) in `.env`
 
-Set token in your shell:
-
-```powershell
-$env:GITHUB_TOKEN = "<your_token>"
-```
 
 ## Start Services
 
@@ -29,10 +25,18 @@ From repo root:
 docker compose up -d postgres pgadmin airflow
 ```
 
+or if you have just installed:
+
+```sh
+just airflow-up
+```
+
 UIs:
 
 - Airflow: http://localhost:8080 (user: `airflow`, pass: `airflow`)
+     - login with username and password of `airflow`
 - pgAdmin: http://localhost:5050
+     - see [connecting section](#connecting-to-pg-admin) to view on the gui
 
 ## DAGs
 
@@ -76,3 +80,17 @@ docker compose down -v
 ```
 
 
+## Connecting to pg-admin
+
+- Access pgAdmin: Open your browser to http://localhost:5050 (or the port mapped in your compose file) and log in with your configured credentials.
+- Open Server Dialog: Click Add New Server on the dashboard=
+- General Tab: Enter a recognizable Name for your connection (e.g., Docker DB).
+- Connection Tab:
+
+    Host name/address: Enter the exact Service Name of your Postgres container from the docker-compose.yml (e.g., postgres). Do not use localhost.
+    Port: Use 5432 (the standard internal container port).
+    Maintenance database: Enter postgres (or your custom POSTGRES_DB name).
+    Username: Enter your ticketforge value.
+    Password: Enter your root value.
+
+- Save: Click Save. pgAdmin will now use the Docker internal network to resolve the service name and connect.

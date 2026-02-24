@@ -1,18 +1,13 @@
 """Run complete anomaly detection with alerting."""
 
 import json
-import os
 
 import pandas as pd
-from dotenv import load_dotenv
 from ml_core.anomaly import AlertSystem, AnomalyDetector, SchemaValidator
-from shared.configuration import Paths
+from shared.configuration import Paths, getenv
 
-load_dotenv()
-
-GMAIL_ADDRESS = "mlopsgroup29@gmail.com"
-GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD")
-RECIPIENT = "mlopsgroup29@gmail.com"
+GMAIL_ADDRESS = getenv("GMAIL_APP_USERNAME")
+GMAIL_APP_PASSWORD = getenv("GMAIL_APP_PASSWORD")
 
 
 def main() -> None:
@@ -65,11 +60,11 @@ def main() -> None:
     alert_system = AlertSystem(alert_threshold=1)
     alert_system.send_gmail_alert(
       report=anomaly_report,
-      recipient=RECIPIENT,
+      recipient=GMAIL_ADDRESS,
       sender_email=GMAIL_ADDRESS,
       sender_password=GMAIL_APP_PASSWORD,
     )
-    print("Alert sent to", RECIPIENT)
+    print("Alert sent to", GMAIL_ADDRESS)
   elif anomaly_report["has_anomalies"]:
     print("\nAnomalies found but GMAIL_APP_PASSWORD not set.")
   else:
