@@ -280,24 +280,36 @@ def save_dataset_and_weights(**context: object) -> dict[str, Any]:
     msg = f"Bias mitigation weights not found at {weights_path}"
     raise AirflowFailException(msg)
 
-  # Save anomaly report text
-  anomaly_report_path = output_dir / "anomaly_report.txt"
-  with open(anomaly_report_path, "w", encoding="utf-8") as f:
-    f.write(anomaly_text)
-  print(f"Saved anomaly report to {anomaly_report_path}")
+  # Save anomaly report text if available
+  if anomaly_text:
+    anomaly_report_path = output_dir / "anomaly_report.txt"
+    with open(anomaly_report_path, "w", encoding="utf-8") as f:
+      f.write(anomaly_text)
+    print(f"Saved anomaly report to {anomaly_report_path}")
+  else:
+    print("No anomaly report text available to save")
+    anomaly_report_path = None
 
-  # Save bias report text
-  bias_report_path = output_dir / "bias_report.txt"
-  with open(bias_report_path, "w", encoding="utf-8") as f:
-    f.write(bias_text)
-  print(f"Saved bias report to {bias_report_path}")
+  # Save bias report text if available
+  if bias_text:
+    bias_report_path = output_dir / "bias_report.txt"
+    with open(bias_report_path, "w", encoding="utf-8") as f:
+      f.write(bias_text)
+    print(f"Saved bias report to {bias_report_path}")
+  else:
+    print("No bias report text available to save")
+    bias_report_path = None
 
-  return {
+  result = {
     "dataset_saved": str(compressed_path),
     "weights_saved": str(weights_path),
-    "anomaly_report_saved": str(anomaly_report_path),
-    "bias_report_saved": str(bias_report_path),
   }
+  if anomaly_report_path:
+    result["anomaly_report_saved"] = str(anomaly_report_path)
+  if bias_report_path:
+    result["bias_report_saved"] = str(bias_report_path)
+
+  return result
 
 
 def load_tickets_to_db(**context: object) -> dict[str, int]:
@@ -475,12 +487,11 @@ with DAG(
   # Anomaly Detection -> Bias Detection & Mitigation (parallel)
   _ = anomaly_task >> [bias_detect_task, bias_mitigate_task]
 
-  # Bias tasks -> Save Dataset & Weights AND Prepare Report (parallel)
-  _ = [bias_detect_task, bias_mitigate_task] >> save_task
-  _ = [bias_detect_task, bias_mitigate_task] >> prepare_report_task
+  # Bias tasks -> Prepare Report -> Save Dataset & Weights (sequential)
+  _ = [bias_detect_task, bias_mitigate_task] >> prepare_report_task >> save_task
 
   # Anomaly Detection -> Load to DB -> Replay (independent of bias path)
   _ = anomaly_task >> load_db_task >> replay_task
 
-  # All paths converge: save_task, replay_task, and prepare_report_task before email
-  _ = [save_task, replay_task, prepare_report_task] >> send_email_task
+  # All paths converge: save_task, replay_task before email
+  _ = [save_task, replay_task] >> send_email_task
