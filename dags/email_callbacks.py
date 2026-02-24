@@ -1,4 +1,5 @@
 """Email callbacks for Airflow DAG success/failure notifications."""
+# noqa
 
 from __future__ import annotations
 

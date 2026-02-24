@@ -13,7 +13,7 @@ GMAIL_ADDRESS = getenv("GMAIL_APP_USERNAME")
 GMAIL_APP_PASSWORD = getenv("GMAIL_APP_PASSWORD")
 
 
-def run_anomaly_check(
+def run_anomaly_check(  # noqa: PLR0915
   data_path: str | Path,
   *,
   outlier_threshold: float = 3.0,

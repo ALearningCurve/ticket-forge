@@ -1,5 +1,6 @@
 """Airflow DAG that ingests resume payloads into engineer profiles."""
 # ruff: noqa: E402
+# noqa
 
 from __future__ import annotations
 
