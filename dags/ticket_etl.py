@@ -10,9 +10,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from airflow.decorators import dag, task
+from airflow import DAG
 from airflow.exceptions import AirflowFailException
-from airflow.operators.python import get_current_context
+from airflow.operators.python import PythonOperator
+from airflow.utils.trigger_rule import TriggerRule
+from email_callbacks import send_dag_status_email
 
 # Make workspace packages importable from Airflow's DAG context.
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -39,10 +41,8 @@ def _require_database_url() -> str:
   return dsn
 
 
-@task()
-def validate_runtime_config() -> dict[str, Any]:
+def validate_runtime_config(**context: Any) -> dict[str, Any]:
   """Read dag_run.conf and normalize ticket ETL runtime config."""
-  context = get_current_context()
   dag_run = context.get("dag_run")
   conf = dag_run.conf if dag_run and dag_run.conf else {}
 
@@ -55,15 +55,23 @@ def validate_runtime_config() -> dict[str, Any]:
       msg = "limit_per_state must be an integer when provided"
       raise AirflowFailException(msg) from exc
 
-  return {
+  runtime = {
     "dsn": _require_database_url(),
     "limit_per_state": limit_per_state,
   }
 
+  # Push to XCom
+  context["task_instance"].xcom_push(key="runtime", value=runtime)
+  return runtime
 
-@task()
-def run_ticket_etl(runtime: dict[str, Any]) -> dict[str, int]:
+
+def run_ticket_etl_task(**context: Any) -> dict[str, int]:
   """Run scrape -> transform -> tickets/assignments load pipeline."""
+  # Pull from XCom
+  runtime = context["task_instance"].xcom_pull(
+    task_ids="validate_runtime_config", key="runtime"
+  )
+
   dsn = str(runtime["dsn"])
   limit_per_state_raw = runtime.get("limit_per_state")
   if limit_per_state_raw is None:
@@ -75,18 +83,35 @@ def run_ticket_etl(runtime: dict[str, Any]) -> dict[str, int]:
   return {"tickets_processed": int(loaded)}
 
 
-@dag(
+with DAG(
   dag_id=DAG_ID,
-  schedule=None,
+  schedule="@monthly",
   start_date=datetime(2025, 1, 1, tzinfo=timezone.utc),
   catchup=False,
-  default_args={"owner": "ticketforge", "retries": 1},
+  default_args={
+    "owner": "ticketforge",
+    "retries": 0,
+  },
+  max_active_runs=1,
   tags=["etl", "airflow", "tickets"],
-)
-def ticket_etl_dag() -> None:
-  """Orchestrate ticket ETL in a dedicated DAG."""
-  runtime = validate_runtime_config()
-  run_ticket_etl(runtime)
+) as dag:
+  validate_task = PythonOperator(
+    task_id="validate_runtime_config",
+    python_callable=validate_runtime_config,
+    provide_context=True,
+  )
 
+  run_etl_task = PythonOperator(
+    task_id="run_ticket_etl",
+    python_callable=run_ticket_etl_task,
+    provide_context=True,
+  )
 
-dag = ticket_etl_dag()
+  send_email_task = PythonOperator(
+    task_id="send_status_email",
+    python_callable=send_dag_status_email,
+    provide_context=True,
+    trigger_rule=TriggerRule.ALL_DONE,
+  )
+
+  validate_task >> run_etl_task >> send_email_task

@@ -68,5 +68,3 @@ class TestDagFiles:
     function_names = _top_level_function_names(module)
     for fn in expected_functions:
       assert fn in function_names
-
-
