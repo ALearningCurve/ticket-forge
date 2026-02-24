@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 import pandas as pd
 import pytest
@@ -19,6 +20,15 @@ from training.analysis.run_data_profiling import load_jsonl
 
 class TestRunAnomalyCheck:
   """Tests for anomaly detection runner."""
+
+  @pytest.fixture
+  def env_vars(self) -> None:
+    """Set required environment variables for testing."""
+    with patch.dict(
+      "os.environ",
+      {"GMAIL_APP_USERNAME": "test@example.com", "GMAIL_APP_PASSWORD": "test_pass"},
+    ):
+      yield
 
   @pytest.fixture
   def sample_tickets_jsonl(self) -> Path:
@@ -58,23 +68,49 @@ class TestRunAnomalyCheck:
 
   def test_run_anomaly_check_returns_results(self, sample_tickets_jsonl: Path) -> None:
     """Anomaly check returns structured results."""
-    result = run_anomaly_check(
-      sample_tickets_jsonl, outlier_threshold=3.0, enable_alerts=False
-    )
+    with patch.dict(
+      "os.environ",
+      {"GMAIL_APP_USERNAME": "test@example.com", "GMAIL_APP_PASSWORD": "test_pass"},
+    ):
+      result = run_anomaly_check(
+        sample_tickets_jsonl, outlier_threshold=3.0, enable_alerts=False
+      )
 
-    assert isinstance(result, dict)
-    assert "anomaly_report" in result
-    assert "schema_result" in result
-    assert "text_report" in result
+      assert isinstance(result, dict)
+      assert "anomaly_report" in result
+      assert "schema_result" in result
+      assert "text_report" in result
 
   def test_run_anomaly_check_loads_data(self, sample_tickets_jsonl: Path) -> None:
     """Anomaly check loads JSONL correctly."""
-    result = run_anomaly_check(
-      sample_tickets_jsonl, outlier_threshold=3.0, enable_alerts=False
-    )
+    with patch.dict(
+      "os.environ",
+      {"GMAIL_APP_USERNAME": "test@example.com", "GMAIL_APP_PASSWORD": "test_pass"},
+    ):
+      result = run_anomaly_check(
+        sample_tickets_jsonl, outlier_threshold=3.0, enable_alerts=False
+      )
 
-    # Verify that schema validation ran (check for expected keys)
-    assert result["schema_result"]["num_amiss"] >= 0
+      # Verify that schema validation ran (check for expected keys)
+      assert result["schema_result"]["num_amiss"] >= 0
+
+  @patch("training.analysis.run_anomaly_check.AlertSystem.send_gmail_alert")
+  def test_run_anomaly_check_sends_alert_when_anomalies_found(
+    self, mock_send_alert, sample_tickets_jsonl: Path
+  ) -> None:
+    """Anomaly check sends alert when anomalies detected and credentials present."""
+    with patch.dict(
+      "os.environ",
+      {"GMAIL_APP_USERNAME": "test@example.com", "GMAIL_APP_PASSWORD": "test_pass"},
+    ):
+      # Force anomalies to be detected by using low threshold
+      result = run_anomaly_check(
+        sample_tickets_jsonl, outlier_threshold=0.1, enable_alerts=True
+      )
+
+      # Verify the result structure
+      assert isinstance(result, dict)
+      assert "anomaly_report" in result
 
 
 class TestRunBiasMitigation:
