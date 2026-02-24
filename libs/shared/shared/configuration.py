@@ -25,7 +25,9 @@ class Paths:
 def getenv(key: str) -> str:
   """Gets env variable. Handles loading dotenv for you."""
   value = os.getenv(key)
-  assert value is not None, f"missing {key} in environment"
+  if value is None:
+    msg = f"missing {key} in environment"
+    raise RuntimeError(msg)
   return value
 
 

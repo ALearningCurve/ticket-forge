@@ -43,7 +43,6 @@ GRAPHQL_URL = "https://api.github.com/graphql"
 def _headers() -> dict[str, str]:
   """Build GitHub GraphQL auth headers from env."""
   token = getenv("GITHUB_TOKEN")
-  print("using ", token)
 
   return {
     "Authorization": f"Bearer {token}",
@@ -132,7 +131,7 @@ async def scrape_repo_state(  # noqa: PLR0915
 
     if response.status_code != 200:
       retry += 1
-      assert retry <= 5, "failed to scrape from repo after 10 attempts!"
+      assert retry <= 5, "failed to scrape from repo after 5 attempts!"
       if response.status_code == 403:
         pbar.write("Rate limited. Waiting 60s...")
         await asyncio.sleep(60)

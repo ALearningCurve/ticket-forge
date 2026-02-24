@@ -69,6 +69,8 @@ class SchemaValidator:
       return pd.api.types.is_integer_dtype(actual_dtype)
     if expected_type is float:
       return pd.api.types.is_float_dtype(actual_dtype)
+    if expected_type is object:
+      return actual_dtype is object or str(actual_dtype) == "object"
     return False
 
   def generate_schema_from_data(self, data: pd.DataFrame) -> dict[str, type]:

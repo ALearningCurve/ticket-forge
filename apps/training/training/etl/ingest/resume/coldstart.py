@@ -514,7 +514,7 @@ def _is_falsy_or_empty(maybe_str: str | None) -> bool:
     logger.warning(f"unexpected type {maybe_str}! treating as falseish")
     return True
 
-  return maybe_str.split() == ""
+  return maybe_str.strip() == ""
 
 
 def ensure_profiles_for_tickets(

@@ -99,23 +99,31 @@ def scrape_github_issues(**context: object) -> dict[str, Any]:
     json.dump(raw_records, f, indent=2)
   print(f"Saved {len(raw_records)} raw records to {raw_path}")
 
-  # Store in XCom for next task
-  context["task_instance"].xcom_push(key="raw_records", value=raw_records)  # type: ignore[index, union-attr]
+  # Store only path and count in XCom (avoid large payload serialization)
+  context["task_instance"].xcom_push(key="raw_path", value=str(raw_path))  # type: ignore[index, union-attr]
   return {"records_scraped": len(raw_records)}
 
 
 def run_transform(**context: object) -> dict[str, Any]:
   """Transform raw records into ticket features."""
+  import gzip
+
   from training.etl.transform.run_transform import transform_records
 
-  raw_records = context["task_instance"].xcom_pull(  # type: ignore[index, union-attr]
-    task_ids="scrape_github_issues", key="raw_records"
+  raw_path = context["task_instance"].xcom_pull(  # type: ignore[index, union-attr]
+    task_ids="scrape_github_issues", key="raw_path"
   )
   runtime = context["task_instance"].xcom_pull(  # type: ignore[index, union-attr]
     task_ids="validate_runtime_config", key="runtime"
   )
 
   output_dir = Path(runtime["output_dir"])
+
+  # Load raw records from disk
+  print(f"Loading raw data from {raw_path}...")
+  with gzip.open(raw_path, "rt", encoding="utf-8") as f:
+    raw_records = json.load(f)
+  print(f"Loaded {len(raw_records)} raw records")
 
   print(f"Transforming {len(raw_records)} records...")
   transformed = transform_records(raw_records)
@@ -130,8 +138,7 @@ def run_transform(**context: object) -> dict[str, Any]:
 
   print(f"Saved transformed data to {transform_path}")
 
-  # Store in XCom for database load
-  context["task_instance"].xcom_push(key="transformed_records", value=transformed)  # type: ignore[index, union-attr]
+  # Store only path in XCom (avoid large payload serialization)
   context["task_instance"].xcom_push(key="transform_path", value=str(transform_path))  # type: ignore[index, union-attr]
   return {"records_transformed": len(transformed)}
 
@@ -150,11 +157,12 @@ def run_anomaly_check(**context: object) -> dict[str, Any]:
   )
 
   anomaly_report = results["anomaly_report"]
+  schema_issues = results["schema_result"]["num_amiss"]
   anomaly_text = results["text_report"]
   print(anomaly_text)
 
   # If anomalies detected, raise an error to fail the task
-  if anomaly_report["total_anomalies"] > 30:
+  if anomaly_report["total_anomalies"] > 20 or schema_issues > 5:
     msg = f"Anomalies detected: {anomaly_report['total_anomalies']}"
     raise AirflowFailException(msg)
 
@@ -320,14 +328,23 @@ def load_tickets_to_db(**context: object) -> dict[str, int]:
     upsert_tickets,
   )
 
+  transform_path = context["task_instance"].xcom_pull(  # type: ignore[index, union-attr]
+    task_ids="run_transform", key="transform_path"
+  )
   runtime = context["task_instance"].xcom_pull(  # type: ignore[index, union-attr]
     task_ids="validate_runtime_config", key="runtime"
   )
-  transformed = context["task_instance"].xcom_pull(  # type: ignore[index, union-attr]
-    task_ids="run_transform", key="transformed_records"
-  )
 
   dsn = str(runtime["dsn"])
+
+  # Load transformed records from disk
+  print(f"Loading transformed data from {transform_path}...")
+  transformed = []
+  with open(transform_path, "r", encoding="utf-8") as f:
+    for line in f:
+      if line.strip():
+        transformed.append(json.loads(line))
+  print(f"Loaded {len(transformed)} transformed records")
 
   print("Step 0/2: Ensuring assignee profiles exist...")
   profile_results = ensure_profiles_for_tickets(transformed, dsn=dsn)
@@ -353,14 +370,23 @@ def replay_closed_tickets(**context: object) -> dict[str, int]:
   """Replay newly imported closed tickets to update engineer profiles."""
   from training.etl.postload.replay_tickets import TicketReplayer
 
+  transform_path = context["task_instance"].xcom_pull(  # type: ignore[index, union-attr]
+    task_ids="run_transform", key="transform_path"
+  )
   runtime = context["task_instance"].xcom_pull(  # type: ignore[index, union-attr]
     task_ids="validate_runtime_config", key="runtime"
   )
-  transformed = context["task_instance"].xcom_pull(  # type: ignore[index, union-attr]
-    task_ids="run_transform", key="transformed_records"
-  )
 
   dsn = str(runtime["dsn"])
+
+  # Load transformed records from disk
+  print(f"Loading transformed data from {transform_path}...")
+  transformed = []
+  with open(transform_path, "r", encoding="utf-8") as f:
+    for line in f:
+      if line.strip():
+        transformed.append(json.loads(line))
+  print(f"Loaded {len(transformed)} transformed records")
 
   closed_ticket_ids = [
     str(t.get("id")) for t in transformed if t.get("issue_type") == "closed"
