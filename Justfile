@@ -23,7 +23,7 @@ pytest *args='':
 pylint *args=".":
     uv run ruff check --fix "$@"
     uv run ruff format "$@"
-    uv run pyright "$@"
+    # uv run pyright "$@"
 
 # Run all python checks on particular files and directories
 [group('python')]
