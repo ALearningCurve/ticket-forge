@@ -73,6 +73,29 @@ class TestTemporalFeatures:
 
     assert hours is None
 
+  def test_compute_returns_none_for_negative_duration(self) -> None:
+    """Test returns None when closed_at is before assigned_at.
+
+    This handles data quality issues where tickets have timestamp
+    inconsistencies, e.g. closed and reopened tickets.
+    """
+    created = "2026-01-01T10:00:00Z"
+    assigned = "2026-01-02T10:00:00Z"
+    closed = "2026-01-01T10:00:00Z"  # closed before assigned
+
+    hours = compute_business_completion_hours(created, assigned, closed)
+
+    assert hours is None
+
+  def test_compute_returns_none_when_closed_before_created(self) -> None:
+    """Test returns None when closed_at is before created_at."""
+    created = "2026-01-05T10:00:00Z"
+    closed = "2026-01-01T10:00:00Z"  # closed before created
+
+    hours = compute_business_completion_hours(created, None, closed)
+
+    assert hours is None
+
 
 class TestKeywordExtraction:
   """Test keyword extraction."""
