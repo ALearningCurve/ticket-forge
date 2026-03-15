@@ -8,7 +8,7 @@ from shared.cache import JsonSaver, fs_cache
 from shared.configuration import Paths
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import PredefinedSplit, RandomizedSearchCV
-from training.bias import BiasAnalyzer, BiasReport
+from training.bias import BiasAnalyzer, BiasMitigator, BiasReport
 from training.dataset import Dataset, X_t, Y_t
 
 logger = get_logger(__name__)
@@ -91,16 +91,23 @@ def evaluate_bias(
   model_name: str,
   sensitive_feature: str = "repo",
 ) -> dict | None:
-  """Run bias analysis on model predictions.
+  """Run bias analysis on model predictions, and auto-remediate if bias detected.
+
+  Evaluates the model on slices of the test set defined by sensitive_feature.
+  If bias is detected (relative gap > threshold), applies post-processing
+  prediction adjustment via BiasMitigator.adjust_predictions_for_fairness()
+  and re-evaluates. Both before and after metrics are saved to the bias report
+  for documentation.
 
   Args:
       grid: Fitted grid search with best model
       run_id: UUID of the training run
       model_name: Identifier of the model type
-      sensitive_feature: Feature to use for bias analysis
+      sensitive_feature: Feature to use for bias analysis (e.g. "repo", "seniority")
 
   Returns:
-      Bias analysis results, or None if sensitive feature not available
+      Bias analysis results (post-remediation if bias was detected), or None
+      if sensitive feature not available
   """
   model_type = "regressor"
   threshold = 0.4
@@ -123,15 +130,83 @@ def evaluate_bias(
     logger.warning("Bias analysis skipped: metadata not available")
     return None
 
-  # Run bias analysis
   analyzer = BiasAnalyzer(threshold=threshold, model_type=model_type)
-  analysis = analyzer.detect_bias_fairlearn(
-    y_true=pd.Series(y),
-    y_pred=pd.Series(y_pred),
+  y_true_series = pd.Series(y)
+  y_pred_series = pd.Series(y_pred)
+
+  # --- Initial bias detection ---
+  analysis_before = analyzer.detect_bias_fairlearn(
+    y_true=y_true_series,
+    y_pred=y_pred_series,
     sensitive_features=sensitive_features,
   )
 
-  # Save bias report
+  primary_metric = analysis_before["primary_metric"]
+  logger.info(
+    "Bias Analysis (%s): Best=%s (%s=%.4f), Worst=%s (%s=%.4f), Gap=%.1f%%",
+    sensitive_feature,
+    analysis_before["best_group"]["name"],
+    primary_metric,
+    analysis_before["best_group"][primary_metric],
+    analysis_before["worst_group"]["name"],
+    primary_metric,
+    analysis_before["worst_group"][primary_metric],
+    analysis_before["relative_gap"] * 100,
+  )
+
+  # --- Auto-remediation if bias detected ---
+  remediation_applied = False
+  analysis_after = None
+
+  if analysis_before["bias_detected"]:
+    logger.warning(
+      "Bias detected for %r (gap=%.1f%% > threshold=%.1f%%). "
+      "Applying prediction adjustment remediation...",
+      sensitive_feature,
+      analysis_before["relative_gap"] * 100,
+      threshold * 100,
+    )
+
+    # Apply post-processing prediction adjustment
+    y_pred_adjusted = BiasMitigator.adjust_predictions_for_fairness(
+      predictions=y_pred_series,
+      sensitive_features=sensitive_features,
+      method="equalize_mean",
+    )
+
+    # Re-evaluate after remediation
+    analysis_after = analyzer.detect_bias_fairlearn(
+      y_true=y_true_series,
+      y_pred=y_pred_adjusted,
+      sensitive_features=sensitive_features,
+    )
+    remediation_applied = True
+
+    logger.info(
+      "Post-remediation Bias (%s): Best=%s (%s=%.4f), Worst=%s (%s=%.4f), Gap=%.1f%%",
+      sensitive_feature,
+      analysis_after["best_group"]["name"],
+      primary_metric,
+      analysis_after["best_group"][primary_metric],
+      analysis_after["worst_group"]["name"],
+      primary_metric,
+      analysis_after["worst_group"][primary_metric],
+      analysis_after["relative_gap"] * 100,
+    )
+
+    gap_improvement = (
+      analysis_before["relative_gap"] - analysis_after["relative_gap"]
+    ) * 100
+    logger.info(
+      "Remediation reduced bias gap by %.1f percentage points for %r",
+      gap_improvement,
+      sensitive_feature,
+    )
+  else:
+    logger.info("No significant bias detected for: %s", sensitive_feature)
+
+  # --- Save report (includes before + after if remediation was applied) ---
+  final_analysis = analysis_after if remediation_applied else analysis_before
   report_path = (
     Paths.models_root / run_id / f"bias_{model_name}_{sensitive_feature}.txt"
   )
@@ -139,33 +214,24 @@ def evaluate_bias(
     "summary": {
       "model_type": model_type,
       "total_dimensions_checked": 1,
-      "biased_dimensions": [sensitive_feature] if analysis["bias_detected"] else [],
-      "bias_count": 1 if analysis["bias_detected"] else 0,
-      "overall_bias_detected": analysis["bias_detected"],
+      "biased_dimensions": (
+        [sensitive_feature] if analysis_before["bias_detected"] else []
+      ),
+      "bias_count": 1 if analysis_before["bias_detected"] else 0,
+      "overall_bias_detected": analysis_before["bias_detected"],
+      "remediation_applied": remediation_applied,
+      "remediation_method": "equalize_mean" if remediation_applied else None,
     },
-    "detailed_results": {sensitive_feature: analysis},
+    "detailed_results": {
+      sensitive_feature: {
+        "before_remediation": analysis_before,
+        **({"after_remediation": analysis_after} if remediation_applied else {}),
+      }
+    },
   }
   BiasReport.save_report(report_data, str(report_path))
 
-  # Log summary
-  primary_metric = analysis["primary_metric"]
-  logger.info(
-    "Bias Analysis (%s): Best=%s (%s=%.4f), Worst=%s (%s=%.4f), Gap=%.1f%%",
-    sensitive_feature,
-    analysis["best_group"]["name"],
-    primary_metric,
-    analysis["best_group"][primary_metric],
-    analysis["worst_group"]["name"],
-    primary_metric,
-    analysis["worst_group"][primary_metric],
-    analysis["relative_gap"] * 100,
-  )
-  if analysis["bias_detected"]:
-    logger.warning("Bias detected for sensitive feature: %s", sensitive_feature)
-  else:
-    logger.info("No significant bias detected for: %s", sensitive_feature)
-
-  return analysis
+  return final_analysis
 
 
 def pretty_print_gridsearch(
