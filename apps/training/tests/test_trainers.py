@@ -1,5 +1,7 @@
 """Tests for training models using different trainers."""
 
+from unittest.mock import patch
+
 import pytest
 from sklearn.model_selection import RandomizedSearchCV
 from training.dataset import Dataset
@@ -7,6 +9,13 @@ from training.trainers.train_forest import fit_grid as fit_grid_forest
 from training.trainers.train_linear import fit_grid as fit_grid_linear
 from training.trainers.train_svm import fit_grid_approx as fit_grid_svm
 from training.trainers.train_xgboost import fit_grid as fit_grid_xgboost
+
+
+@pytest.fixture(autouse=True)
+def use_dummy_data():
+  """Force dummy data for all trainer tests — no pipeline data required."""
+  with patch("training.dataset.TRAIN_USE_DUMMY_DATA", True):
+    yield
 
 
 class TestForestTrainer:
