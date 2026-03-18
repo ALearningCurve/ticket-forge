@@ -62,7 +62,7 @@ class TestEvaluateBiasNoRemediationNeeded:
     assert result["primary_metric"] == "mae"
 
   def test_report_has_no_remediation_fields_when_no_bias(self, tmp_path) -> None:
-    """Test that report does not include after_remediation when no bias."""
+    """Test that report does not include remediation_details when no bias."""
     y = [10.0, 20.0, 30.0, 10.0, 20.0, 30.0]
     y_pred = [11.0, 21.0, 31.0, 11.0, 21.0, 31.0]
     groups = ["A", "A", "A", "B", "B", "B"]
@@ -85,7 +85,7 @@ class TestEvaluateBiasNoRemediationNeeded:
     report = saved_reports[0]
     assert report["summary"]["remediation_applied"] is False
     assert report["summary"]["remediation_method"] is None
-    assert "after_remediation" not in report["detailed_results"]["repo"]
+    assert "after_remediation" not in report["remediation_details"]["repo"]
 
 
 class TestEvaluateBiasWithRemediation:
@@ -114,7 +114,7 @@ class TestEvaluateBiasWithRemediation:
     assert "bias_detected" in result
 
   def test_report_includes_before_and_after_remediation(self, tmp_path) -> None:
-    """Test report includes both before and after remediation when bias detected."""
+    """Test report includes both before and after in remediation_details."""
     y = [10.0, 20.0, 30.0, 10.0, 20.0, 30.0]
     y_pred = [11.0, 21.0, 31.0, 60.0, 70.0, 80.0]
     groups = ["A", "A", "A", "B", "B", "B"]
@@ -137,8 +137,10 @@ class TestEvaluateBiasWithRemediation:
     report = saved_reports[0]
     assert report["summary"]["remediation_applied"] is True
     assert report["summary"]["remediation_method"] == "equalize_mean"
-    assert "before_remediation" in report["detailed_results"]["repo"]
-    assert "after_remediation" in report["detailed_results"]["repo"]
+    assert "before_remediation" in report["remediation_details"]["repo"]
+    assert "after_remediation" in report["remediation_details"]["repo"]
+    # detailed_results should contain the final (post-remediation) analysis
+    assert "bias_detected" in report["detailed_results"]["repo"]
 
   def test_report_summary_flags_bias_correctly(self, tmp_path) -> None:
     """Test report summary correctly identifies biased dimension."""

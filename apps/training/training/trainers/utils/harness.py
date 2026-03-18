@@ -182,15 +182,16 @@ def evaluate_bias(
     )
     remediation_applied = True
 
+    post_metric = analysis_after.get("primary_metric", primary_metric)
     logger.info(
       "Post-remediation Bias (%s): Best=%s (%s=%.4f), Worst=%s (%s=%.4f), Gap=%.1f%%",
       sensitive_feature,
       analysis_after["best_group"]["name"],
-      primary_metric,
-      analysis_after["best_group"][primary_metric],
+      post_metric,
+      analysis_after["best_group"][post_metric],
       analysis_after["worst_group"]["name"],
-      primary_metric,
-      analysis_after["worst_group"][primary_metric],
+      post_metric,
+      analysis_after["worst_group"][post_metric],
       analysis_after["relative_gap"] * 100,
     )
 
@@ -215,14 +216,18 @@ def evaluate_bias(
       "model_type": model_type,
       "total_dimensions_checked": 1,
       "biased_dimensions": (
-        [sensitive_feature] if analysis_before["bias_detected"] else []
+        [sensitive_feature] if final_analysis["bias_detected"] else []
       ),
-      "bias_count": 1 if analysis_before["bias_detected"] else 0,
-      "overall_bias_detected": analysis_before["bias_detected"],
+      "bias_count": 1 if final_analysis["bias_detected"] else 0,
+      "overall_bias_detected": final_analysis["bias_detected"],
+      "bias_detected_before_remediation": analysis_before["bias_detected"],
       "remediation_applied": remediation_applied,
       "remediation_method": "equalize_mean" if remediation_applied else None,
     },
     "detailed_results": {
+      sensitive_feature: final_analysis,
+    },
+    "remediation_details": {
       sensitive_feature: {
         "before_remediation": analysis_before,
         **({"after_remediation": analysis_after} if remediation_applied else {}),
