@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pandas as pd
+from training.bias import BiasReport
 from training.trainers.utils.harness import evaluate_bias
 
 
@@ -88,7 +89,69 @@ class TestEvaluateBiasNoRemediationNeeded:
     assert "after_remediation" not in report["remediation_details"]["repo"]
 
 
-class TestEvaluateBiasWithRemediation:
+class TestBiasReportTextGeneration:
+  """Tests that BiasReport.generate_text_report() handles the new schema."""
+
+  def test_text_report_renders_without_error_when_no_remediation(
+    self, tmp_path
+  ) -> None:
+    """Report text should render correctly when no remediation was applied."""
+    y = [10.0, 20.0, 30.0, 10.0, 20.0, 30.0]
+    y_pred = [11.0, 21.0, 31.0, 11.0, 21.0, 31.0]
+    groups = ["A", "A", "A", "B", "B", "B"]
+
+    grid = _make_grid(y_pred)
+    mock_ds = _make_dataset(y, "repo", groups)
+    saved_reports: list[dict] = []
+
+    with (
+      patch("training.trainers.utils.harness.Dataset", return_value=mock_ds),
+      patch("training.trainers.utils.harness.Paths") as mock_paths,
+      patch(
+        "training.trainers.utils.harness.BiasReport.save_report",
+        side_effect=lambda data, path: saved_reports.append(data),
+      ),
+    ):
+      mock_paths.models_root = tmp_path
+      evaluate_bias(grid, "run-001", "linear", sensitive_feature="repo")
+
+    report = saved_reports[0]
+    # Should not raise — detailed_results is flat so generate_text_report works
+    text_report = BiasReport.generate_text_report(report)
+    assert isinstance(text_report, str)
+    assert len(text_report) > 0
+
+  def test_text_report_renders_without_error_when_remediation_applied(
+    self, tmp_path
+  ) -> None:
+    """Report text should render correctly when remediation was applied."""
+    y = [10.0, 20.0, 30.0, 10.0, 20.0, 30.0]
+    y_pred = [11.0, 21.0, 31.0, 60.0, 70.0, 80.0]
+    groups = ["A", "A", "A", "B", "B", "B"]
+
+    grid = _make_grid(y_pred)
+    mock_ds = _make_dataset(y, "repo", groups)
+    saved_reports: list[dict] = []
+
+    with (
+      patch("training.trainers.utils.harness.Dataset", return_value=mock_ds),
+      patch("training.trainers.utils.harness.Paths") as mock_paths,
+      patch(
+        "training.trainers.utils.harness.BiasReport.save_report",
+        side_effect=lambda data, path: saved_reports.append(data),
+      ),
+    ):
+      mock_paths.models_root = tmp_path
+      evaluate_bias(grid, "run-001", "linear", sensitive_feature="repo")
+
+    report = saved_reports[0]
+    assert report["summary"]["remediation_applied"] is True
+    # detailed_results contains the flat final_analysis so the report renders
+    assert "bias_detected" in report["detailed_results"]["repo"]
+    text_report = BiasReport.generate_text_report(report)
+    assert isinstance(text_report, str)
+    assert len(text_report) > 0
+
   """Tests for evaluate_bias when bias is detected and remediation is applied."""
 
   def test_returns_post_remediation_analysis(self, tmp_path) -> None:
