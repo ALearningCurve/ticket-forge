@@ -146,6 +146,18 @@ def main() -> None:
   # Save best model info
   _save_best_model_info(best_models, run_dir)
 
+  # Save cv_results_ from pickles + run sensitivity analysis (hyperparam + SHAP)
+  try:
+    from training.analysis.run_sensitivity_analysis import (
+      run_sensitivity_analysis,
+      save_cv_results,
+    )
+
+    save_cv_results(run_id)
+    run_sensitivity_analysis(run_id)
+  except Exception:
+    logger.exception("Sensitivity analysis failed — skipping")
+
 
 def _plot_metrics(metrics_data: dict[str, dict[str, float]], run_dir: Path) -> None:
   """Plot model metrics and save as performance.png.
