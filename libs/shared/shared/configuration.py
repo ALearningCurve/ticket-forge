@@ -8,7 +8,7 @@ load_dotenv()
 
 RANDOM_SEED = 42
 
-TRAIN_USE_DUMMY_DATA = True
+TRAIN_USE_DUMMY_DATA = False
 
 Splits_t = Literal["train", "test", "validation"]
 SPLITS: list[Splits_t] = ["train", "test", "validation"]
