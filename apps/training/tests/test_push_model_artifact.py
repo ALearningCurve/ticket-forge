@@ -91,7 +91,6 @@ class TestCollectArtifacts:
 
     run_dir = tmp_path / "partial_run"
     run_dir.mkdir()
-    # Only bias report exists, no pickle or eval json
     (run_dir / "bias_random_forest_repo.txt").write_text("bias")
 
     artifacts = _collect_artifacts(run_dir, "random_forest")
@@ -118,7 +117,7 @@ class TestPushModelArtifacts:
   def test_dry_run_returns_correct_uris(self, tmp_path: Path) -> None:
     from training.analysis.push_model_artifact import push_model_artifacts
 
-    run_dir = _make_run_dir(tmp_path)
+    _make_run_dir(tmp_path)
 
     with patch("training.analysis.push_model_artifact.Paths") as mp:
       mp.models_root = tmp_path
@@ -130,11 +129,12 @@ class TestPushModelArtifacts:
   def test_dry_run_does_not_call_gcs(self, tmp_path: Path) -> None:
     from training.analysis.push_model_artifact import push_model_artifacts
 
-    run_dir = _make_run_dir(tmp_path)
+    _make_run_dir(tmp_path)
 
     with (
       patch("training.analysis.push_model_artifact.Paths") as mp,
       patch("training.analysis.push_model_artifact.storage") as mock_storage,
+      patch("training.analysis.push_model_artifact.HAS_GCS", True),
     ):
       mp.models_root = tmp_path
       push_model_artifacts("test_run", dry_run=True)
@@ -174,6 +174,7 @@ class TestPushModelArtifacts:
     with (
       patch("training.analysis.push_model_artifact.Paths") as mp,
       patch("training.analysis.push_model_artifact.storage") as mock_storage,
+      patch("training.analysis.push_model_artifact.HAS_GCS", True),
     ):
       mp.models_root = tmp_path
       mock_storage.Client.return_value = mock_client
@@ -200,6 +201,7 @@ class TestPushModelArtifacts:
     with (
       patch("training.analysis.push_model_artifact.Paths") as mp,
       patch("training.analysis.push_model_artifact.storage") as mock_storage,
+      patch("training.analysis.push_model_artifact.HAS_GCS", True),
     ):
       mp.models_root = tmp_path
       mock_storage.Client.return_value = mock_client

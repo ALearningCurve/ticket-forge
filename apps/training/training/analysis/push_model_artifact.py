@@ -137,7 +137,7 @@ def push_model_artifacts(
 
   if not dry_run:
     if not HAS_GCS:
-      logger.exception(
+      logger.warning(
         "google-cloud-storage not installed. Run: uv add google-cloud-storage"
       )
       return []
