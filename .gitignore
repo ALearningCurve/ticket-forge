@@ -234,3 +234,6 @@ resumes_final.db
 .dvc/config.local
 /models
 /data
+
+# macOS-specific files
+.DS_Store
