@@ -43,7 +43,7 @@ jobs:
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ secrets.WIF_PROVIDER_ID }}
-          service_account: 'tf-plan-sa@${{ secrets.TF_VAR_PROJECT_ID }}.iam.gserviceaccount.com'
+          service_account: 'ml-pipeline-sa@${{ secrets.TF_VAR_PROJECT_ID }}.iam.gserviceaccount.com'
 
       - name: Pull latest DVC data
         run: dvc pull
