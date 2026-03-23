@@ -1,3 +1,11 @@
+"""Entry point for model training.
+
+Parses CLI arguments, trains each requested model, plots aggregate metrics,
+saves best model info, runs sensitivity analysis, logs everything to MLflow
+(with nested per-model and per-trial runs), optionally promotes the best model
+to the MLflow Model Registry, and pushes artifacts to GCP Cloud Storage.
+"""
+
 import argparse
 import datetime
 import importlib
@@ -14,11 +22,11 @@ models = {"forest", "linear", "svm", "xgboost"}
 models_with_sample_weight = models.difference(set(["svm"]))
 
 
-def _parse_arguments() -> tuple[set[str], str]:
+def _parse_arguments() -> tuple[set[str], str, bool]:
   """Parse command line arguments.
 
   Returns:
-      Tuple of (models_to_train, run_id)
+      Tuple of (models_to_train, run_id, promote)
   """
   parser = argparse.ArgumentParser(
     description=f"utility to train the models. scripts executed with {Paths.repo_root=}"
@@ -40,9 +48,14 @@ def _parse_arguments() -> tuple[set[str], str]:
     help="run identifier, defaults to current timestamp",
     default=datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S"),
   )
+  parser.add_argument(
+    "--promote",
+    action="store_true",
+    help="promote best model to MLflow Production after training",
+  )
 
   args = parser.parse_args()
-  return args.models, args.runid
+  return args.models, args.runid, args.promote
 
 
 def _train_models(models_list: set[str], run_id: str) -> None:
@@ -126,8 +139,7 @@ def _save_best_model_info(best_models: list, run_dir: Path) -> None:
 
 def main() -> None:
   """Trains models according to user params."""
-  # Parse arguments
-  models_list, run_id = _parse_arguments()
+  models_list, run_id, promote = _parse_arguments()
 
   # Create output directory for this run
   run_dir = Paths.models_root / run_id
@@ -157,6 +169,17 @@ def main() -> None:
     run_sensitivity_analysis(run_id)
   except Exception:
     logger.exception("Sensitivity analysis failed — skipping")
+
+  # Log all runs and trials to MLflow, optionally promote best model
+  try:
+    from training.analysis.mlflow_tracking import log_run_to_mlflow, promote_best_model
+
+    log_run_to_mlflow(run_id)
+
+    if promote:
+      promote_best_model(run_id)
+  except Exception:
+    logger.exception("MLflow logging/promotion failed — skipping")
 
   # Push best model artifacts to GCP Cloud Storage
   try:

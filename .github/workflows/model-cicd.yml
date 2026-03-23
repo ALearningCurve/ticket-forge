@@ -1,0 +1,120 @@
+name: Model CI/CD
+
+on:
+  push:
+    branches: ["main"]
+  schedule:
+    # Run every Monday at 02:00 UTC
+    - cron: "0 2 * * 1"
+  workflow_dispatch:
+    inputs:
+      promote:
+        description: "Promote best model to Production in MLflow after training"
+        required: false
+        default: "true"
+        type: choice
+        options: ["true", "false"]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  train-and-promote:
+    name: Train / Run & Promote Best Model
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install just
+        uses: taiki-e/install-action@just
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: just install-deps
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER_ID }}
+          service_account: 'tf-plan-sa@${{ secrets.TF_VAR_PROJECT_ID }}.iam.gserviceaccount.com'
+
+      - name: Pull latest DVC data
+        run: dvc pull
+
+      - name: Run training pipeline
+        run: |
+          # Promote on push/schedule; honour the promote input on workflow_dispatch.
+          PROMOTE="${{ github.event_name != 'workflow_dispatch' && 'true' || github.event.inputs.promote }}"
+          if [ "$PROMOTE" = "true" ]; then
+            just train --promote
+          else
+            just train
+          fi
+        env:
+          # Use SQLite-backed MLflow so the Model Registry is available
+          MLFLOW_TRACKING_URI: "sqlite:///mlflow.db"
+
+      - name: Upload model artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-artifacts-${{ github.run_id }}
+          path: |
+            models/
+            mlflow.db
+          retention-days: 30
+
+  notify:
+    name: Train / Send Status Email
+    needs: [train-and-promote]
+    if: always()
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Send email notification
+        run: |
+          python3 - <<'EOF'
+          import os
+          import smtplib
+          from email.mime.text import MIMEText
+
+          status = "${{ needs.train-and-promote.result }}"
+          run_url = "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          trigger = "${{ github.event_name }}"
+
+          subject = f"[TicketForge] Model CI/CD {'SUCCESS' if status == 'success' else 'FAILURE'}"
+          body = (
+            f"Model CI/CD pipeline completed.\n\n"
+            f"Status:  {status.upper()}\n"
+            f"Trigger: {trigger}\n"
+            f"Run:     {run_url}\n"
+          )
+
+          sender = os.environ.get("GMAIL_APP_USERNAME")
+          password = os.environ.get("GMAIL_APP_PASSWORD")
+          if not sender or not password:
+            print("Email credentials not set — skipping notification")
+            raise SystemExit(0)
+
+          msg = MIMEText(body)
+          msg["Subject"] = subject
+          msg["From"] = sender
+          msg["To"] = sender
+
+          with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
+            smtp.login(sender, password)
+            smtp.sendmail(sender, [sender], msg.as_string())
+
+          print(f"Notification sent to {sender}")
+          EOF
+        env:
+          GMAIL_APP_USERNAME: ${{ secrets.GMAIL_APP_USERNAME }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+        continue-on-error: true
