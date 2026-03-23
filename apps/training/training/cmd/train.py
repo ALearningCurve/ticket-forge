@@ -159,12 +159,12 @@ def main() -> None:
     logger.exception("Sensitivity analysis failed — skipping")
 
   # Push best model artifacts to GCP Cloud Storage
-  try:
-    from training.analysis.push_model_artifact import push_model_artifacts
+  # try:
+  #   from training.analysis.push_model_artifact import push_model_artifacts
 
-    push_model_artifacts(run_id)
-  except Exception:
-    logger.exception("Artifact push failed — skipping")
+  #   push_model_artifacts(run_id)
+  # except Exception:
+  #   logger.exception("Artifact push failed — skipping")
 
 
 def _plot_metrics(metrics_data: dict[str, dict[str, float]], run_dir: Path) -> None:
