@@ -79,34 +79,53 @@ jobs:
 
     steps:
       - name: Send email notification
+        # Mirrors the body structure used by dags/email_callbacks.py:
+        # same GMAIL_APP_USERNAME / GMAIL_APP_PASSWORD secrets, same
+        # SMTP_SSL approach, and same section headings (Status, Trigger,
+        # Run URL) so alerts are consistent across Airflow DAGs and CI/CD.
         run: |
           python3 - <<'EOF'
           import os
           import smtplib
           from email.mime.text import MIMEText
 
-          status = "${{ needs.train-and-promote.result }}"
-          run_url = "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          status  = "${{ needs.train-and-promote.result }}"
           trigger = "${{ github.event_name }}"
+          run_url = "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          is_success = status == "success"
 
-          subject = f"[TicketForge] Model CI/CD {'SUCCESS' if status == 'success' else 'FAILURE'}"
-          body = (
-            f"Model CI/CD pipeline completed.\n\n"
-            f"Status:  {status.upper()}\n"
-            f"Trigger: {trigger}\n"
-            f"Run:     {run_url}\n"
-          )
+          if is_success:
+            subject = "[TicketForge] Model CI/CD Success: train-and-promote"
+          else:
+            subject = "[TicketForge] Model CI/CD Failure: train-and-promote"
 
-          sender = os.environ.get("GMAIL_APP_USERNAME")
+          body_lines = [
+            "Job:     train-and-promote",
+            f"Status:  {status.upper()}",
+            f"Trigger: {trigger}",
+            f"Run:     {run_url}",
+            "",
+          ]
+
+          if not is_success:
+            body_lines += [
+              "Error:",
+              f"  Job finished with status '{status}'. Check the run URL above for details.",
+              "",
+            ]
+
+          body = "\n".join(body_lines)
+
+          sender   = os.environ.get("GMAIL_APP_USERNAME")
           password = os.environ.get("GMAIL_APP_PASSWORD")
           if not sender or not password:
-            print("Email credentials not set — skipping notification")
+            print("GMAIL_APP_USERNAME / GMAIL_APP_PASSWORD not set — skipping notification")
             raise SystemExit(0)
 
-          msg = MIMEText(body)
+          msg = MIMEText(f"<pre>{body}</pre>", "html")
           msg["Subject"] = subject
-          msg["From"] = sender
-          msg["To"] = sender
+          msg["From"]    = sender
+          msg["To"]      = sender
 
           with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
             smtp.login(sender, password)
