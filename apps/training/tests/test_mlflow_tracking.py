@@ -74,6 +74,16 @@ def _make_full_run_dir(tmp_path: Path, model_name: str = "forest") -> Path:
   return run_dir
 
 
+def _make_reusable_ctx(run_id: str = "mock-run-id") -> MagicMock:
+  """Return a context manager mock reusable across unlimited start_run calls."""
+  run = MagicMock()
+  run.info.run_id = run_id
+  ctx = MagicMock()
+  ctx.__enter__ = MagicMock(return_value=run)
+  ctx.__exit__ = MagicMock(return_value=False)
+  return ctx
+
+
 # ---------------------------------------------------------------------------
 # _log_trial_runs
 # ---------------------------------------------------------------------------
@@ -92,12 +102,9 @@ class TestLogTrialRuns:
     from training.analysis.mlflow_tracking import _log_trial_runs
 
     cv_path = _make_cv_results(tmp_path, "forest")
-    mock_run = MagicMock()
-    mock_run.__enter__ = MagicMock(return_value=mock_run)
-    mock_run.__exit__ = MagicMock(return_value=False)
 
     with patch("training.analysis.mlflow_tracking.mlflow") as mock_mlflow:
-      mock_mlflow.start_run.return_value = mock_run
+      mock_mlflow.start_run.return_value = _make_reusable_ctx()
       _log_trial_runs("parent-run-id", "forest", cv_path)
 
     # Two trials → two start_run calls
@@ -107,12 +114,9 @@ class TestLogTrialRuns:
     from training.analysis.mlflow_tracking import _log_trial_runs
 
     cv_path = _make_cv_results(tmp_path, "forest")
-    mock_ctx = MagicMock()
-    mock_ctx.__enter__ = MagicMock(return_value=mock_ctx)
-    mock_ctx.__exit__ = MagicMock(return_value=False)
 
     with patch("training.analysis.mlflow_tracking.mlflow") as mock_mlflow:
-      mock_mlflow.start_run.return_value = mock_ctx
+      mock_mlflow.start_run.return_value = _make_reusable_ctx()
       _log_trial_runs("parent-run-id", "forest", cv_path)
 
     # log_params called once per trial
@@ -124,12 +128,9 @@ class TestLogTrialRuns:
     from training.analysis.mlflow_tracking import _log_trial_runs
 
     cv_path = _make_cv_results(tmp_path, "xgboost")
-    mock_ctx = MagicMock()
-    mock_ctx.__enter__ = MagicMock(return_value=mock_ctx)
-    mock_ctx.__exit__ = MagicMock(return_value=False)
 
     with patch("training.analysis.mlflow_tracking.mlflow") as mock_mlflow:
-      mock_mlflow.start_run.return_value = mock_ctx
+      mock_mlflow.start_run.return_value = _make_reusable_ctx()
       _log_trial_runs("my-parent-id", "xgboost", cv_path)
 
     for c in mock_mlflow.start_run.call_args_list:
@@ -152,14 +153,8 @@ class TestLogModelRun:
     _make_grid_pickle(run_dir, "forest")
     _make_cv_results(run_dir, "forest")
 
-    mock_run = MagicMock()
-    mock_run.info.run_id = "child-run-id"
-    mock_ctx = MagicMock()
-    mock_ctx.__enter__ = MagicMock(return_value=mock_run)
-    mock_ctx.__exit__ = MagicMock(return_value=False)
-
     with patch("training.analysis.mlflow_tracking.mlflow") as mock_mlflow:
-      mock_mlflow.start_run.return_value = mock_ctx
+      mock_mlflow.start_run.return_value = _make_reusable_ctx("child-run-id")
       _log_model_run("parent-id", "run_001", "forest", run_dir)
 
     mock_mlflow.log_metrics.assert_called_once()
@@ -172,18 +167,11 @@ class TestLogModelRun:
     _make_eval_json(run_dir, "forest")
     _make_grid_pickle(run_dir, "forest")
     _make_cv_results(run_dir, "forest")
-    # Create the sensitivity plots that run_sensitivity_analysis would produce
     (run_dir / "hyperparam_sensitivity_forest.png").write_bytes(b"fake-png")
     (run_dir / "shap_importance_forest.png").write_bytes(b"fake-png")
 
-    mock_run = MagicMock()
-    mock_run.info.run_id = "child-run-id"
-    mock_ctx = MagicMock()
-    mock_ctx.__enter__ = MagicMock(return_value=mock_run)
-    mock_ctx.__exit__ = MagicMock(return_value=False)
-
     with patch("training.analysis.mlflow_tracking.mlflow") as mock_mlflow:
-      mock_mlflow.start_run.return_value = mock_ctx
+      mock_mlflow.start_run.return_value = _make_reusable_ctx("child-run-id")
       _log_model_run("parent-id", "run_001", "forest", run_dir)
 
     artifact_calls = mock_mlflow.log_artifact.call_args_list
@@ -198,14 +186,8 @@ class TestLogModelRun:
     run_dir.mkdir()
     _make_grid_pickle(run_dir, "forest")
 
-    mock_run = MagicMock()
-    mock_run.info.run_id = "child-run-id"
-    mock_ctx = MagicMock()
-    mock_ctx.__enter__ = MagicMock(return_value=mock_run)
-    mock_ctx.__exit__ = MagicMock(return_value=False)
-
     with patch("training.analysis.mlflow_tracking.mlflow") as mock_mlflow:
-      mock_mlflow.start_run.return_value = mock_ctx
+      mock_mlflow.start_run.return_value = _make_reusable_ctx("child-run-id")
       # Should not raise
       _log_model_run("parent-id", "run_001", "forest", run_dir)
 
@@ -219,14 +201,8 @@ class TestLogModelRun:
     _make_cv_results(run_dir, "forest")
     (run_dir / "bias_forest_repo.txt").write_text("bias report")
 
-    mock_run = MagicMock()
-    mock_run.info.run_id = "child-run-id"
-    mock_ctx = MagicMock()
-    mock_ctx.__enter__ = MagicMock(return_value=mock_run)
-    mock_ctx.__exit__ = MagicMock(return_value=False)
-
     with patch("training.analysis.mlflow_tracking.mlflow") as mock_mlflow:
-      mock_mlflow.start_run.return_value = mock_ctx
+      mock_mlflow.start_run.return_value = _make_reusable_ctx("child-run-id")
       _log_model_run("parent-id", "run_001", "forest", run_dir)
 
     artifact_calls = mock_mlflow.log_artifact.call_args_list
@@ -287,17 +263,9 @@ class TestLogRunToMlflow:
     run_dir = _make_full_run_dir(tmp_path)
     run_id = run_dir.name
 
-    parent_run = MagicMock()
-    parent_run.info.run_id = "parent-mlflow-id"
-    parent_ctx = MagicMock()
-    parent_ctx.__enter__ = MagicMock(return_value=parent_run)
-    parent_ctx.__exit__ = MagicMock(return_value=False)
-
-    child_run = MagicMock()
-    child_run.info.run_id = "child-mlflow-id"
-    child_ctx = MagicMock()
-    child_ctx.__enter__ = MagicMock(return_value=child_run)
-    child_ctx.__exit__ = MagicMock(return_value=False)
+    # Use return_value (not side_effect list) so the same context is returned
+    # for all start_run calls: parent + search_forest + trial_000 + trial_001
+    parent_ctx = _make_reusable_ctx("parent-mlflow-id")
 
     with (
       patch("training.analysis.mlflow_tracking.TRAIN_USE_DUMMY_DATA", False),
@@ -307,7 +275,7 @@ class TestLogRunToMlflow:
       patch("training.analysis.mlflow_tracking.joblib"),
     ):
       mp.models_root = tmp_path
-      mock_mlflow.start_run.side_effect = [parent_ctx, child_ctx]
+      mock_mlflow.start_run.return_value = parent_ctx
       result = log_run_to_mlflow(run_id)
 
     assert result == "parent-mlflow-id"
@@ -319,18 +287,7 @@ class TestLogRunToMlflow:
     (run_dir / "performance.png").write_bytes(b"fake-png")
     run_id = run_dir.name
 
-    parent_run = MagicMock()
-    parent_run.info.run_id = "parent-id"
-    parent_ctx = MagicMock()
-    parent_ctx.__enter__ = MagicMock(return_value=parent_run)
-    parent_ctx.__exit__ = MagicMock(return_value=False)
-
-    child_ctx = MagicMock()
-    child_run = MagicMock()
-    child_run.info.run_id = "child-id"
-    child_ctx.__enter__ = MagicMock(return_value=child_run)
-    child_ctx.__exit__ = MagicMock(return_value=False)
-
+    # Same fix: return_value handles all 4 start_run calls
     with (
       patch("training.analysis.mlflow_tracking.TRAIN_USE_DUMMY_DATA", False),
       patch("training.analysis.mlflow_tracking.Paths") as mp,
@@ -339,7 +296,7 @@ class TestLogRunToMlflow:
       patch("training.analysis.mlflow_tracking.joblib"),
     ):
       mp.models_root = tmp_path
-      mock_mlflow.start_run.side_effect = [parent_ctx, child_ctx]
+      mock_mlflow.start_run.return_value = _make_reusable_ctx("parent-id")
       log_run_to_mlflow(run_id)
 
     artifact_calls = mock_mlflow.log_artifact.call_args_list
@@ -401,11 +358,13 @@ class TestPromoteBestModel:
 
     run_dir = tmp_path / "run_no_pkl"
     run_dir.mkdir()
-    _make_best_txt(run_dir, "forest")  # points at forest, but no forest.pkl
+    _make_best_txt(run_dir, "forest")
 
     with (
       patch("training.analysis.mlflow_tracking.TRAIN_USE_DUMMY_DATA", False),
       patch("training.analysis.mlflow_tracking.Paths") as mp,
+      patch("training.analysis.mlflow_tracking._setup_experiment"),
+      patch("training.analysis.mlflow_tracking.MlflowClient"),
     ):
       mp.models_root = tmp_path
       result = promote_best_model("run_no_pkl")
@@ -429,10 +388,6 @@ class TestPromoteBestModel:
     mock_client.get_latest_versions.return_value = [new_mv]
     mock_client.search_model_versions.return_value = [old_mv]
 
-    promo_ctx = MagicMock()
-    promo_ctx.__enter__ = MagicMock(return_value=MagicMock())
-    promo_ctx.__exit__ = MagicMock(return_value=False)
-
     with (
       patch("training.analysis.mlflow_tracking.TRAIN_USE_DUMMY_DATA", False),
       patch("training.analysis.mlflow_tracking.Paths") as mp,
@@ -441,16 +396,14 @@ class TestPromoteBestModel:
       patch("training.analysis.mlflow_tracking.mlflow") as mock_mlflow,
     ):
       mp.models_root = tmp_path
-      mock_mlflow.start_run.return_value = promo_ctx
+      mock_mlflow.start_run.return_value = _make_reusable_ctx()
       result = promote_best_model(run_id)
 
-    # Old Production version must be archived first
     mock_client.transition_model_version_stage.assert_any_call(
       name="ticket-forge-best",
       version="1",
       stage="Archived",
     )
-    # New version must be promoted to Production
     mock_client.transition_model_version_stage.assert_any_call(
       name="ticket-forge-best",
       version="2",
@@ -469,11 +422,7 @@ class TestPromoteBestModel:
 
     mock_client = MagicMock()
     mock_client.get_latest_versions.return_value = [new_mv]
-    mock_client.search_model_versions.return_value = []  # no previous Production
-
-    promo_ctx = MagicMock()
-    promo_ctx.__enter__ = MagicMock(return_value=MagicMock())
-    promo_ctx.__exit__ = MagicMock(return_value=False)
+    mock_client.search_model_versions.return_value = []
 
     with (
       patch("training.analysis.mlflow_tracking.TRAIN_USE_DUMMY_DATA", False),
@@ -483,7 +432,7 @@ class TestPromoteBestModel:
       patch("training.analysis.mlflow_tracking.mlflow") as mock_mlflow,
     ):
       mp.models_root = tmp_path
-      mock_mlflow.start_run.return_value = promo_ctx
+      mock_mlflow.start_run.return_value = _make_reusable_ctx()
       result = promote_best_model(run_id)
 
     assert result == "5"
@@ -497,11 +446,7 @@ class TestPromoteBestModel:
     run_id = run_dir.name
 
     mock_client = MagicMock()
-    mock_client.get_latest_versions.return_value = []  # empty — registration failed
-
-    promo_ctx = MagicMock()
-    promo_ctx.__enter__ = MagicMock(return_value=MagicMock())
-    promo_ctx.__exit__ = MagicMock(return_value=False)
+    mock_client.get_latest_versions.return_value = []
 
     with (
       patch("training.analysis.mlflow_tracking.TRAIN_USE_DUMMY_DATA", False),
@@ -511,7 +456,7 @@ class TestPromoteBestModel:
       patch("training.analysis.mlflow_tracking.mlflow") as mock_mlflow,
     ):
       mp.models_root = tmp_path
-      mock_mlflow.start_run.return_value = promo_ctx
+      mock_mlflow.start_run.return_value = _make_reusable_ctx()
       result = promote_best_model(run_id)
 
     assert result is None
