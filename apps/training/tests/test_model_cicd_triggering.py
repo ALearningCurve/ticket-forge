@@ -14,6 +14,8 @@ def _run_filter(changed_files: str, event: str = "push") -> str:
   env = os.environ.copy()
   env["CHANGED_FILES_OVERRIDE"] = changed_files
   env["GITHUB_EVENT_NAME"] = event
+  # Unset GITHUB_OUTPUT so script writes to stdout instead of file
+  env.pop("GITHUB_OUTPUT", None)
   result = subprocess.run(
     ["bash", str(script)],
     cwd=root,
