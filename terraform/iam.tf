@@ -87,6 +87,9 @@ locals {
     "roles/compute.admin",                   # Manage VM instances, Disks, Networks
     "roles/container.admin",                 # Manage GKE Clusters
     "roles/run.admin",                       # Manage Cloud Run Services
+    "roles/artifactregistry.admin",          # Manage Artifact Registry repositories/images
+    "roles/cloudsql.admin",                  # Manage Cloud SQL instances/databases/users
+    "roles/secretmanager.admin",             # Manage Secret Manager secrets/versions/iam
     "roles/storage.admin",                   # Manage GCS Buckets
     "roles/iam.serviceAccountUser",          # REQUIRED: To attach Service Accounts to Compute/Cloud Run
     "roles/iam.securityReviewer",            # View IAM policies
