@@ -31,6 +31,8 @@ import mlflow.sklearn
 from mlflow.tracking import MlflowClient
 from shared.configuration import TRAIN_USE_DUMMY_DATA, Paths, getenv_or
 from shared.logging import get_logger
+from training.analysis.gate_config import load_gate_config
+from training.analysis.regression_guardrail import evaluate_regression_guardrail
 
 logger = get_logger(__name__)
 
@@ -295,13 +297,19 @@ def _read_best_model_name(run_dir: Path) -> str | None:
   return None
 
 
-def _register_model(model: object, best_model_name: str, run_id: str) -> bool:
+def _register_model(
+  model: object,
+  best_model_name: str,
+  run_id: str,
+  candidate_metrics: dict[str, float],
+) -> bool:
   """Register the model in the MLflow Model Registry.
 
   Args:
       model:            Fitted sklearn estimator to register.
       best_model_name:  Name of the best model (used as run tag).
       run_id:           Training run identifier (used as run tag).
+      candidate_metrics: Candidate eval metrics stored on promotion run.
 
   Returns:
       True if registration succeeded, False otherwise.
@@ -316,6 +324,9 @@ def _register_model(model: object, best_model_name: str, run_id: str) -> bool:
         artifact_path="model",
         registered_model_name=_REGISTERED_MODEL_NAME,
       )
+      if candidate_metrics:
+        eval_metrics = {f"eval_{k}": float(v) for k, v in candidate_metrics.items()}
+        mlflow.log_metrics(eval_metrics)
   except Exception:
     logger.exception("Model registration failed for %s", best_model_name)
     return False
@@ -332,20 +343,12 @@ def _transition_to_production(client: MlflowClient, new_version: str) -> bool:
   Returns:
       True if transition succeeded, False otherwise.
   """
+  previous_prod_versions: list[str] = []
   try:
     all_versions = client.search_model_versions(f"name='{_REGISTERED_MODEL_NAME}'")
     for mv in all_versions:
       if mv.current_stage == "Production" and mv.version != new_version:
-        client.transition_model_version_stage(
-          name=_REGISTERED_MODEL_NAME,
-          version=mv.version,
-          stage="Archived",
-        )
-        logger.info(
-          "Archived previous Production version %s of '%s'",
-          mv.version,
-          _REGISTERED_MODEL_NAME,
-        )
+        previous_prod_versions.append(mv.version)
 
     client.transition_model_version_stage(
       name=_REGISTERED_MODEL_NAME,
@@ -357,6 +360,19 @@ def _transition_to_production(client: MlflowClient, new_version: str) -> bool:
       _REGISTERED_MODEL_NAME,
       new_version,
     )
+
+    # Archive old production versions only after new version is safely promoted.
+    for old_version in previous_prod_versions:
+      client.transition_model_version_stage(
+        name=_REGISTERED_MODEL_NAME,
+        version=old_version,
+        stage="Archived",
+      )
+      logger.info(
+        "Archived previous Production version %s of '%s'",
+        old_version,
+        _REGISTERED_MODEL_NAME,
+      )
   except Exception:
     logger.exception(
       "Stage transition failed for version %s of '%s'",
@@ -367,7 +383,12 @@ def _transition_to_production(client: MlflowClient, new_version: str) -> bool:
   return True
 
 
-def _load_and_register(run_dir: Path, best_model_name: str, run_id: str) -> bool:
+def _load_and_register(
+  run_dir: Path,
+  best_model_name: str,
+  run_id: str,
+  candidate_metrics: dict[str, float],
+) -> bool:
   """Load the best model pickle and register it in the MLflow Model Registry.
 
   Checks that the pickle exists, loads the fitted estimator from the
@@ -378,6 +399,7 @@ def _load_and_register(run_dir: Path, best_model_name: str, run_id: str) -> bool
       run_dir:          Training run directory containing the pickle file.
       best_model_name:  Model name used to locate ``{model}.pkl``.
       run_id:           Training run identifier (logged as an MLflow tag).
+      candidate_metrics: Candidate eval metrics logged during registration.
 
   Returns:
       True if loading and registration both succeeded, False otherwise.
@@ -392,7 +414,66 @@ def _load_and_register(run_dir: Path, best_model_name: str, run_id: str) -> bool
   except Exception:
     logger.exception("Could not load model from %s", pkl_path)
     return False
-  return _register_model(model, best_model_name, run_id)
+  return _register_model(model, best_model_name, run_id, candidate_metrics)
+
+
+def _read_candidate_metrics(run_dir: Path, best_model_name: str) -> dict[str, float]:
+  """Read candidate eval metrics from eval_{model}.json.
+
+  Args:
+      run_dir: Training run directory.
+      best_model_name: Best model identifier.
+
+  Returns:
+      Metrics dictionary or empty dict when file is missing.
+  """
+  eval_path = run_dir / f"eval_{best_model_name}.json"
+  if not eval_path.exists():
+    logger.warning("Eval file not found at %s", eval_path)
+    return {}
+  try:
+    with open(eval_path) as f:
+      raw = json.load(f)
+  except Exception:
+    logger.exception("Could not parse eval metrics at %s", eval_path)
+    return {}
+
+  return {k: float(v) for k, v in raw.items() if isinstance(v, int | float)}
+
+
+def _load_baseline_metrics(
+  client: MlflowClient,
+) -> tuple[str | None, dict[str, float] | None]:
+  """Load production baseline version and metrics from MLflow.
+
+  Args:
+      client: MLflow tracking client.
+
+  Returns:
+      Tuple of (version, metrics) where metrics can be None.
+  """
+  try:
+    versions = client.get_latest_versions(_REGISTERED_MODEL_NAME, stages=["Production"])
+  except Exception:
+    logger.warning("Could not retrieve production baseline from registry")
+    return None, None
+
+  if not versions:
+    return None, None
+
+  version = versions[0]
+  try:
+    run_data = client.get_run(version.run_id).data
+  except Exception:
+    logger.warning("Could not load run data for production version %s", version.version)
+    return version.version, None
+
+  metrics: dict[str, float] = {}
+  for key in ("eval_mae", "eval_rmse", "eval_r2", "mae", "rmse", "r2"):
+    if key in run_data.metrics:
+      metrics[key.replace("eval_", "")] = float(run_data.metrics[key])
+
+  return version.version, metrics or None
 
 
 def _get_new_version(client: MlflowClient, best_model_name: str) -> str | None:
@@ -448,30 +529,40 @@ def promote_best_model(run_id: str) -> str | None:
   Returns:
       The new model version string, or None if promotion failed.
   """
+  promoted_version: str | None = None
+
   if TRAIN_USE_DUMMY_DATA:
     logger.info("TRAIN_USE_DUMMY_DATA=True — skipping model promotion")
-    return None
+  else:
+    run_dir = Paths.models_root / run_id
+    best_model_name = _read_best_model_name(run_dir)
+    if best_model_name:
+      candidate_metrics = _read_candidate_metrics(run_dir, best_model_name)
 
-  run_dir = Paths.models_root / run_id
+      _setup_experiment()
+      client = MlflowClient()
 
-  best_model_name = _read_best_model_name(run_dir)
-  if not best_model_name:
-    return None
+      _, baseline_metrics = _load_baseline_metrics(client)
+      guard_config = load_gate_config()
+      guard_result = evaluate_regression_guardrail(
+        candidate_metrics,
+        baseline_metrics,
+        guard_config.max_regression_degradation,
+      )
+      if not guard_result["passed"]:
+        logger.error(
+          "Regression guardrail failed for run %s: %s",
+          run_id,
+          guard_result.get("fail_reasons", []),
+        )
+      else:
+        loaded = _load_and_register(run_dir, best_model_name, run_id, candidate_metrics)
+        if loaded:
+          new_version = _get_new_version(client, best_model_name)
+          if new_version is not None and _transition_to_production(client, new_version):
+            promoted_version = new_version
 
-  _setup_experiment()
-  client = MlflowClient()
-
-  if not _load_and_register(run_dir, best_model_name, run_id):
-    return None
-
-  new_version = _get_new_version(client, best_model_name)
-  if new_version is None:
-    return None
-
-  if not _transition_to_production(client, new_version):
-    return None
-
-  return new_version
+  return promoted_version
 
 
 if __name__ == "__main__":

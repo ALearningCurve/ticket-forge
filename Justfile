@@ -98,6 +98,18 @@ get-wif-provider:
 get-repo-id repo='alearningcurve/ticket-forge':
     @gh api -H "Accept: application/vnd.github+json" repos/{{ repo }} | jq .id
 
+[group('terraform')]
+tf-build-push-mlflow-image repo='mlflow-repo' tag='v3.10.0':
+    @: "${TF_VAR_project_id:?TF_VAR_project_id must be set in .env}"
+    @: "${TF_VAR_region:?TF_VAR_region must be set in .env}"
+    gcloud services enable artifactregistry.googleapis.com --project="${TF_VAR_project_id}"
+    @if ! gcloud artifacts repositories describe "{{ repo }}" --location="${TF_VAR_region}" --project="${TF_VAR_project_id}" >/dev/null 2>&1; then \
+        gcloud artifacts repositories create "{{ repo }}" --repository-format=docker --location="${TF_VAR_region}" --description="MLflow server images" --project="${TF_VAR_project_id}"; \
+    fi
+    gcloud auth configure-docker "${TF_VAR_region}-docker.pkg.dev"
+    printf '%s\n' "FROM ghcr.io/mlflow/mlflow:{{ tag }}-full" "RUN pip install --no-cache-dir google-cloud-storage Flask-WTF" | docker build -t "${TF_VAR_region}-docker.pkg.dev/${TF_VAR_project_id}/{{ repo }}/mlflow-gcp:{{ tag }}" -f- .
+    docker push "${TF_VAR_region}-docker.pkg.dev/${TF_VAR_project_id}/{{ repo }}/mlflow-gcp:{{ tag }}"
+
 # starts airflow docker environment
 [group('airflow')]
 airflow-up:

@@ -138,6 +138,6 @@ resource "google_storage_bucket_iam_member" "tf_apply_state_access" {
 # ML pipeline needs read/write on the DVC data bucket
 resource "google_storage_bucket_iam_member" "ml_pipeline_dvc_access" {
   bucket = var.data_bucket
-  role   = "roles/storage.objectAdmin"
+  role   = "roles/storage.objectUser"
   member = "serviceAccount:${google_service_account.ml_pipeline.email}"
 }

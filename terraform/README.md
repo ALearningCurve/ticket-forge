@@ -1,6 +1,10 @@
 # Terraform
 
-This folder manages a demo GCP storage bucket and uses a GCS backend for state.
+This folder manages ticket-forge infrastructure on GCP, including:
+
+- Terraform state and DVC/model storage buckets.
+- GitHub Actions Workload Identity Federation service accounts.
+- A private MLflow tracking server on Cloud Run with Cloud SQL backend.
 
 ## Prerequisites
 
@@ -20,7 +24,37 @@ This needs to be done once per GCP project.
 TF_VAR_project_id=YOUR_PROJECT_ID # update to your GCP project id
 TF_VAR_region=us-east1
 TF_VAR_state_bucket=ticketforge-terraform
+# Optional MLflow overrides
+# TF_VAR_mlflow_artifact_registry_repository=mlflow-repo
+# TF_VAR_mlflow_image_tag=v3.10.0
+# Optional explicit override (must be docker.io, gcr.io, or docker.pkg.dev)
+# TF_VAR_mlflow_server_image=us-east1-docker.pkg.dev/YOUR_PROJECT_ID/mlflow-repo/mlflow-gcp:v3.10.0
+# TF_VAR_mlflow_additional_invokers=["user:you@example.com"]
 ```
+
+### MLflow image build and push (recommended)
+
+Following the MLflow GCP self-hosting guide, build your own image and push to
+Artifact Registry before `just tf-apply`:
+
+
+```bash
+source .env
+just tf-build-push-mlflow-image mlflow-repo v3.10.0
+```
+
+You can omit args to use defaults:
+
+```bash
+just tf-build-push-mlflow-image
+```
+
+The command enables `artifactregistry.googleapis.com` and creates the target
+repository if it does not exist.
+
+Terraform defaults now point Cloud Run at:
+
+`<region>-docker.pkg.dev/<project>/mlflow-repo/mlflow-gcp:<tag>`
 
 (note, if you have forked this repo, then set the `repository*` variables as well in `variables.tf`. There are helper scripts like `just get-repo-id YOUR-REPO` to help with this)
 
@@ -62,5 +96,38 @@ WIF_PROVIDER_ID=${output from step 2}
 TF_VAR_PROJECT_ID=your-gcp-project-id
 TF_VAR_STATE_BUCKET=your-tf-state-bucket-name
 TF_VAR_REGION=us-east1
+MLFLOW_TRACKING_URI=${terraform output -raw mlflow_tracking_uri}
+MLFLOW_TRACKING_AUDIENCE=${terraform output -raw mlflow_tracking_audience}
 ...
+```
+
+## MLflow Access Model (POC)
+
+The current POC deployment exposes the Cloud Run MLflow endpoint publicly
+(`allUsers` invoker) and enables MLflow app-level auth (`--app-name basic-auth`).
+
+For production, prefer Cloud Run IAM-private access and explicit invoker grants.
+
+## Local Invocation (POC)
+
+Direct endpoint usage:
+
+```bash
+export MLFLOW_TRACKING_URI="$(just tf output -raw mlflow_tracking_uri)"
+```
+
+Proxy usage (recommended for local browser testing):
+
+```bash
+gcloud run services proxy mlflow-tracking \
+  --region us-east1 \
+  --project ticketforge-488020 \
+  --port 8080
+export MLFLOW_TRACKING_URI="http://127.0.0.1:8080"
+
+# Example: list experiments
+uv run python - <<'PY'
+import mlflow
+print([e.name for e in mlflow.search_experiments()])
+PY
 ```

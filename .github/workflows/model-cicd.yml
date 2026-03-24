@@ -23,43 +23,88 @@ jobs:
   train-and-promote:
     name: Train / Run & Promote Best Model
     runs-on: ubuntu-latest
+    outputs:
+      run_id: ${{ steps.run-meta.outputs.run_id }}
+      gate_report: ${{ steps.run-meta.outputs.gate_report }}
+      executed: ${{ steps.model-filter.outputs.should_run }}
+      skip_reason: ${{ steps.model-filter.outputs.reason }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Check model-impacting changes
+        id: model-filter
+        shell: bash
+        run: |
+          bash scripts/ci/model_change_filter.sh
+
+      - name: Skip rationale
+        if: github.event_name == 'push' && steps.model-filter.outputs.should_run != 'true'
+        run: |
+          echo "Skipping model training: ${{ steps.model-filter.outputs.reason }}"
+          echo "### Model CI/CD Skipped" >> $GITHUB_STEP_SUMMARY
+          echo "Reason: ${{ steps.model-filter.outputs.reason }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Set run metadata
+        id: run-meta
+        if: github.event_name != 'push' || steps.model-filter.outputs.should_run == 'true'
+        run: |
+          RUN_ID="${{ github.run_id }}-${{ github.run_attempt }}"
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "gate_report=models/$RUN_ID/gate_report.json" >> "$GITHUB_OUTPUT"
+
       - name: Install just
+        if: github.event_name != 'push' || steps.model-filter.outputs.should_run == 'true'
         uses: taiki-e/install-action@just
 
       - name: Setup uv
+        if: github.event_name != 'push' || steps.model-filter.outputs.should_run == 'true'
         uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
 
       - name: Install dependencies
+        if: github.event_name != 'push' || steps.model-filter.outputs.should_run == 'true'
         run: just install-deps
 
       - name: Authenticate to Google Cloud
+        if: github.event_name != 'push' || steps.model-filter.outputs.should_run == 'true'
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ secrets.WIF_PROVIDER_ID }}
           service_account: 'ml-pipeline-sa@${{ secrets.TF_VAR_PROJECT_ID }}.iam.gserviceaccount.com'
 
       - name: Pull latest DVC data
+        if: github.event_name != 'push' || steps.model-filter.outputs.should_run == 'true'
         run: dvc pull
 
-      - name: Run training pipeline
+      - name: Mint MLflow identity token
+        id: mlflow-token
+        if: github.event_name != 'push' || steps.model-filter.outputs.should_run == 'true'
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER_ID }}
+          service_account: 'ml-pipeline-sa@${{ secrets.TF_VAR_PROJECT_ID }}.iam.gserviceaccount.com'
+          token_format: id_token
+          id_token_audience: ${{ secrets.MLFLOW_TRACKING_AUDIENCE }}
+
+      - name: Run training and gate pipeline
+        if: github.event_name != 'push' || steps.model-filter.outputs.should_run == 'true'
         run: |
           # Promote on push/schedule; honour the promote input on workflow_dispatch.
           PROMOTE="${{ github.event_name != 'workflow_dispatch' && 'true' || github.event.inputs.promote }}"
-          if [ "$PROMOTE" = "true" ]; then
-            just train --promote
-          else
-            just train
-          fi
+          uv run -m training.cmd.run_model_cicd \
+            --runid "${{ steps.run-meta.outputs.run_id }}" \
+            --trigger "${{ github.event_name }}" \
+            --commit-sha "${{ github.sha }}" \
+            --snapshot-id "dvc-latest" \
+            --source-uri "dvc://data" \
+            --promote "$PROMOTE"
         env:
-          # Use SQLite-backed MLflow so the Model Registry is available
-          MLFLOW_TRACKING_URI: "sqlite:///mlflow.db"
+          # Defaults to sqlite when private-hosted MLflow secrets are not configured.
+          MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI != '' && secrets.MLFLOW_TRACKING_URI || 'sqlite:///mlflow.db' }}
+          MLFLOW_TRACKING_TOKEN: ${{ steps.mlflow-token.outputs.id_token }}
 
       - name: Upload model artifacts
         if: always()
@@ -68,7 +113,7 @@ jobs:
           name: model-artifacts-${{ github.run_id }}
           path: |
             models/
-            mlflow.db
+            ${{ steps.run-meta.outputs.gate_report }}
           retention-days: 30
 
   notify:
@@ -78,6 +123,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Download model artifacts
+        if: needs.train-and-promote.outputs.executed == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: model-artifacts-${{ github.run_id }}
+          path: .
+
       - name: Send email notification
         # Mirrors the body structure used by dags/email_callbacks.py:
         # same GMAIL_APP_USERNAME / GMAIL_APP_PASSWORD secrets, same
@@ -92,7 +144,27 @@ jobs:
           status  = "${{ needs.train-and-promote.result }}"
           trigger = "${{ github.event_name }}"
           run_url = "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          executed = "${{ needs.train-and-promote.outputs.executed }}"
+          skip_reason = "${{ needs.train-and-promote.outputs.skip_reason }}"
+          run_id = "${{ needs.train-and-promote.outputs.run_id }}"
           is_success = status == "success"
+
+          gate_context = ""
+          gate_report_path = f"models/{run_id}/gate_report.json" if run_id else ""
+          if run_id and os.path.exists(gate_report_path):
+            try:
+              import json
+              with open(gate_report_path, encoding="utf-8") as f:
+                gate = json.load(f)
+              gate_context = (
+                f"Gate decision: {gate.get('promotion_decision', {}).get('decision', 'unknown')}\n"
+                f"Validation passed: {gate.get('validation_gate', {}).get('passed', False)}\n"
+                f"Bias passed: {gate.get('bias_gate', {}).get('passed', False)}\n"
+                f"Regression passed: {gate.get('regression_guardrail', {}).get('passed', False)}\n"
+                f"Reasons: {gate.get('promotion_decision', {}).get('reasons', [])}\n"
+              )
+            except Exception:
+              gate_context = "Gate decision: unreadable gate report\n"
 
           if is_success:
             subject = "[TicketForge] Model CI/CD Success: train-and-promote"
@@ -104,8 +176,13 @@ jobs:
             f"Status:  {status.upper()}",
             f"Trigger: {trigger}",
             f"Run:     {run_url}",
+            f"Executed: {executed}",
+            f"Skip reason: {skip_reason}",
             "",
           ]
+
+          if gate_context:
+            body_lines += ["Gate Summary:", gate_context, ""]
 
           if not is_success:
             body_lines += [
@@ -134,6 +211,6 @@ jobs:
           print(f"Notification sent to {sender}")
           EOF
         env:
-          GMAIL_APP_USERNAME: ${{ secrets.GMAIL_APP_USERNAME }}
-          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          GMAIL_APP_USERNAME: ${{ secrets['GMAIL_APP_USERNAME'] }}
+          GMAIL_APP_PASSWORD: ${{ secrets['GMAIL_APP_PASSWORD'] }}
         continue-on-error: true

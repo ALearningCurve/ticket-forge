@@ -16,10 +16,48 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 from shared.configuration import Paths
 from shared.logging import get_logger
+from training.analysis.run_manifest import create_run_manifest, update_manifest
 
 logger = get_logger(__name__)
 models = {"forest", "linear", "svm", "xgboost"}
 models_with_sample_weight = models.difference(set(["svm"]))
+
+
+def _ensure_run_manifest(run_id: str) -> None:
+  """Create run manifest if missing.
+
+  Args:
+      run_id: Training run identifier.
+  """
+  manifest_path = Paths.models_root / run_id / "run_manifest.json"
+  if manifest_path.exists():
+    return
+
+  create_run_manifest(
+    run_id=run_id,
+    trigger_type="local",
+    commit_sha="",
+    snapshot_id="unknown",
+    source_uri="unknown",
+  )
+
+
+def persist_validation_gate_outcome(
+  run_id: str,
+  validation_gate: dict[str, object],
+) -> None:
+  """Persist validation gate outcome to run manifest and logs.
+
+  Args:
+      run_id: Training run identifier.
+      validation_gate: Validation gate payload.
+  """
+  update_manifest(run_id, validation_report=validation_gate)
+  logger.info(
+    "Validation gate updated in run manifest for %s (passed=%s)",
+    run_id,
+    validation_gate.get("passed"),
+  )
 
 
 def _parse_arguments() -> tuple[set[str], str, bool]:
@@ -144,6 +182,7 @@ def main() -> None:
   # Create output directory for this run
   run_dir = Paths.models_root / run_id
   run_dir.mkdir(parents=True, exist_ok=True)
+  _ensure_run_manifest(run_id)
 
   # Train models
   _train_models(models_list, run_id)

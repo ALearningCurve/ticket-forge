@@ -130,6 +130,52 @@ just train
 just train -m forest linear
 ```
 
+## Model CI/CD Workflow
+
+The GitHub Actions workflow at `.github/workflows/model-cicd.yml` now runs a
+gate-driven CI/CD path using `training.cmd.run_model_cicd`.
+
+### CI/CD behavior
+
+- Push events run a model-impacting path filter (`scripts/ci/model_change_filter.sh`).
+- Non-model-impacting push events are skipped with an explicit reason in step summary.
+- Model-impacting push, scheduled, and manual runs:
+    1. Pull latest DVC data.
+    2. Train models (`training.cmd.train`).
+    3. Evaluate validation gate (R2/MAE thresholds).
+    4. Evaluate bias gate from generated bias reports.
+    5. Evaluate regression guardrail against production baseline (default max degradation 10%).
+    6. Promote to MLflow Production only if all gates pass and promotion is enabled.
+
+### Gate configuration environment variables
+
+- `MODEL_CICD_MIN_R2` (default `0.60`)
+- `MODEL_CICD_MAX_MAE` (default `20.0`)
+- `MODEL_CICD_MAX_BIAS_RELATIVE_GAP` (default `0.40`)
+- `MODEL_CICD_MAX_REGRESSION_DEGRADATION` (default `0.10`)
+- `MODEL_CICD_BIAS_SLICES` (default `repo,seniority`)
+
+### MLflow tracking configuration
+
+- `MLFLOW_TRACKING_URI`
+    - Local default: filesystem-backed MLflow under `mlruns/`.
+    - CI/CD recommended: private Cloud Run MLflow URI from Terraform output
+        `mlflow_tracking_uri`.
+- `MLFLOW_TRACKING_TOKEN`
+    - Optional for local filesystem tracking.
+    - Required for private Cloud Run tracking when IAM authentication is enabled.
+    - In GitHub Actions this should be an OIDC identity token minted with audience
+        equal to `MLFLOW_TRACKING_AUDIENCE` (Terraform output
+        `mlflow_tracking_audience`).
+
+### New run artifacts
+
+Each CI run writes additional artifacts under `models/{run_id}/`:
+
+- `run_manifest.json` — machine-readable run metadata and gate outcomes
+- `gate_report.json` — contract-aligned gate and promotion decision payload
+- Existing model, eval, bias, and plot artifacts are still generated and uploaded
+
 
 ### Adding a New Model
 
