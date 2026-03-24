@@ -11,7 +11,6 @@ import numpy as np
 from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import RandomizedSearchCV
 
-
 # ---------------------------------------------------------------------------
 # Shared fixtures / helpers
 # ---------------------------------------------------------------------------
@@ -437,9 +436,7 @@ class TestPromoteBestModel:
 
     assert result == "5"
 
-  def test_returns_none_when_registry_returns_no_versions(
-    self, tmp_path: Path
-  ) -> None:
+  def test_returns_none_when_registry_returns_no_versions(self, tmp_path: Path) -> None:
     from training.analysis.mlflow_tracking import promote_best_model
 
     run_dir = _make_full_run_dir(tmp_path)

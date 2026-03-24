@@ -6,7 +6,10 @@ import re
 from pathlib import Path
 from typing import Any
 
+from shared.logging import get_logger
 from training.analysis.gate_config import GateConfig
+
+logger = get_logger(__name__)
 
 _TRUE_MARKERS = (
   "bias_detected: true",
@@ -46,6 +49,7 @@ def evaluate_bias_gate(
   """
   reports = list(run_dir.glob(f"bias_{model_name}_*.txt"))
   if not reports:
+    logger.warning("No bias reports found for model '%s' in %s", model_name, run_dir)
     return {
       "passed": False,
       "slices_evaluated": [],
@@ -62,15 +66,17 @@ def evaluate_bias_gate(
     slices.append(slice_name)
     text = report.read_text(encoding="utf-8", errors="ignore").lower()
 
+    # Check for explicit bias detection marker
     if any(marker in text for marker in _TRUE_MARKERS):
       fail_reasons.append(f"bias-detected:{slice_name}")
+      continue
 
     gap = _extract_relative_gap(text)
     if gap is not None:
       disparities[slice_name] = gap
       if gap > config.max_bias_relative_gap:
         fail_reasons.append(
-          f"relative-gap-exceeds-threshold:{slice_name}:{gap:.4f}>{config.max_bias_relative_gap:.4f}"
+          f"bias-relative-gap-exceeds-threshold:{slice_name}:{gap:.4f}>{config.max_bias_relative_gap:.4f}"
         )
 
   return {

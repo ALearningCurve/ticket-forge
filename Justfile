@@ -54,6 +54,12 @@ check:
 train *args='':
     uv run python -m training.cmd.train {{ args }}
 
+# runs the CI training script
+[group('data-pipeline')]
+[positional-arguments]
+train-with-gates *args='':
+    uv run python -m training.cmd.train_with_gates {{ args }}
+
 # initializes terraform
 [group('terraform')]
 tf-init:

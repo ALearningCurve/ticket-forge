@@ -29,18 +29,19 @@ import joblib
 import mlflow
 import mlflow.sklearn
 from mlflow.tracking import MlflowClient
-from shared.configuration import TRAIN_USE_DUMMY_DATA, Paths, getenv_or
+from shared.configuration import TRAIN_USE_DUMMY_DATA, Paths
 from shared.logging import get_logger
 from training.analysis.gate_config import load_gate_config
+from training.analysis.mlflow_config import (
+  DEFAULT_TRACKING_URI,
+  configure_mlflow_from_env,
+)
 from training.analysis.regression_guardrail import evaluate_regression_guardrail
 
 logger = get_logger(__name__)
 
 _EXPERIMENT_NAME = "ticket-forge-training"
 _REGISTERED_MODEL_NAME = "ticket-forge-best"
-
-# Default to local filesystem — no server required for issue #78
-_DEFAULT_TRACKING_URI = f"file://{Paths.repo_root / 'mlruns'}"
 
 
 def _setup_experiment() -> str:
@@ -49,9 +50,7 @@ def _setup_experiment() -> str:
   Returns:
       MLflow experiment ID string.
   """
-  tracking_uri = getenv_or("MLFLOW_TRACKING_URI", _DEFAULT_TRACKING_URI)
-  mlflow.set_tracking_uri(tracking_uri)
-  logger.info("MLflow tracking URI: %s", tracking_uri)
+  configure_mlflow_from_env(DEFAULT_TRACKING_URI)
 
   experiment = mlflow.get_experiment_by_name(_EXPERIMENT_NAME)
   if experiment is None:

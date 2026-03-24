@@ -59,6 +59,11 @@ resource "random_password" "mlflow_flask_secret_key" {
   special = false
 }
 
+resource "random_password" "mlflow_admin_password" {
+  length  = 32
+  special = false
+}
+
 resource "google_sql_database_instance" "mlflow" {
   name             = "${var.mlflow_service_name}-sql"
   region           = var.region
@@ -127,6 +132,21 @@ resource "google_secret_manager_secret_version" "mlflow_flask_secret_key" {
   secret_data = random_password.mlflow_flask_secret_key.result
 }
 
+resource "google_secret_manager_secret" "mlflow_admin_password" {
+  secret_id = "${var.mlflow_service_name}-admin-password"
+
+  replication {
+    auto {}
+  }
+
+  depends_on = [google_project_service.mlflow_services]
+}
+
+resource "google_secret_manager_secret_version" "mlflow_admin_password" {
+  secret      = google_secret_manager_secret.mlflow_admin_password.id
+  secret_data = random_password.mlflow_admin_password.result
+}
+
 resource "google_secret_manager_secret_iam_member" "mlflow_server_secret_access" {
   secret_id = google_secret_manager_secret.mlflow_db_password.id
   role      = "roles/secretmanager.secretAccessor"
@@ -135,6 +155,12 @@ resource "google_secret_manager_secret_iam_member" "mlflow_server_secret_access"
 
 resource "google_secret_manager_secret_iam_member" "mlflow_server_flask_secret_access" {
   secret_id = google_secret_manager_secret.mlflow_flask_secret_key.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.mlflow_server.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "mlflow_server_admin_password_access" {
+  secret_id = google_secret_manager_secret.mlflow_admin_password.id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.mlflow_server.email}"
 }
@@ -160,7 +186,7 @@ resource "google_cloud_run_v2_service" "mlflow" {
       command = ["/bin/sh", "-c"]
 
       args = [
-        "mlflow server --host 0.0.0.0 --port 5000 --app-name basic-auth --allowed-hosts \"*\" --backend-store-uri \"postgresql+psycopg2://${var.mlflow_db_user}:$${MLFLOW_DB_PASSWORD}@/${google_sql_database.mlflow.name}?host=/cloudsql/${google_sql_database_instance.mlflow.connection_name}\" --artifacts-destination \"gs://${var.data_bucket}/mlflow-artifacts\"",
+        "cat > /tmp/basic_auth.ini <<EOF\n[mlflow]\ndefault_permission = READ\ndatabase_uri = postgresql+psycopg2://${var.mlflow_db_user}:$${MLFLOW_DB_PASSWORD}@/${google_sql_database.mlflow.name}?host=/cloudsql/${google_sql_database_instance.mlflow.connection_name}\nadmin_username = admin\nadmin_password = $${MLFLOW_ADMIN_PASSWORD}\nEOF\nexport MLFLOW_AUTH_CONFIG_PATH=/tmp/basic_auth.ini\nexec mlflow server --host 0.0.0.0 --port 5000 --app-name basic-auth --allowed-hosts \"*\" --cors-allowed-origins \"*\" --backend-store-uri \"postgresql+psycopg2://${var.mlflow_db_user}:$${MLFLOW_DB_PASSWORD}@/${google_sql_database.mlflow.name}?host=/cloudsql/${google_sql_database_instance.mlflow.connection_name}\" --artifacts-destination \"gs://${var.data_bucket}/mlflow-artifacts\"",
       ]
 
       ports {
@@ -199,6 +225,17 @@ resource "google_cloud_run_v2_service" "mlflow" {
         }
       }
 
+      env {
+        name = "MLFLOW_ADMIN_PASSWORD"
+
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.mlflow_admin_password.secret_id
+            version = google_secret_manager_secret_version.mlflow_admin_password.version
+          }
+        }
+      }
+
       resources {
         limits = {
           cpu    = "1"
@@ -217,8 +254,10 @@ resource "google_cloud_run_v2_service" "mlflow" {
     google_sql_user.mlflow,
     google_secret_manager_secret_version.mlflow_db_password,
     google_secret_manager_secret_version.mlflow_flask_secret_key,
+    google_secret_manager_secret_version.mlflow_admin_password,
     google_secret_manager_secret_iam_member.mlflow_server_secret_access,
     google_secret_manager_secret_iam_member.mlflow_server_flask_secret_access,
+    google_secret_manager_secret_iam_member.mlflow_server_admin_password_access,
     google_project_iam_member.mlflow_server_cloudsql,
     google_storage_bucket_iam_member.mlflow_artifacts_access,
   ]

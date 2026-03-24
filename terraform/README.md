@@ -30,6 +30,11 @@ TF_VAR_state_bucket=ticketforge-terraform
 # Optional explicit override (must be docker.io, gcr.io, or docker.pkg.dev)
 # TF_VAR_mlflow_server_image=us-east1-docker.pkg.dev/YOUR_PROJECT_ID/mlflow-repo/mlflow-gcp:v3.10.0
 # TF_VAR_mlflow_additional_invokers=["user:you@example.com"]
+
+# after running tf-apply, set
+MLFLOW_TRACKING_URI=... # set to: $(gcloud run services describe mlflow-tracking --region us-east1 '--format=value(status.url)')
+MLFLOW_TRACKING_USERNAME="admin"
+MLFLOW_TRACKING_PASSWORD=...
 ```
 
 ### MLflow image build and push (recommended)
@@ -130,4 +135,44 @@ uv run python - <<'PY'
 import mlflow
 print([e.name for e in mlflow.search_experiments()])
 PY
+```
+
+## MLflow Credential Management
+
+Admin username: `admin`
+
+The Cloud Run service now bootstraps MLflow auth config at startup using
+`MLFLOW_AUTH_CONFIG_PATH` and a Secret Manager-backed admin password.
+
+- Secret name pattern: `<mlflow_service_name>-admin-password`
+- Config generated at runtime: `/tmp/basic_auth.ini`
+- `database_uri` in auth config points to Cloud SQL Postgres, so users/permissions
+  persist across revisions.
+
+Get the current bootstrap admin password:
+
+```bash
+gcloud secrets versions access latest \
+  --secret mlflow-tracking-admin-password \
+  --project ticketforge-488020
+```
+
+Important: `admin_password` in `basic_auth.ini` is used when the admin user is
+first created in the auth database. After that, password changes should be done
+through the API/UI and are persisted in the auth DB.
+
+### Change Admin Password
+
+**Method 1: REST API** (recommended for automation)
+
+```bash
+MLFLOW_URL="$(gcloud run services describe mlflow-tracking --region us-east1 '--format=value(status.url)')" # replace with output from tf-apply
+
+curl -X PATCH "$MLFLOW_URL/api/2.0/mlflow/users/update-password" \
+  -H "Content-Type: application/json" \
+  -u "admin:password1234" \
+  -d '{
+        "username": "admin",
+        "password": "secure-password"
+  }'
 ```

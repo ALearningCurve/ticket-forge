@@ -79,20 +79,10 @@ jobs:
         if: github.event_name != 'push' || steps.model-filter.outputs.should_run == 'true'
         run: dvc pull
 
-      - name: Mint MLflow identity token
-        id: mlflow-token
-        if: github.event_name != 'push' || steps.model-filter.outputs.should_run == 'true'
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ secrets.WIF_PROVIDER_ID }}
-          service_account: 'ml-pipeline-sa@${{ secrets.TF_VAR_PROJECT_ID }}.iam.gserviceaccount.com'
-          token_format: id_token
-          id_token_audience: ${{ secrets.MLFLOW_TRACKING_AUDIENCE }}
 
       - name: Run training and gate pipeline
         if: github.event_name != 'push' || steps.model-filter.outputs.should_run == 'true'
         run: |
-          # Promote on push/schedule; honour the promote input on workflow_dispatch.
           PROMOTE="${{ github.event_name != 'workflow_dispatch' && 'true' || github.event.inputs.promote }}"
           uv run -m training.cmd.run_model_cicd \
             --runid "${{ steps.run-meta.outputs.run_id }}" \
@@ -102,9 +92,24 @@ jobs:
             --source-uri "dvc://data" \
             --promote "$PROMOTE"
         env:
-          # Defaults to sqlite when private-hosted MLflow secrets are not configured.
-          MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI != '' && secrets.MLFLOW_TRACKING_URI || 'sqlite:///mlflow.db' }}
-          MLFLOW_TRACKING_TOKEN: ${{ steps.mlflow-token.outputs.id_token }}
+          # Enable automatic Cloud Run discovery (no secrets needed!)
+          MLFLOW_TRACKING_URI_FROM_GCP: "true"
+          MLFLOW_CLOUD_RUN_SERVICE: "mlflow-tracking"
+          MLFLOW_GCP_REGION: ${{ secrets.TF_VAR_REGION }}
+          MLFLOW_GCP_PROJECT_ID: ${{ secrets.TF_VAR_PROJECT_ID }}
+
+          # Fallback: if Cloud Run discovery fails, use explicit secret
+          MLFLOW_TRACKING_USERNAME: ${{ secrets.MLFLOW_TRACKING_USERNAME }}
+          MLFLOW_TRACKING_PASSWORD: ${{ secrets.MLFLOW_TRACKING_PASSWORD }}
+
+          # Gate tuning (optional)
+          MODEL_CICD_MIN_R2: "-1.0"                          # R² threshold (default: -1.0 = disabled)
+          MODEL_CICD_MAX_MAE: "40.0"                         # Mean Absolute Error threshold
+          MODEL_CICD_MAX_BIAS_RELATIVE_GAP: "0.70"           # Bias disparity tolerance
+          MODEL_CICD_MAX_REGRESSION_DEGRADATION: "0.10"      # % degradation vs production
+
+          MLFLOW_MAX_TUNING_RUNS: "5"                        # Hyperparameter tuning iterations (default: 50)
+          TICKET_FORGE_DATASET_ID: "github_issues-2026-03-24T092907Z"  # Optional: override dataset selection
 
       - name: Upload model artifacts
         if: always()
@@ -211,6 +216,6 @@ jobs:
           print(f"Notification sent to {sender}")
           EOF
         env:
-          GMAIL_APP_USERNAME: ${{ secrets['GMAIL_APP_USERNAME'] }}
-          GMAIL_APP_PASSWORD: ${{ secrets['GMAIL_APP_PASSWORD'] }}
+          GMAIL_APP_USERNAME: ${{ secrets.GMAIL_APP_USERNAME }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
         continue-on-error: true

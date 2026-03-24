@@ -15,8 +15,16 @@ from shared.logging import get_logger
 from training.analysis.bias_gate import evaluate_bias_gate
 from training.analysis.gate_config import load_gate_config
 from training.analysis.gate_report import build_gate_report, write_gate_report
+from training.analysis.mlflow_config import (
+  DEFAULT_TRACKING_URI,
+  configure_mlflow_from_env,
+)
 from training.analysis.regression_guardrail import evaluate_regression_guardrail
-from training.analysis.run_manifest import create_run_manifest, update_manifest
+from training.analysis.run_manifest import (
+  create_run_manifest,
+  load_manifest,
+  update_manifest,
+)
 from training.analysis.validation_gate import evaluate_validation_gate
 
 logger = get_logger(__name__)
@@ -27,7 +35,9 @@ def _parse_args() -> argparse.Namespace:
   parser = argparse.ArgumentParser(description="Run training + gate checks in CI")
   parser.add_argument("--runid", required=True, help="Run identifier")
   parser.add_argument("--trigger", default="push", help="Trigger type")
-  parser.add_argument("--commit-sha", default="", help="Commit SHA")
+  parser.add_argument(
+    "--commit-sha", default=_get_git_commit_sha() or "", help="Commit SHA"
+  )
   parser.add_argument("--snapshot-id", default="dvc-latest", help="DVC snapshot id")
   parser.add_argument("--source-uri", default="dvc://data", help="Dataset source URI")
   parser.add_argument(
@@ -37,6 +47,21 @@ def _parse_args() -> argparse.Namespace:
     help="Whether to promote when gates pass",
   )
   return parser.parse_args()
+
+
+def _get_git_commit_sha() -> str | None:
+  try:
+    # Run the git command to get the full SHA of the current HEAD
+    result = subprocess.run(
+      ["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True
+    )
+    return result.stdout.strip()
+  except subprocess.CalledProcessError:
+    logger.exception("Error running git command")
+    return None
+  except FileNotFoundError:
+    logger.exception("Git is not installed or not in PATH.")
+    return None
 
 
 def _run_training(run_id: str) -> None:
@@ -120,8 +145,10 @@ def _load_production_baseline() -> tuple[str | None, dict[str, float] | None]:
 def main() -> int:
   """Run CI model workflow and return process exit code."""
   args = _parse_args()
+  configure_mlflow_from_env(DEFAULT_TRACKING_URI)
+
   run_id = args.runid
-  run_dir = Paths.models_root / run_id
+  run_dir: Path = Paths.models_root / run_id
 
   create_run_manifest(
     run_id=run_id,
@@ -131,7 +158,10 @@ def main() -> int:
     source_uri=args.source_uri,
   )
 
-  _run_training(run_id)
+  if run_dir.exists():
+    logger.warning("RUN_ID already exists, skipping training")
+  else:
+    _run_training(run_id)
 
   best_model = _read_best_model(run_dir)
   candidate_metrics = _read_eval_metrics(run_dir, best_model)
@@ -259,7 +289,11 @@ def main() -> int:
   )
 
   logger.info("Gate report written to %s", report_path)
+  manifest = load_manifest(run_id)
+  logger.info(f"Manifest: {json.dumps(manifest, indent=2)}")
+
   if promotion_decision["decision"] in {"blocked", "failed"}:
+    logger.critical(f"failed to promote! {json.dumps(promotion_decision, indent=2)}")
     return 2
   return 0
 
