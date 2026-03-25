@@ -27,6 +27,8 @@ dependencies = [
     "tqdm>=4.65.0", # For progress bars in GraphQL scraper
     "httpx>=0.27.0", # For async HTTP in GraphQL scraper
     "torch>=2.10.0",
+    "optuna>=3.6.1",
+    "optuna-integration[sklearn]>=3.6.0",
     "shap>=0.51.0",
     "google-cloud-storage>=3.10.0",
 ]

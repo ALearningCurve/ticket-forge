@@ -4,59 +4,66 @@
 # import sys
 # sys.path.append("..")
 
+from typing import Any
+
 from scipy.stats import loguniform
 from shared.configuration import RANDOM_SEED
+from sklearn.base import BaseEstimator
 from sklearn.linear_model import SGDRegressor
-from sklearn.model_selection import PredefinedSplit, RandomizedSearchCV
-from training.trainers.utils.harness import X_t, Y_t, load_fit_dump
+from training.trainers.base import BaseTrainer
+from training.trainers.utils.harness import load_fit_debug, load_fit_dump
 
 
 # %%
-def fit_grid(
-  x: X_t,
-  y: Y_t,
-  cv_split: PredefinedSplit,
-  sample_weight: Y_t | None = None,
-) -> RandomizedSearchCV:
-  """Performs grid search and then returns the result!
+class LinearTrainer(BaseTrainer):
+  """Trainer for SGDRegressor (linear models)."""
+
+  def get_model(self) -> BaseEstimator:
+    """Create an unfitted SGDRegressor with default parameters.
+
+    Returns:
+        SGDRegressor instance.
+    """
+    return SGDRegressor(random_state=RANDOM_SEED, max_iter=4000)
+
+  def get_search_params(self) -> list[dict[str, Any]]:
+    """Return hyperparameter search space for linear models.
+
+    Returns:
+        List containing a single param distribution dict.
+    """
+    return [
+      {
+        "loss": ["squared_error", "huber", "epsilon_insensitive"],
+        "penalty": ["l2", "l1", "elasticnet"],
+        "alpha": loguniform(1e-5, 1e5),
+      }
+    ]
+
+  def get_search_config(self) -> dict[str, Any]:
+    """Override search config for linear models.
+
+    Returns:
+        Config dict with n_iter=20, n_jobs=-1 (parallel loss evaluation).
+    """
+    config = super().get_search_config()
+    config["n_iter"] = 20
+    config["n_jobs"] = -1
+    return config
+
+
+def main(run_id: str, debug: bool = False) -> None:
+  """Trains linear models on all the feature datasets.
 
   Args:
-    x: x data to use for training
-    y: true labels of dataset
-    cv_split: the predefined split to use
-    sample_weight: per-sample weights for bias-aware training, or None
-    n_grams: the number of n-grams to fit
-
-  Returns:
-      result of the grid search.
+    run_id: Training run identifier.
+    debug: If True, skip hyperparameter tuning.
   """
-  param_grid = [
-    {
-      "loss": ["squared_error", "huber", "epsilon_insensitive"],
-      "penalty": ["l2", "l1", "elasticnet"],
-      "alpha": loguniform(1e-5, 1e5),
-    }
-  ]
-  model = SGDRegressor(random_state=RANDOM_SEED, max_iter=4000)
-  grid = RandomizedSearchCV(
-    estimator=model,
-    param_distributions=param_grid,
-    cv=cv_split,
-    scoring="neg_mean_squared_error",
-    refit=True,
-    n_jobs=-1,
-    n_iter=20,
-    random_state=RANDOM_SEED,
-    error_score="raise",  # type: ignore
-    verbose=2,
-  )
-
-  return grid.fit(x, y, sample_weight=sample_weight)
-
-
-def main(run_id: str) -> None:
-  """Trains linear models on all the feature datasets."""
-  load_fit_dump(fit_grid, run_id, "linear")
+  trainer = LinearTrainer()
+  if debug:
+    load_fit_debug(trainer.fit_simple, run_id, "linear")
+  else:
+    load_fit_dump(trainer.fit_grid, run_id, "linear")
 
 
 if __name__ == "__main__":

@@ -38,7 +38,7 @@ from training.analysis.run_manifest import create_run_manifest, update_manifest
 from training.dataset import find_latest_pipeline_output
 
 logger = get_logger(__name__)
-models = {"forest", "linear", "svm", "xgboost"}
+models = {"forest", "linear", "svm", "xgboost", "ffn"}
 models_with_sample_weight = models.difference(set(["svm"]))
 
 
@@ -79,11 +79,11 @@ def persist_validation_gate_outcome(
   )
 
 
-def _parse_arguments() -> tuple[set[str], str, bool]:
+def _parse_arguments() -> tuple[set[str], str, bool, bool]:
   """Parse command line arguments.
 
   Returns:
-      Tuple of (models_to_train, run_id, promote)
+      Tuple of (models_to_train, run_id, promote, debug)
   """
   parser = argparse.ArgumentParser(
     description=f"utility to train the models. scripts executed with {Paths.repo_root=}"
@@ -110,9 +110,14 @@ def _parse_arguments() -> tuple[set[str], str, bool]:
     action="store_true",
     help="promote best model to MLflow Production after training",
   )
+  parser.add_argument(
+    "--debug",
+    action="store_true",
+    help="debug mode: skip hyperparameter tuning and train on training data",
+  )
 
   args = parser.parse_args()
-  return args.models, args.runid, args.promote
+  return args.models, args.runid, args.promote, args.debug
 
 
 def _enable_autolog(max_tuning_runs: int) -> None:
@@ -133,13 +138,21 @@ def _enable_autolog(max_tuning_runs: int) -> None:
   )
 
 
-def _train_models(models_list: set[str], run_id: str) -> None:
+def _train_models(models_list: set[str], run_id: str, debug: bool = False) -> None:
   """Train all specified models under nested MLflow runs.
 
   Args:
       models_list: Set of model names to train.
       run_id: Run identifier for saving outputs.
+      debug: If True, skip hyperparameter tuning and train on training data.
   """
+  if debug:
+    msg = (
+      "DEBUG MODE ENABLED: Skipping hyperparameter tuning, "
+      "training on training data only"
+    )
+    logger.warning(msg)
+
   for model in sorted(models_list):
     start = time.perf_counter()
     success = False
@@ -150,9 +163,10 @@ def _train_models(models_list: set[str], run_id: str) -> None:
       mlflow.set_tag("model_name", model)
       mlflow.set_tag("run_id", run_id)
       mlflow.set_tag("dataset_id", find_latest_pipeline_output())
+      mlflow.set_tag("debug_mode", debug)
       try:
         mod = importlib.import_module(f"training.trainers.train_{model}", package="src")
-        mod.main(run_id)
+        mod.main(run_id, debug=debug)
         success = True
         mlflow.set_tag("training_status", "succeeded")
 
@@ -240,7 +254,7 @@ def _save_best_model_info(best_models: list, run_dir: Path) -> None:
 
 def main() -> None:
   """Trains models according to user params."""
-  models_list, run_id, promote = _parse_arguments()
+  models_list, run_id, promote, debug = _parse_arguments()
 
   tracking_uri = configure_mlflow_from_env(DEFAULT_TRACKING_URI)
   experiment_name = str(getenv_or("MLFLOW_EXPERIMENT_NAME", "ticket-forge-training"))
@@ -267,16 +281,18 @@ def main() -> None:
   with mlflow.start_run(run_name="multi_model_search"):
     mlflow.set_tag("run_level", "parent")
     mlflow.set_tag("run_id", run_id)
+    mlflow.set_tag("debug_mode", debug)
     mlflow.log_params(
       {
         "run_id": run_id,
         "candidate_models": ",".join(sorted(models_list)),
         "candidate_model_count": len(models_list),
+        "debug_mode": str(debug),
       }
     )
 
     # Train models under nested runs.
-    _train_models(models_list, run_id)
+    _train_models(models_list, run_id, debug=debug)
 
     # Load metrics and identify best model.
     metrics_data, best_models = _load_metrics(run_dir)
@@ -294,16 +310,18 @@ def main() -> None:
       mlflow.log_artifact(str(best_file), artifact_path="summary")
 
     # Save cv_results_ from pickles + run sensitivity analysis (hyperparam + SHAP)
-    try:
-      from training.analysis.run_sensitivity_analysis import (
-        run_sensitivity_analysis,
-        save_cv_results,
-      )
+    if not debug:
+      # Skip sensitivity analysis in debug mode (no cv_results_ file)
+      try:
+        from training.analysis.run_sensitivity_analysis import (
+          run_sensitivity_analysis,
+          save_cv_results,
+        )
 
-      save_cv_results(run_id)
-      run_sensitivity_analysis(run_id)
-    except Exception:
-      logger.exception("Sensitivity analysis failed — skipping")
+        save_cv_results(run_id)
+        run_sensitivity_analysis(run_id)
+      except Exception:
+        logger.exception("Sensitivity analysis failed — skipping")
 
   # Optional promotion remains after training run is complete.
   if promote:

@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-import joblib
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
@@ -18,7 +17,6 @@ from shared.configuration import (
 )
 from shared.logging import get_logger
 from sklearn.datasets import make_regression
-from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.model_selection import PredefinedSplit
 
 logger = get_logger(__name__)
@@ -219,7 +217,13 @@ class Dataset(BaseModel):
       dataset = make_regression(n_samples=100, n_features=1, noise=20, random_state=42)
       x = dataset[0]
       if self.subset_size is not None:
-        return x[: self.subset_size]  # type: ignore[return-value]
+        x = x[: self.subset_size]
+      logger.info(
+        "loaded X shape: n_samples=%d n_features=%d split=%s",
+        x.shape[0],
+        x.shape[1],
+        self.split,
+      )
       return x  # type: ignore[return-value]
 
     records = self._load_records()
@@ -228,22 +232,22 @@ class Dataset(BaseModel):
     embeddings = np.array([r["embedding"] for r in records], dtype=np.float32)
 
     # --- TF-IDF on normalized_text (100-dim) ---
-    tfidf_path = find_latest_pipeline_output() / "tfidf_vectorizer.pkl"
-    texts = [r.get("normalized_text") or r.get("title") or "" for r in records]
+    # tfidf_path = find_latest_pipeline_output() / "tfidf_vectorizer.pkl"
+    # texts = [r.get("normalized_text") or r.get("title") or "" for r in records]
 
-    if tfidf_path.exists():
-      logger.info("loading existing vectorizer")
-      tfidf = joblib.load(tfidf_path)
-    else:
-      logger.info("create new vectorizer")
-      tfidf = TfidfVectorizer(max_features=100, stop_words="english")
-      # Fit on all records (not just this split) for consistent vocabulary
-      all_texts = [r.get("normalized_text") or r.get("title") or "" for r in records]
-      tfidf.fit(all_texts)
-      joblib.dump(tfidf, tfidf_path)
-      logger.info("done creating vectorizer!")
+    # if tfidf_path.exists():
+    #   logger.info("loading existing vectorizer")
+    #   tfidf = joblib.load(tfidf_path)
+    # else:
+    #   logger.info("create new vectorizer")
+    #   tfidf = TfidfVectorizer(max_features=100, stop_words="english")
+    #   # Fit on all records (not just this split) for consistent vocabulary
+    #   all_texts = [r.get("normalized_text") or r.get("title") or "" for r in records]
+    #   tfidf.fit(all_texts)
+    #   joblib.dump(tfidf, tfidf_path)
+    #   logger.info("done creating vectorizer!")
 
-    tfidf_features = tfidf.transform(texts).toarray().astype(np.float32)
+    # tfidf_features = tfidf.transform(texts).toarray().astype(np.float32)
 
     # --- Engineered features (12-dim) ---
     repos = ["ansible/ansible", "hashicorp/terraform", "prometheus/prometheus"]
@@ -281,7 +285,14 @@ class Dataset(BaseModel):
 
     eng_arr = np.array(engineered, dtype=np.float32)
 
-    return np.nan_to_num(np.hstack([embeddings, tfidf_features, eng_arr]), nan=0.0)
+    x = np.nan_to_num(np.hstack([embeddings, eng_arr]), nan=0.0)
+    logger.info(
+      "loaded X shape: n_samples=%d n_features=%d split=%s",
+      x.shape[0],
+      x.shape[1],
+      self.split,
+    )
+    return x
 
   def load_y(self) -> Y_t:
     """Loads the target vector y.

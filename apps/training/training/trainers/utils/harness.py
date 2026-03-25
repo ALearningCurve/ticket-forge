@@ -104,7 +104,10 @@ def get_test_accuracy(
 
     y_pred = grid.predict(x)
 
-    # Inverse-transform both back to real hours for interpretable metrics
+    # Inverse-transform both back to real hours for interpretable metrics.
+    # Clip predictions to prevent overflow in expm1 (valid range ~[-inf, 700]).
+    y_pred = np.clip(y_pred, -100, 100)
+
     y = np.expm1(y)
     y_pred = np.expm1(y_pred)
 
@@ -120,6 +123,90 @@ def get_test_accuracy(
   metrics = compute_metrics()
 
   logger.info("Test metrics: %s", metrics)
+
+
+def load_fit_debug(
+  fit_simple: Callable[
+    [X_t, Y_t, Y_t | None],
+    object,
+  ],
+  run_id: str,
+  model_name: str,
+) -> None:
+  """Debug mode: trains simple model on training split and evaluates on train data.
+
+  Useful for quick sanity checks to see if data has any signal before expensive
+  hyperparameter tuning.
+
+  Args:
+      fit_simple: function to train default model (e.g., single fit call)
+      run_id: UUID of the training run
+      model_name: identified of the type of model (i.e. logistic)
+  """
+
+  @fs_cache(Paths.models_root / run_id / f"{model_name}.pkl")
+  def _run_simple_fit() -> object:
+    # Get training split only (first 70% of combined data)
+    x_comp, y_comp, _, weights = Dataset.as_sklearn_cv_split_with_weights()
+    # Use first 70% as training (matching the split ratio)
+    n_train = int(0.7 * len(x_comp))
+    x_train = x_comp[:n_train]
+    y_train = y_comp[:n_train]
+    w_train = weights[:n_train] if weights is not None else None
+
+    msg = "DEBUG MODE: Training on %d samples (no hyperparameter tuning)"
+    logger.info(msg, n_train)
+    return fit_simple(x_train, y_train, w_train)
+
+  model = _run_simple_fit()
+  logger.info("DEBUG MODE: Evaluating on training data (not test set)")
+  get_train_accuracy(model, run_id, model_name)
+
+
+def get_train_accuracy(
+  model: object,
+  run_id: str,
+  model_name: str,
+) -> None:
+  """Computes metrics on training data. DEBUG MODE ONLY.
+
+  Useful for sanity-checking data quality before expensive tuning.
+
+  Args:
+      model: Fitted model with predict() method
+      run_id: UUID of the training run
+      model_name: identified of the type of model (i.e. logistic)
+  """
+
+  @fs_cache(Paths.models_root / run_id / f"eval_{model_name}.json", saver=JsonSaver())
+  def compute_metrics() -> dict[str, float]:
+    train_dataset = Dataset(split="train")
+
+    x = train_dataset.load_x()
+    y = train_dataset.load_y()  # already log1p-transformed from load_y()
+
+    y_pred = model.predict(x)
+
+    # Inverse-transform both back to real hours for interpretable metrics.
+    # Clip predictions to prevent overflow in expm1 (valid range ~[-inf, 700]).
+    y_pred = np.clip(y_pred, -100, 100)
+
+    y = np.expm1(y)
+    y_pred = np.expm1(y_pred)
+
+    mse = mean_squared_error(y, y_pred)
+
+    return {
+      "mae": mean_absolute_error(y, y_pred),
+      "mse": mse,
+      "rmse": np.sqrt(mse),
+      "r2": r2_score(y, y_pred),
+    }
+
+  metrics = compute_metrics()
+
+  logger.info("[DEBUG] Train metrics (no test split): %s", metrics)
+  logger.warning("DEBUG MODE ACTIVE: Results are from training data, NOT test set")
 
 
 def evaluate_bias(
