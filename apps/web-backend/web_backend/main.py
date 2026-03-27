@@ -16,17 +16,17 @@ from web_backend.middleware.cors import add_cors_middleware
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
-  """Startup: create tables. Shutdown: close DB pool."""
-  await init_db()
-  yield
-  await close_db()
+    """Startup: create tables. Shutdown: close DB pool."""
+    await init_db()
+    yield
+    await close_db()
 
 
 app = FastAPI(
-  title="TicketForge",
-  description="AI-powered ticket assignment system",
-  version="0.2.0",
-  lifespan=lifespan,
+    title="TicketForge",
+    description="AI-powered ticket assignment system",
+    version="0.2.0",
+    lifespan=lifespan,
 )
 
 # Middleware
@@ -39,14 +39,14 @@ app.include_router(v1_router)
 # Imported conditionally — depends on services/airflow.py
 # which was lost during restructure. Restore from git later.
 try:
-  from web_backend.routes.resumes import router as coldstart_router
+    from web_backend.routes.resumes import router as coldstart_router
 
-  app.include_router(coldstart_router, prefix="/api/v1")
+    app.include_router(coldstart_router, prefix="/api/v1")
 except ImportError:
-  pass
+    pass
 
 
 @app.get("/health")
 async def health_check() -> dict[str, str]:
-  """Simple health check endpoint."""
-  return {"status": "ok"}
+    """Simple health check endpoint."""
+    return {"status": "ok"}
