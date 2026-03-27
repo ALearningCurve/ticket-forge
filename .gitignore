@@ -234,3 +234,21 @@ resumes_final.db
 .dvc/config.local
 /models
 /data
+
+# macOS-specific files
+.DS_Store
+
+.specify
+.github/agents
+.github/prompts
+specs
+
+# Universal OS/editor temp files
+.DS_Store
+Thumbs.db
+*.tmp
+*.swp
+.idea/
+
+
+mlruns
