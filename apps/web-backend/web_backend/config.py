@@ -10,30 +10,30 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """App settings loaded from environment variables."""
+  """App settings loaded from environment variables."""
 
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=False,
-    )
+  model_config = SettingsConfigDict(
+    env_file=".env",
+    env_file_encoding="utf-8",
+    case_sensitive=False,
+  )
 
-    # Database
-    database_url: str = (
-        "postgresql+asyncpg://ticketforge:root@localhost:5433/ticketforge"
-    )
+  # Database
+  database_url: str = (
+    "postgresql+asyncpg://ticketforge:root@localhost:5433/ticketforge"
+  )
 
-    # JWT
-    jwt_secret_key: str = "change-me-in-production"
+  # JWT
+  jwt_secret_key: str = "change-me-in-production"
 
-    # CORS
-    cors_origins: list[str] = ["http://localhost:3000"]
+  # CORS
+  cors_origins: list[str] = ["http://localhost:3000"]
 
-    # App
-    debug: bool = False
+  # App
+  debug: bool = False
 
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    """Return cached settings singleton."""
-    return Settings()
+  """Return cached settings singleton."""
+  return Settings()
