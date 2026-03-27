@@ -242,7 +242,6 @@ class TestRefresh:
     signup_resp = await client.post(
       "/api/v1/auth/signup", json=VALID_SIGNUP
     )
-    old_access = signup_resp.json()["access_token"]
 
     refresh_cookie = signup_resp.cookies.get(REFRESH_COOKIE_NAME)
     assert refresh_cookie is not None
