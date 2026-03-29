@@ -1,5 +1,8 @@
 """Project ticket ORM models."""
 
+# Pylint doesn't fully understand SQLAlchemy's `Mapped[...]` generic.
+# pylint: disable=unsubscriptable-object
+
 import uuid
 from datetime import date, datetime
 
@@ -9,13 +12,13 @@ from sqlalchemy import (
     Enum,
     ForeignKey,
     Integer,
+    JSON,
     String,
     Text,
     UniqueConstraint,
     Uuid,
     func,
 )
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from web_backend.models.base import Base, TimestampMixin
@@ -79,7 +82,7 @@ class ProjectTicket(TimestampMixin, Base):
         nullable=False,
         default="task",
     )
-    labels: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    labels: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
