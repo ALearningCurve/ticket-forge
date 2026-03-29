@@ -16,15 +16,15 @@ class GateConfig:
   """Gate threshold configuration for model CI/CD decisions.
 
   Attributes:
-      min_r2: Minimum required R2 for validation gate.
-      max_mae: Maximum allowed MAE for validation gate.
+      min_accuracy: Minimum required accuracy for validation gate.
+      min_macro_f1: Minimum required macro F1 for validation gate.
       max_bias_relative_gap: Maximum allowed relative bias gap.
       max_regression_degradation: Maximum allowed degradation vs production.
       bias_slices: Data slices checked by bias analysis.
   """
 
-  min_r2: float = 0.60
-  max_mae: float = 20.0
+  min_accuracy: float = 0.70
+  min_macro_f1: float = 0.65
   max_bias_relative_gap: float = 0.40
   max_regression_degradation: float = 0.10
   bias_slices: tuple[str, ...] = ("repo", "seniority")
@@ -48,10 +48,8 @@ def load_gate_config() -> GateConfig:
     return float(getenv_or(key, default) or default)
 
   return GateConfig(
-    min_r2=getf(
-      "MODEL_CICD_MIN_R2", "-1.0"
-    ),  # we don't care too much about this, the mae is more important
-    max_mae=getf("MODEL_CICD_MAX_MAE", "40.0"),  # 1-week off
+    min_accuracy=getf("MODEL_CICD_MIN_ACCURACY", "0.70"),
+    min_macro_f1=getf("MODEL_CICD_MIN_MACRO_F1", "0.65"),
     max_bias_relative_gap=getf("MODEL_CICD_MAX_BIAS_RELATIVE_GAP", "0.70"),
     max_regression_degradation=getf("MODEL_CICD_MAX_REGRESSION_DEGRADATION", "0.10"),
     bias_slices=parsed_slices or ("repo", "seniority"),

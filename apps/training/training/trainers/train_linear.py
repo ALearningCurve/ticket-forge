@@ -6,7 +6,7 @@
 
 from scipy.stats import loguniform
 from shared.configuration import RANDOM_SEED
-from sklearn.linear_model import SGDRegressor
+from sklearn.linear_model import SGDClassifier
 from sklearn.model_selection import PredefinedSplit, RandomizedSearchCV
 from training.trainers.utils.harness import X_t, Y_t, load_fit_dump
 
@@ -32,20 +32,20 @@ def fit_grid(
   """
   param_grid = [
     {
-      "loss": ["squared_error", "huber", "epsilon_insensitive"],
+      "loss": ["hinge", "log_loss", "modified_huber"],
       "penalty": ["l2", "l1", "elasticnet"],
       "alpha": loguniform(1e-5, 1e5),
     }
   ]
-  model = SGDRegressor(random_state=RANDOM_SEED, max_iter=4000)
+  model = SGDClassifier(random_state=RANDOM_SEED, max_iter=4000)
   grid = RandomizedSearchCV(
     estimator=model,
     param_distributions=param_grid,
     cv=cv_split,
-    scoring="neg_mean_squared_error",
+    scoring="f1_macro",
     refit=True,
     n_jobs=-1,
-    n_iter=20,
+    n_iter=30,
     random_state=RANDOM_SEED,
     error_score="raise",  # type: ignore
     verbose=2,

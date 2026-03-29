@@ -1,12 +1,18 @@
 from typing import Callable
 
-import numpy as np
 import pandas as pd
 import polars as pl
 from shared import get_logger
 from shared.cache import JsonSaver, fs_cache
 from shared.configuration import Paths
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.metrics import (
+  accuracy_score,
+  classification_report,
+  confusion_matrix,
+  f1_score,
+  precision_score,
+  recall_score,
+)
 from sklearn.model_selection import PredefinedSplit, RandomizedSearchCV
 from training.bias import BiasAnalyzer, BiasReport
 from training.dataset import Dataset, X_t, Y_t
@@ -15,6 +21,9 @@ logger = get_logger(__name__)
 
 # Default sensitive features to check for bias
 DEFAULT_SENSITIVE_FEATURES = ["repo", "seniority"]
+
+# Default threshold for bias detection
+DEFAULT_BIAS_THRESHOLD = 0.4
 
 
 def load_fit_dump(
@@ -100,21 +109,17 @@ def get_test_accuracy(
     test_dataset = Dataset(split="test")
 
     x = test_dataset.load_x()
-    y = test_dataset.load_y()  # already log1p-transformed from load_y()
+    y = test_dataset.load_y()  # integer class labels (0-5)
 
     y_pred = grid.predict(x)
 
-    # Inverse-transform both back to real hours for interpretable metrics
-    y = np.expm1(y)
-    y_pred = np.expm1(y_pred)
-
-    mse = mean_squared_error(y, y_pred)
-
     return {
-      "mae": mean_absolute_error(y, y_pred),
-      "mse": mse,
-      "rmse": np.sqrt(mse),
-      "r2": r2_score(y, y_pred),
+      "accuracy": accuracy_score(y, y_pred),
+      "macro_f1": f1_score(y, y_pred, average="macro"),
+      "macro_precision": precision_score(y, y_pred, average="macro"),
+      "macro_recall": recall_score(y, y_pred, average="macro"),
+      "confusion_matrix": confusion_matrix(y, y_pred).tolist(),
+      "classification_report": classification_report(y, y_pred, output_dict=True),
     }
 
   metrics = compute_metrics()
@@ -127,6 +132,7 @@ def evaluate_bias(
   run_id: str,
   model_name: str,
   sensitive_feature: str = "repo",
+  threshold: float | None = None,
 ) -> dict | None:
   """Run bias analysis on model predictions.
 
@@ -140,12 +146,15 @@ def evaluate_bias(
       run_id: UUID of the training run
       model_name: Identifier of the model type
       sensitive_feature: Feature to use for bias analysis (e.g. "repo", "seniority")
+      threshold: Maximum allowed relative gap between best and worst
+          performing group. Defaults to DEFAULT_BIAS_THRESHOLD.
 
   Returns:
       Bias analysis results, or None if sensitive feature not available
   """
-  model_type = "regressor"
-  threshold = 0.4
+  model_type = "classifier"
+  if threshold is None:
+    threshold = DEFAULT_BIAS_THRESHOLD
   test_dataset = Dataset(split="test")
 
   x = test_dataset.load_x()

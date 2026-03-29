@@ -27,30 +27,21 @@ def fit_grid(
   Returns:
       result of the grid search.
   """
-  # Grid params and usage of model inspired by following references:
-  #   https://github.com/szilard/benchm-ml?tab=readme-ov-file#boosting-gradient-boosted-treesgradient-boosting-machines
-  #   https://xgboost.readthedocs.io/en/stable/parameter.html
-  # defaults are max_depth=6, learning_rate=.3, min_child_weight=1, n_estimators=100
-  #   gamma=0, subsample=1, colsample_bytree=1
   param_grid = [
     {
-      "max_depth": [1, 3, 4, 5, 6, 7],
-      "learning_rate": [
-        0.01,
-        0.03,
-        0.1,
-        0.3,
-        0.5,
-      ],
+      "max_depth": [3, 4, 5, 6, 7, 8],  # removed 1 (too shallow), added 8
+      "learning_rate": [0.01, 0.05, 0.1, 0.3],  # removed 0.5 (too aggressive)
       "min_child_weight": [1, 5, 10],
-      "n_estimators": [10, 30, 50],
+      "n_estimators": [100, 200, 300],  # was [10, 30, 50] — too few trees
       "gamma": [0, 0.1, 1],
-      "subsample": [0.1, 0.2, 0.3],
-      "colsample_bytree": [0.2, 0.3, 0.4],
+      "subsample": [0.5, 0.7, 0.9],  # was [0.1, 0.2, 0.3] — too low
+      "colsample_bytree": [0.5, 0.7, 0.9],  # was [0.2, 0.3, 0.4] — too low
     }
   ]
 
-  model = xgb.XGBRegressor(
+  model = xgb.XGBClassifier(
+    num_class=6,
+    objective="multi:softmax",
     random_state=RANDOM_SEED,
     device="cpu",
     tree_method="hist",
@@ -61,10 +52,10 @@ def fit_grid(
     estimator=model,
     param_distributions=param_grid,
     cv=cv_split,
-    scoring="neg_mean_squared_error",
+    scoring="f1_macro",
     refit=True,
     n_jobs=1,
-    n_iter=20,
+    n_iter=30,
     random_state=RANDOM_SEED,
     error_score="raise",  # type: ignore
     verbose=2,

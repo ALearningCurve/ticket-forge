@@ -3,21 +3,49 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
 
 
-@pytest.fixture
-def sample_candidate_metrics() -> dict[str, float]:
-  """Return representative candidate metrics for gate checks."""
-  return {"mae": 4.2, "rmse": 6.1, "r2": 0.91}
+@pytest.fixture(autouse=True)
+def _fix_bash_windows_paths(monkeypatch: pytest.MonkeyPatch) -> pytest.MonkeyPatch:  # type: ignore[misc]
+  """Convert Windows paths to Unix paths for bash subprocess calls on Windows."""
+  import platform
 
+  if platform.system() != "Windows":
+    yield
+    return
 
-@pytest.fixture
-def sample_baseline_metrics() -> dict[str, float]:
-  """Return representative baseline metrics for guardrail checks."""
-  return {"mae": 4.0, "rmse": 5.8, "r2": 0.92}
+  original_run = subprocess.run
+
+  def patched_run(args: list | str, **kwargs: object) -> subprocess.CompletedProcess:  # type: ignore[type-arg]
+    def to_unix(p: object) -> str:
+      # Convert Windows path to WSL path: C:\foo\bar -> /mnt/c/foo/bar
+      s = str(p).replace("\\", "/")
+      if len(s) >= 2 and s[1] == ":":
+        drive = s[0].lower()
+        s = f"/mnt/{drive}/{s[3:]}"
+      return s
+
+    if isinstance(args, list) and len(args) >= 2 and args[0] == "bash":
+      unix_script = to_unix(args[1])
+      # WSL bash doesn't inherit Windows env vars, so inject them explicitly
+      env = kwargs.get("env") or {}  # type: ignore[assignment]
+      inject = ""
+      for key in ("CHANGED_FILES_OVERRIDE", "GITHUB_EVENT_NAME", "GITHUB_OUTPUT"):
+        val = env.get(key, "")  # type: ignore[union-attr]
+        inject += f"export {key}={val!r}; "
+      args = [args[0], "-c", f"{inject}bash {unix_script}"] + list(args[2:])
+
+    return original_run(args, **kwargs)
+
+  import subprocess as _subprocess
+
+  _subprocess.run = patched_run  # type: ignore[assignment]
+  yield
+  _subprocess.run = original_run  # type: ignore[assignment]
 
 
 @pytest.fixture

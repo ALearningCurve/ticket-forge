@@ -46,7 +46,8 @@ def evaluate_regression_guardrail(
   metric_deltas: dict[str, float] = {}
   fail_reasons: list[str] = []
 
-  for metric, higher_is_better in (("mae", False), ("rmse", False), ("r2", True)):
+  # Classification metrics — both higher is better
+  for metric, higher_is_better in (("accuracy", True), ("macro_f1", True)):
     if metric not in candidate_metrics or metric not in baseline_metrics:
       continue
     delta = _relative_degradation(

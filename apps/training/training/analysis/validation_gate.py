@@ -21,20 +21,24 @@ def evaluate_validation_gate(
   """
   fail_reasons: list[str] = []
 
-  r2 = float(metrics.get("r2", -1.0))
-  mae = float(metrics.get("mae", 1e9))
+  accuracy = float(metrics.get("accuracy", 0.0))
+  macro_f1 = float(metrics.get("macro_f1", 0.0))
 
-  if r2 < config.min_r2:
-    fail_reasons.append(f"r2-below-threshold:{r2:.4f}<{config.min_r2:.4f}")
-  if mae > config.max_mae:
-    fail_reasons.append(f"mae-above-threshold:{mae:.4f}>{config.max_mae:.4f}")
+  if accuracy < config.min_accuracy:
+    fail_reasons.append(
+      f"accuracy-below-threshold:{accuracy:.4f}<{config.min_accuracy:.4f}"
+    )
+  if macro_f1 < config.min_macro_f1:
+    fail_reasons.append(
+      f"macro_f1-below-threshold:{macro_f1:.4f}<{config.min_macro_f1:.4f}"
+    )
 
   return {
     "passed": len(fail_reasons) == 0,
     "metrics": metrics,
     "thresholds": {
-      "min_r2": config.min_r2,
-      "max_mae": config.max_mae,
+      "min_accuracy": config.min_accuracy,
+      "min_macro_f1": config.min_macro_f1,
     },
     "fail_reasons": fail_reasons,
   }

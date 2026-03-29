@@ -210,7 +210,13 @@ def plot_shap_importance(
       shap_values = explainer.shap_values(x_test)
 
   # Mean absolute SHAP value per feature
-  mean_abs_shap = np.abs(np.array(shap_values)).mean(axis=0)
+  shap_array = np.array(shap_values)
+  # For multiclass: shap_values is (n_classes, n_samples, n_features)
+  # For binary/regression: shap_values is (n_samples, n_features)
+  if shap_array.ndim == 3:
+    mean_abs_shap = np.abs(shap_array).mean(axis=(0, 1))
+  else:
+    mean_abs_shap = np.abs(shap_array).mean(axis=0)
   indices = np.argsort(mean_abs_shap)[::-1][:top_n]
   top_names = [feat_names[i] for i in indices]
   top_vals = mean_abs_shap[indices]

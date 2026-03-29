@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -eu
 
 # Model-impacting path filter for CI runs.
 # Writes should_run and reason outputs for GitHub Actions.

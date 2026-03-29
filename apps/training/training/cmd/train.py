@@ -15,7 +15,7 @@ Environment Variables:
     - Can be a directory name (e.g., 'github_issues-2026-02-24T200000Z')
       or an absolute path.
     - If relative, resolved relative to data_root.
-    - Must contain tickets_transformed_improved.jsonl.
+    - Must contain tickets_balanced.jsonl.
 """
 
 import argparse
@@ -24,6 +24,10 @@ import importlib
 import json
 import time
 from pathlib import Path
+
+import matplotlib
+
+matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 import mlflow
@@ -38,7 +42,7 @@ from training.analysis.run_manifest import create_run_manifest, update_manifest
 from training.dataset import find_latest_pipeline_output
 
 logger = get_logger(__name__)
-models = {"forest", "linear", "svm", "xgboost"}
+models = {"forest", "linear", "svm", "xgboost", "lgbm"}
 models_with_sample_weight = models.difference(set(["svm"]))
 
 
@@ -168,12 +172,14 @@ def _train_models(models_list: set[str], run_id: str) -> None:
           with open(eval_json) as f:
             metrics = json.load(f)
             for metric_name, metric_value in metrics.items():
-              mlflow.log_metric(metric_name, metric_value)
+              # Only log scalar metrics to MLflow — skip lists/dicts
+              if isinstance(metric_value, (int, float)):
+                mlflow.log_metric(metric_name, metric_value)
           logger.info(
-            "Logged best %s model: R2=%.4f, MAE=%.4f",
+            "Logged best %s model (macro_f1=%.4f, accuracy=%.4f)",
             model,
-            metrics.get("r2", 0),
-            metrics.get("mae", 0),
+            metrics.get("macro_f1", 0),
+            metrics.get("accuracy", 0),
           )
       except Exception:
         mlflow.set_tag("training_status", "failed")
@@ -191,7 +197,7 @@ def _load_metrics(run_dir: Path) -> tuple[dict[str, dict[str, float]], list]:
       run_dir: Directory containing eval_*.json files
 
   Returns:
-      Tuple of (metrics_data, best_models) where best_models is sorted by R2 score
+      Tuple of (metrics_data, best_models) where best_models is sorted by macro_f1
   """
   metrics_data = {}
   best_models = []
@@ -201,10 +207,10 @@ def _load_metrics(run_dir: Path) -> tuple[dict[str, dict[str, float]], list]:
     with open(eval_file) as f:
       metrics_data[model_name] = json.load(f)
 
-      # Track best model by R2 score (highest is best)
-      if "r2" in metrics_data[model_name]:
+      # Track best model by macro_f1 (highest is best)
+      if "macro_f1" in metrics_data[model_name]:
         best_models.append(
-          (model_name, metrics_data[model_name]["r2"], metrics_data[model_name])
+          (model_name, metrics_data[model_name]["macro_f1"], metrics_data[model_name])
         )
 
   return metrics_data, best_models
@@ -214,7 +220,7 @@ def _save_best_model_info(best_models: list, run_dir: Path) -> None:
   """Save information about the best model to best.txt.
 
   Args:
-      best_models: List of (model_name, r2_score, metrics) tuples
+      best_models: List of (model_name, macro_f1_score, metrics) tuples
       run_dir: Directory to save best.txt to
   """
   if not best_models:
@@ -227,15 +233,17 @@ def _save_best_model_info(best_models: list, run_dir: Path) -> None:
   best_file = run_dir / "best.txt"
   with open(best_file, "w") as f:
     f.write(f"Best Model: {best_model_name}\n")
-    f.write(f"R2 Score: {best_model_score:.4f}\n")
+    f.write(f"Macro F1 Score: {best_model_score:.4f}\n")
     f.write("\nAll Metrics:\n")
     for key, value in best_models[0][2].items():
-      f.write(f"{key}: {value:.4f}\n")
+      # Only write scalar metrics — skip confusion_matrix and classification_report
+      if isinstance(value, (int, float)):
+        f.write(f"{key}: {value:.4f}\n")
 
-  logger.info(f"{'=' * 50}")
-  logger.info(f"Best model: {best_model_name} (R2: {best_model_score:.4f})")
-  logger.info(f"Results saved to {best_file}")
-  logger.info(f"{'=' * 50}")
+  logger.info("=" * 50)
+  logger.info("Best model: %s (Macro F1: %.4f)", best_model_name, best_model_score)
+  logger.info("Results saved to %s", best_file)
+  logger.info("=" * 50)
 
 
 def main() -> None:
@@ -312,12 +320,11 @@ def main() -> None:
     promote_best_model(run_id)
 
   # Push best model artifacts to GCP Cloud Storage
-  try:
-    from training.analysis.push_model_artifact import push_model_artifacts
-
-    push_model_artifacts(run_id)
-  except Exception:
-    logger.exception("Artifact push failed — skipping")
+  # try:
+  #   from training.analysis.push_model_artifact import push_model_artifacts
+  #   push_model_artifacts(run_id)
+  # except Exception:
+  #   logger.exception("Artifact push failed — skipping")
 
 
 def _plot_metrics(metrics_data: dict[str, dict[str, float]], run_dir: Path) -> None:
@@ -328,7 +335,7 @@ def _plot_metrics(metrics_data: dict[str, dict[str, float]], run_dir: Path) -> N
       run_dir: Directory to save the plot to
   """
   model_names = list(metrics_data.keys())
-  metric_keys = ["mae", "mse", "rmse", "r2"]
+  metric_keys = ["accuracy", "macro_f1", "macro_precision", "macro_recall"]
 
   # Create subplots for different metrics
   fig, axes = plt.subplots(2, 2, figsize=(12, 10))
@@ -338,24 +345,21 @@ def _plot_metrics(metrics_data: dict[str, dict[str, float]], run_dir: Path) -> N
     ax = axes[idx // 2, idx % 2]
     values = [metrics_data[model].get(metric, 0) for model in model_names]
 
-    # Use different colors for each metric
     colors = plt.get_cmap("viridis")(  # type: ignore
       [i / len(model_names) for i in range(len(model_names))]
     )
     ax.bar(model_names, values, color=colors)
     ax.set_ylabel(metric.upper())
     ax.set_title(f"{metric.upper()} by Model")
+    ax.set_ylim(0, 1)
     ax.grid(axis="y", alpha=0.3)
-
-    # Rotate x labels for readability
     ax.tick_params(axis="x", rotation=45)
 
   plt.tight_layout()
 
-  # Save plot
   plot_file = run_dir / "performance.png"
   plt.savefig(plot_file, dpi=100, bbox_inches="tight")
-  logger.info(f"Performance plot saved to {plot_file}")
+  logger.info("Performance plot saved to %s", plot_file)
   plt.close()
 
 

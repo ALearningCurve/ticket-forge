@@ -8,10 +8,10 @@
 from scipy.stats import loguniform
 from shared.configuration import RANDOM_SEED
 from sklearn.kernel_approximation import Nystroem
-from sklearn.linear_model import SGDRegressor
+from sklearn.linear_model import SGDClassifier
 from sklearn.model_selection import PredefinedSplit, RandomizedSearchCV
 from sklearn.pipeline import Pipeline
-from sklearn.svm import SVR
+from sklearn.svm import SVC
 from training.trainers.utils.harness import X_t, Y_t, load_fit_dump
 
 
@@ -44,14 +44,14 @@ def fit_grid_approx(
   pipe = Pipeline(
     [
       ("kernel", Nystroem(n_jobs=-1)),
-      ("svc", SGDRegressor(random_state=RANDOM_SEED)),
+      ("svc", SGDClassifier(random_state=RANDOM_SEED)),
     ]
   )
   grid = RandomizedSearchCV(
     estimator=pipe,
     param_distributions=param_grid,
     cv=cv_split,
-    scoring="neg_mean_squared_error",
+    scoring="f1_macro",
     refit=True,
     n_iter=1,  # TODO: revert to 50
     random_state=RANDOM_SEED,
@@ -67,7 +67,7 @@ def fit_grid_full(
   x: X_t,
   y: Y_t,
   cv_split: PredefinedSplit,
-  sample_weight: Y_t | None = None,  # noqa: ARG001 — SVR does not support sample_weight
+  sample_weight: Y_t | None = None,  # noqa: ARG001 — SVC does not support sample_weight
 ) -> RandomizedSearchCV:
   """Performs grid search with full SVM (no approximation) and returns result!
 
@@ -75,7 +75,7 @@ def fit_grid_full(
     x: x data to use for training
     y: true labels of dataset
     cv_split: the predefined split to use
-    sample_weight: per-sample weights (not used; SVR does not support sample_weight)
+    sample_weight: per-sample weights (not used; SVC does not support sample_weight)
 
   Returns:
       result of the grid search.
@@ -88,12 +88,12 @@ def fit_grid_full(
       "epsilon": [0.01, 0.1, 0.2, 0.5],
     },
   ]
-  model = SVR()
+  model = SVC()
   grid = RandomizedSearchCV(
     estimator=model,
     param_distributions=param_grid,
     cv=cv_split,
-    scoring="neg_mean_squared_error",
+    scoring="f1_macro",
     refit=True,
     n_iter=50,
     random_state=RANDOM_SEED,
@@ -101,7 +101,7 @@ def fit_grid_full(
     n_jobs=-1,
   )
 
-  # SVR does not support sample_weight in fit(); weights are silently ignored.
+  # SVC does not support sample_weight in fit(); weights are silently ignored.
   return grid.fit(x, y)
 
 
