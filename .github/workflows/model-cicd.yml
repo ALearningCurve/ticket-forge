@@ -84,8 +84,8 @@ jobs:
           MLFLOW_TRACKING_PASSWORD: ${{ secrets.MLFLOW_TRACKING_PASSWORD }}
 
           # Gate tuning (optional)
-          MODEL_CICD_MIN_R2: "-1.0"                          # R² threshold (default: -1.0 = disabled)
-          MODEL_CICD_MAX_MAE: "40.0"                         # Mean Absolute Error threshold
+          MODEL_CICD_MIN_ACCURACY: "0.70"                    # Accuracy threshold
+          MODEL_CICD_MIN_MACRO_F1: "0.65"                    # Macro F1 threshold
           MODEL_CICD_MAX_BIAS_RELATIVE_GAP: "0.70"           # Bias disparity tolerance
           MODEL_CICD_MAX_REGRESSION_DEGRADATION: "0.10"      # % degradation vs production
 
