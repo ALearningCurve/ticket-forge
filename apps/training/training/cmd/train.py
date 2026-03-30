@@ -42,7 +42,7 @@ from training.analysis.run_manifest import create_run_manifest, update_manifest
 from training.dataset import find_latest_pipeline_output
 
 logger = get_logger(__name__)
-models = {"forest", "linear", "svm", "xgboost", "lgbm"}
+models = {"forest", "svm", "xgboost", "lgbm"}
 models_with_sample_weight = models.difference(set(["svm"]))
 
 
@@ -320,11 +320,12 @@ def main() -> None:
     promote_best_model(run_id)
 
   # Push best model artifacts to GCP Cloud Storage
-  # try:
-  #   from training.analysis.push_model_artifact import push_model_artifacts
-  #   push_model_artifacts(run_id)
-  # except Exception:
-  #   logger.exception("Artifact push failed — skipping")
+  try:
+    from training.analysis.push_model_artifact import push_model_artifacts
+
+    push_model_artifacts(run_id)
+  except Exception:
+    logger.exception("Artifact push failed — skipping")
 
 
 def _plot_metrics(metrics_data: dict[str, dict[str, float]], run_dir: Path) -> None:

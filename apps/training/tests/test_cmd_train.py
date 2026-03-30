@@ -13,10 +13,10 @@ class TestParseArguments:
 
   def test_parse_arguments_with_custom_models(self) -> None:
     """Test parsing arguments with custom models."""
-    with patch("sys.argv", ["train.py", "-m", "forest", "linear"]):
+    with patch("sys.argv", ["train.py", "-m", "forest", "svm"]):
       models, run_id, promote = _parse_arguments()
       assert "forest" in models
-      assert "linear" in models
+      assert "svm" in models
 
   def test_parse_arguments_with_custom_run_id(self) -> None:
     """Test parsing arguments with custom run_id."""
