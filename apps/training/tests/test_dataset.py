@@ -17,6 +17,7 @@ _EMBEDDING_DIM = 384  # raw embedding size (all-MiniLM-L6-v2)
 
 _NUM_RECORDS = 20
 
+
 _FAKE_RECORDS = [
   {
     "id": f"hashicorp_terraform-{i}",
@@ -27,15 +28,20 @@ _FAKE_RECORDS = [
     "keywords": ["kubernetes", "aws"],
     "embedding": np.random.default_rng(i).random(_EMBEDDING_DIM).tolist(),
     "embedding_model": "all-MiniLM-L6-v2",
-    "completion_hours_business": None if i % 5 == 0 else float(i * 2),
+    "completion_hours_business": None if i % 5 == 0 else float(i * 10 + 5),
     "assignee": f"engineer_{i}",
     "issue_type": "closed",
     "seniority": "mid",
     "labels": "bug",
     "state": "closed",
+    "comments_count": i,
+    "historical_avg_completion_hours": float(i * 5),
+    "created_at": "2024-01-01T09:00:00Z",
+    "assigned_at": "2024-01-01T10:00:00Z",
   }
   for i in range(_NUM_RECORDS)
 ]
+
 
 _FAKE_JSONL = "\n".join(json.dumps(r) for r in _FAKE_RECORDS)
 
@@ -57,7 +63,7 @@ def _make_fake_pipeline_dir(
   """Creates a fake timestamped pipeline output directory."""
   run_dir = tmp_path / dirname
   run_dir.mkdir(parents=True)
-  (run_dir / "tickets_transformed_improved.jsonl").write_text(_FAKE_JSONL)
+  (run_dir / "tickets_balanced.jsonl").write_text(_FAKE_JSONL)
   if include_weights:
     (run_dir / "sample_weights.json").write_text(json.dumps(_FAKE_WEIGHTS))
   return run_dir
@@ -78,7 +84,7 @@ class TestDatasetDummyLoading:
       dataset = Dataset(split="train")
       x = dataset.load_x()
     assert x.shape[0] > 0
-    assert x.shape[1] == 1
+    assert x.shape[1] > 0
     assert len(x.shape) == 2
 
   def test_load_y_without_subset(self) -> None:
@@ -142,8 +148,8 @@ class TestFindLatestPipelineOutput:
     older.mkdir()
     newer.mkdir()
     # Both have the required file — newest should be picked
-    (older / "tickets_transformed_improved.jsonl").write_text("{}")
-    (newer / "tickets_transformed_improved.jsonl").write_text("{}")
+    (older / "tickets_balanced.jsonl").write_text("{}")
+    (newer / "tickets_balanced.jsonl").write_text("{}")
 
     with patch("training.dataset.Paths") as mock_paths:
       mock_paths.data_root = tmp_path
@@ -159,7 +165,7 @@ class TestFindLatestPipelineOutput:
     incomplete.mkdir()
     complete.mkdir()
     # Only the older dir has the required file
-    (complete / "tickets_transformed_improved.jsonl").write_text("{}")
+    (complete / "tickets_balanced.jsonl").write_text("{}")
 
     with patch("training.dataset.Paths") as mock_paths:
       mock_paths.data_root = tmp_path
@@ -172,7 +178,7 @@ class TestFindLatestPipelineOutput:
 
     legacy = tmp_path / "github_issues"
     legacy.mkdir()
-    (legacy / "tickets_transformed_improved.jsonl").write_text("{}")
+    (legacy / "tickets_balanced.jsonl").write_text("{}")
 
     with patch("training.dataset.Paths") as mock_paths:
       mock_paths.data_root = tmp_path
@@ -194,12 +200,12 @@ class TestFindLatestPipelineOutput:
     # Create a dataset with explicit name
     dataset = tmp_path / "github_issues-2026-02-24T194022Z"
     dataset.mkdir()
-    (dataset / "tickets_transformed_improved.jsonl").write_text("{}")
+    (dataset / "tickets_balanced.jsonl").write_text("{}")
 
     # Also create a newer one to ensure override takes precedence
     newer = tmp_path / "github_issues-2026-02-24T200000Z"
     newer.mkdir()
-    (newer / "tickets_transformed_improved.jsonl").write_text("{}")
+    (newer / "tickets_balanced.jsonl").write_text("{}")
 
     with (
       patch("training.dataset.Paths") as mock_paths,
@@ -217,7 +223,7 @@ class TestFindLatestPipelineOutput:
 
     dataset = tmp_path / "github_issues-2026-02-24T194022Z"
     dataset.mkdir()
-    (dataset / "tickets_transformed_improved.jsonl").write_text("{}")
+    (dataset / "tickets_balanced.jsonl").write_text("{}")
 
     with (
       patch("training.dataset.Paths") as mock_paths,
@@ -262,7 +268,7 @@ class TestFindLatestPipelineOutput:
         find_latest_pipeline_output()
 
       assert "Dataset override" in str(exc_info.value)
-      assert "missing tickets_transformed_improved.jsonl" in str(exc_info.value)
+      assert "missing tickets_balanced.jsonl" in str(exc_info.value)
 
 
 # ---------------------------------------------------------------------------

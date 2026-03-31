@@ -468,7 +468,19 @@ def _load_baseline_metrics(
     return version.version, None
 
   metrics: dict[str, float] = {}
-  for key in ("eval_mae", "eval_rmse", "eval_r2", "mae", "rmse", "r2"):
+  _keys = (
+    "eval_mae",
+    "eval_rmse",
+    "eval_r2",
+    "mae",
+    "rmse",
+    "r2",
+    "eval_accuracy",
+    "eval_macro_f1",
+    "accuracy",
+    "macro_f1",
+  )
+  for key in _keys:
     if key in run_data.metrics:
       metrics[key.replace("eval_", "")] = float(run_data.metrics[key])
 

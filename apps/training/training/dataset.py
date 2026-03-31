@@ -1,10 +1,10 @@
 """Dataset utilities for machine learning pipelines."""
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-import joblib
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
@@ -17,8 +17,7 @@ from shared.configuration import (
   getenv_or,
 )
 from shared.logging import get_logger
-from sklearn.datasets import make_regression
-from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.datasets import make_classification
 from sklearn.model_selection import PredefinedSplit
 
 logger = get_logger(__name__)
@@ -28,15 +27,53 @@ _records_cache: dict[str, list] = {}
 
 
 X_t = npt.NDArray[Any]
-Y_t = npt.NDArray[np.floating]
+Y_t = npt.NDArray[Any]
 
 # Split ratios for train / validation / test
 _SPLIT_RATIOS: dict[str, float] = {"train": 0.7, "validation": 0.15, "test": 0.15}
 
+# Time bucket boundaries (in business hours)
+# Bucket 0: S  —  0-10 hrs  (small,  quick fix)
+# Bucket 1: M  — 10-50 hrs  (medium, few days)
+# Bucket 2: L  — 50-100 hrs (large,  ~2 weeks)
+# Bucket 3: XL — 100-480 hrs(x-large, long haul)
+# Tickets above 480 hrs (~60 working days) are dropped as abandoned/noise
+TIME_BUCKETS = [0, 10, 50, 100, 480]
+N_CLASSES = len(TIME_BUCKETS) - 1
+
+_DATETIME_FMT = "%Y-%m-%dT%H:%M:%SZ"
+_MAX_TTA_HOURS = 720.0  # cap time-to-assignment at 30 days
+
+
+def _parse_tta(created: str | None, assigned: str | None) -> float:
+  """Computes time-to-assignment in hours.
+
+  Returns 0.0 for missing, negative, or unparseable values.
+  Caps at _MAX_TTA_HOURS (30 days) to avoid outlier noise.
+
+  Args:
+      created:  ISO timestamp string for ticket creation.
+      assigned: ISO timestamp string for ticket assignment.
+
+  Returns:
+      Time-to-assignment in hours, clipped to [0, _MAX_TTA_HOURS].
+  """
+  if not created or not assigned:
+    return 0.0
+  if not isinstance(assigned, str) or not isinstance(created, str):
+    return 0.0
+  try:
+    t_created = datetime.strptime(created, _DATETIME_FMT).replace(tzinfo=timezone.utc)
+    t_assigned = datetime.strptime(assigned, _DATETIME_FMT).replace(tzinfo=timezone.utc)
+    tta = (t_assigned - t_created).total_seconds() / 3600
+    return float(max(0.0, min(tta, _MAX_TTA_HOURS)))
+  except ValueError:
+    return 0.0
+
 
 def find_latest_pipeline_output() -> Path:
   """Returns the path to the most recent timestamped pipeline output directory
-  that contains a tickets_transformed_improved.jsonl file.
+  that contains a tickets_balanced.jsonl file.
 
   First checks the TICKET_FORGE_DATASET_ID environment variable for an explicit
   dataset override. If set, uses that dataset ID (can be either a directory name
@@ -54,7 +91,7 @@ def find_latest_pipeline_output() -> Path:
       FileNotFoundError: If no valid pipeline output directory can be located.
   """
   data_root = Paths.data_root
-  required_file = "tickets_transformed_improved.jsonl"
+  required_file = "tickets_balanced.jsonl"
 
   # Check for explicit dataset override via environment variable
   dataset_override = getenv_or("TICKET_FORGE_DATASET_ID")
@@ -144,11 +181,18 @@ def _split_indices(
 
 
 class Dataset(BaseModel):
-  """Represents training dataset for ticket time prediction.
+  """Represents training dataset for ticket complexity classification.
 
   Loads real pipeline output from the latest timestamped run directory
   under data_root when TRAIN_USE_DUMMY_DATA is False. Falls back to
   synthetically generated data when TRAIN_USE_DUMMY_DATA is True.
+
+  Target variable is a time bucket class (0-3) based on
+  completion_hours_business:
+    0: S  —  0-10 hrs  (small)
+    1: M  — 10-50 hrs  (medium)
+    2: L  — 50-100 hrs (large)
+    3: XL — 100-480 hrs(x-large)
   """
 
   split: Splits_t
@@ -159,17 +203,17 @@ class Dataset(BaseModel):
   # ------------------------------------------------------------------ #
 
   def _load_records(self) -> list[dict[str, Any]]:
-    """Loads and splits the transformed ticket records for this split.
+    """Loads and splits the balanced ticket records for this split.
 
-    Stale tickets (completion_hours_business > 120, i.e. ~15 work days)
-    are filtered out as they represent abandoned or unreasonable tickets
-    that would skew model training and evaluation.
+    Records with missing or negative completion_hours_business are dropped
+    entirely — no imputation. Long-duration tickets are retained as they
+    reflect real backlog/prioritization behaviour.
 
     Returns:
         List of ticket dicts belonging to this split.
     """
     pipeline_dir = find_latest_pipeline_output()
-    jsonl_path = pipeline_dir / "tickets_transformed_improved.jsonl"
+    jsonl_path = pipeline_dir / "tickets_balanced.jsonl"
     cache_key = str(jsonl_path)
     if cache_key not in _records_cache:
       _records_cache[cache_key] = _load_jsonl(jsonl_path)
@@ -180,12 +224,15 @@ class Dataset(BaseModel):
 
     n_records = len(records)
 
-    # Filter stale/abandoned tickets (> 120 business hours ~ 15 work days)
+    # Drop records with missing, negative, or abandoned completion times.
+    # No mean imputation — garbage records are excluded entirely.
+    # Tickets above 480 hrs (~60 working days) are dropped as abandoned/noise
+    # based on industry research showing legitimate tickets rarely exceed this.
     records = [
       r
       for r in records
-      if r.get("completion_hours_business") is None
-      or r["completion_hours_business"] <= 120
+      if r.get("completion_hours_business") is not None
+      and 0 <= r["completion_hours_business"] <= 480
     ]
 
     if self.subset_size is not None:
@@ -205,18 +252,25 @@ class Dataset(BaseModel):
 
     Each row contains:
     - 384-dimensional embedding vector (all-MiniLM-L6-v2)
-    - 100-dimensional TF-IDF vector from normalized_text
     - Engineered features: repo one-hot, label flags, comments count,
-      seniority enum, historical avg completion, keyword count, text length.
+      historical avg completion, keyword count, text length, and
+      time-to-assignment (proxy for ticket priority).
+      Note: seniority_enum excluded — all labels are 'mid', zero variance.
 
-    The TF-IDF vectorizer is fit on first call and cached to disk so
-    training, validation, test and inference all share the same vocabulary.
+    TF-IDF features have been removed to reduce overfitting risk and
+    improve generalization.
 
     Returns:
-        Float32 array of shape (n_samples, 384 + 100 + 12).
+        Float32 array of shape (n_samples, 384 + 12).
     """
     if TRAIN_USE_DUMMY_DATA:
-      dataset = make_regression(n_samples=100, n_features=1, noise=20, random_state=42)
+      dataset = make_classification(
+        n_samples=100,
+        n_features=10,
+        n_classes=N_CLASSES,
+        n_informative=5,
+        random_state=42,
+      )
       x = dataset[0]
       if self.subset_size is not None:
         return x[: self.subset_size]  # type: ignore[return-value]
@@ -226,24 +280,6 @@ class Dataset(BaseModel):
 
     # --- Embeddings (384-dim) ---
     embeddings = np.array([r["embedding"] for r in records], dtype=np.float32)
-
-    # --- TF-IDF on normalized_text (100-dim) ---
-    tfidf_path = find_latest_pipeline_output() / "tfidf_vectorizer.pkl"
-    texts = [r.get("normalized_text") or r.get("title") or "" for r in records]
-
-    if tfidf_path.exists():
-      logger.info("loading existing vectorizer")
-      tfidf = joblib.load(tfidf_path)
-    else:
-      logger.info("create new vectorizer")
-      tfidf = TfidfVectorizer(max_features=100, stop_words="english")
-      # Fit on all records (not just this split) for consistent vocabulary
-      all_texts = [r.get("normalized_text") or r.get("title") or "" for r in records]
-      tfidf.fit(all_texts)
-      joblib.dump(tfidf, tfidf_path)
-      logger.info("done creating vectorizer!")
-
-    tfidf_features = tfidf.transform(texts).toarray().astype(np.float32)
 
     # --- Engineered features (12-dim) ---
     repos = ["ansible/ansible", "hashicorp/terraform", "prometheus/prometheus"]
@@ -258,11 +294,15 @@ class Dataset(BaseModel):
       has_crash = 1.0 if "crash" in labels else 0.0
 
       comments = float(r.get("comments_count") or 0)
-      seniority = float(r.get("seniority_enum") or 0)
       hist_avg = float(r.get("historical_avg_completion_hours") or 0)
       kw_count = float(len(r.get("keywords") or []))
       title_len = float(len(r.get("title") or ""))
       body_len = float(len(r.get("body") or ""))
+
+      # Time-to-assignment: proxy for ticket priority.
+      # Fast assignment = high urgency. Negative/missing = 0.0.
+      # Capped at 720 hrs (30 days) to avoid outlier noise.
+      tta = _parse_tta(r.get("created_at"), r.get("assigned_at"))
 
       engineered.append(
         repo_onehot
@@ -271,32 +311,41 @@ class Dataset(BaseModel):
           has_enhancement,
           has_crash,
           comments,
-          seniority,
           hist_avg,
           kw_count,
           title_len,
           body_len,
+          tta,
         ]
       )
 
     eng_arr = np.array(engineered, dtype=np.float32)
 
-    return np.nan_to_num(np.hstack([embeddings, tfidf_features, eng_arr]), nan=0.0)
+    return np.nan_to_num(np.hstack([embeddings, eng_arr]), nan=0.0)
 
   def load_y(self) -> Y_t:
-    """Loads the target vector y.
+    """Loads the target vector y as time bucket class labels.
 
-    Target is completion_hours_business — the number of business hours
-    between ticket assignment and closure, as computed by the transform
-    stage. Stale tickets (> 120 hrs) are filtered out in _load_records().
-    Remaining missing values are replaced with the column mean.
-    Log-transform (log1p) is applied to reduce the impact of the right tail.
+    Converts completion_hours_business into one of 4 buckets:
+      0: S  —  0-10 hrs
+      1: M  — 10-50 hrs
+      2: L  — 50-100 hrs
+      3: XL — 100-480 hrs
+
+    Records with missing or negative completion hours are already dropped
+    in _load_records() — no imputation is applied here.
 
     Returns:
-        Float64 array of shape (n_samples,), log1p-transformed.
+        Int64 array of shape (n_samples,) with class labels 0–3.
     """
     if TRAIN_USE_DUMMY_DATA:
-      dataset = make_regression(n_samples=100, n_features=1, noise=20, random_state=42)
+      dataset = make_classification(
+        n_samples=100,
+        n_features=10,
+        n_classes=N_CLASSES,
+        n_informative=5,
+        random_state=42,
+      )
       y = dataset[1]
       if self.subset_size is not None:
         return y[: self.subset_size]  # type: ignore[return-value]
@@ -306,15 +355,10 @@ class Dataset(BaseModel):
     raw = [r.get("completion_hours_business") for r in records]
     y = np.array(raw, dtype=np.float64)
 
-    # Replace negative values with NaN (data quality issue)
-    y[y < 0] = np.nan
-
-    # Replace missing values with the column mean so the array is complete
-    missing_mask = np.isnan(y)
-    if missing_mask.any():
-      y[missing_mask] = np.nanmean(y)
-
-    return np.log1p(y)  # log-transform to handle heavy right tail
+    # Convert continuous hours to time bucket class labels
+    # TIME_BUCKETS = [0, 10, 50, 100, 480]
+    # Bucket 0: S (0-10), 1: M (10-50), 2: L (50-100), 3: XL (100-480)
+    return np.digitize(y, TIME_BUCKETS[1:-1]).astype(np.int64)
 
   def load_metadata(self) -> pd.DataFrame:
     """Loads metadata for bias analysis (repo, seniority, labels, completion time).
@@ -393,7 +437,7 @@ class Dataset(BaseModel):
     return w.to_numpy(dtype=np.float64)  # type: ignore[return-value]
 
   # ------------------------------------------------------------------ #
-  # Sklearn CV helpers (unchanged API)                                   #
+  # Sklearn CV helpers                                                  #
   # ------------------------------------------------------------------ #
 
   @staticmethod

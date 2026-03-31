@@ -13,10 +13,10 @@ class TestParseArguments:
 
   def test_parse_arguments_with_custom_models(self) -> None:
     """Test parsing arguments with custom models."""
-    with patch("sys.argv", ["train.py", "-m", "forest", "linear"]):
+    with patch("sys.argv", ["train.py", "-m", "forest", "svm"]):
       models, run_id, promote = _parse_arguments()
       assert "forest" in models
-      assert "linear" in models
+      assert "svm" in models
 
   def test_parse_arguments_with_custom_run_id(self) -> None:
     """Test parsing arguments with custom run_id."""
@@ -54,7 +54,7 @@ class TestLoadMetrics:
     with tempfile.TemporaryDirectory() as tmpdir:
       run_dir = Path(tmpdir)
 
-      test_metrics = {"mae": 1.5, "mse": 2.0, "rmse": 1.4, "r2": 0.95}
+      test_metrics = {"accuracy": 0.78, "macro_f1": 0.75}
       eval_file = run_dir / "eval_forest.json"
       with open(eval_file, "w") as f:
         json.dump(test_metrics, f)
@@ -80,7 +80,7 @@ class TestSaveBestModelInfo:
     """Test that saving best model creates file."""
     with tempfile.TemporaryDirectory() as tmpdir:
       run_dir = Path(tmpdir)
-      metrics = {"mae": 1.5, "mse": 2.0, "rmse": 1.4, "r2": 0.95}
+      metrics = {"accuracy": 0.78, "macro_f1": 0.75}
       best_models = [("forest", 0.95, metrics)]
 
       _save_best_model_info(best_models, run_dir)

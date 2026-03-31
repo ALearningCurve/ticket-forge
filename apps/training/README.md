@@ -161,8 +161,7 @@ gate-driven CI/CD path using `training.cmd.run_model_cicd`.
 
 ### CI/CD behavior
 
-- Push events run a model-impacting path filter (`scripts/ci/model_change_filter.sh`).
-- Non-model-impacting push events are skipped with an explicit reason in step summary.
+- Push events to main and scheduled CRON
 - Model-impacting push, scheduled, and manual runs:
     1. Pull latest DVC data.
     2. Train models (`training.cmd.train`).

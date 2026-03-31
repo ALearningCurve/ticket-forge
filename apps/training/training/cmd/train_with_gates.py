@@ -134,7 +134,19 @@ def _load_production_baseline() -> tuple[str | None, dict[str, float] | None]:
   version = versions[0]
   run_metrics = client.get_run(version.run_id).data.metrics
   baseline_metrics: dict[str, float] = {}
-  for key in ("eval_mae", "eval_rmse", "eval_r2", "mae", "rmse", "r2"):
+  _keys = (
+    "eval_mae",
+    "eval_rmse",
+    "eval_r2",
+    "mae",
+    "rmse",
+    "r2",
+    "eval_accuracy",
+    "eval_macro_f1",
+    "accuracy",
+    "macro_f1",
+  )
+  for key in _keys:
     if key in run_metrics:
       normalized = key.replace("eval_", "")
       baseline_metrics[normalized] = float(run_metrics[key])

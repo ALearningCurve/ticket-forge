@@ -40,14 +40,14 @@ def _ndcg_at_k(y_true: pd.Series, y_pred: pd.Series, k: int = 10) -> float:
   # Get top-k indices by predicted score
   top_k_indices = np.argsort(y_pred)[::-1][:k]
   dcg = sum(
-    y_true.iloc[idx] / np.log2(rank + 2)
+    (y_true.iloc[idx] if hasattr(y_true, "iloc") else y_true[idx]) / np.log2(rank + 2)
     for rank, idx in enumerate(top_k_indices)  # type: ignore[union-attr]
   )
 
   # Ideal DCG
   ideal_order = np.argsort(y_true)[::-1][:k]
   idcg = sum(
-    y_true.iloc[idx] / np.log2(rank + 2)
+    (y_true.iloc[idx] if hasattr(y_true, "iloc") else y_true[idx]) / np.log2(rank + 2)
     for rank, idx in enumerate(ideal_order)  # type: ignore[union-attr]
   )
 
@@ -69,7 +69,9 @@ def _mean_reciprocal_rank(y_true: pd.Series, y_pred: pd.Series) -> float:
 
   # Sort by predicted score descending
   sorted_indices = np.argsort(y_pred)[::-1]
-  sorted_true = y_true.iloc[sorted_indices]  # type: ignore[union-attr]
+  sorted_true = (
+    y_true.iloc[sorted_indices] if hasattr(y_true, "iloc") else y_true[sorted_indices]
+  )  # type: ignore[union-attr]  # noqa: E501
 
   # Find first relevant item
   relevant_positions = np.where(sorted_true > 0)[0]

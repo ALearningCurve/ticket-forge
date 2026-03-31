@@ -14,7 +14,7 @@ from shared.logging import get_logger
 
 logger = get_logger(__name__)
 
-DEFAULT_TRACKING_URI = f"file://{Paths.repo_root / 'mlruns'}"
+DEFAULT_TRACKING_URI = (Paths.repo_root / "mlruns").as_uri()
 
 
 def _is_true(value: str | None) -> bool:

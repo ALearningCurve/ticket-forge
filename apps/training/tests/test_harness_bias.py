@@ -41,9 +41,9 @@ class TestEvaluateBiasNoBias:
 
   def test_returns_analysis_when_no_bias(self, tmp_path) -> None:
     """Test that analysis is returned when no bias is detected."""
-    y = [10.0, 20.0, 30.0, 10.0, 20.0, 30.0]
+    y = [10.0, 20.0, 30.0, 40.0, 50.0, 10.0, 20.0, 30.0, 40.0, 50.0]
     y_pred = [11.0, 21.0, 31.0, 11.0, 21.0, 31.0]
-    groups = ["A", "A", "A", "B", "B", "B"]
+    groups = ["A", "A", "A", "A", "A", "B", "B", "B", "B", "B"]
 
     grid = _make_grid(y_pred)
     mock_ds = _make_dataset(y, "repo", groups)
@@ -58,13 +58,13 @@ class TestEvaluateBiasNoBias:
 
     assert result is not None
     assert result["bias_detected"] is False
-    assert result["primary_metric"] == "mae"
+    assert result["primary_metric"] == "ndcg"
 
   def test_report_structure_when_no_bias(self, tmp_path) -> None:
     """Test that report has correct flat structure when no bias detected."""
-    y = [10.0, 20.0, 30.0, 10.0, 20.0, 30.0]
+    y = [10.0, 20.0, 30.0, 40.0, 50.0, 10.0, 20.0, 30.0, 40.0, 50.0]
     y_pred = [11.0, 21.0, 31.0, 11.0, 21.0, 31.0]
-    groups = ["A", "A", "A", "B", "B", "B"]
+    groups = ["A", "A", "A", "A", "A", "B", "B", "B", "B", "B"]
 
     grid = _make_grid(y_pred)
     mock_ds = _make_dataset(y, "repo", groups)
@@ -88,9 +88,9 @@ class TestEvaluateBiasNoBias:
 
   def test_report_renders_as_text(self, tmp_path) -> None:
     """Test that BiasReport.generate_text_report() works with report structure."""
-    y = [10.0, 20.0, 30.0, 10.0, 20.0, 30.0]
+    y = [10.0, 20.0, 30.0, 40.0, 50.0, 10.0, 20.0, 30.0, 40.0, 50.0]
     y_pred = [11.0, 21.0, 31.0, 11.0, 21.0, 31.0]
-    groups = ["A", "A", "A", "B", "B", "B"]
+    groups = ["A", "A", "A", "A", "A", "B", "B", "B", "B", "B"]
 
     grid = _make_grid(y_pred)
     mock_ds = _make_dataset(y, "repo", groups)
@@ -118,9 +118,9 @@ class TestEvaluateBiasDetected:
 
   def test_returns_analysis_when_bias_detected(self, tmp_path) -> None:
     """Test that analysis is returned when bias is detected."""
-    y = [10.0, 20.0, 30.0, 10.0, 20.0, 30.0]
-    y_pred = [11.0, 21.0, 31.0, 60.0, 70.0, 80.0]
-    groups = ["A", "A", "A", "B", "B", "B"]
+    y = [10.0, 20.0, 30.0, 40.0, 50.0, 10.0, 20.0, 30.0, 40.0, 50.0]
+    y_pred = [11.0, 21.0, 31.0, 41.0, 51.0, 50.0, 10.0, 1.0, 5.0, 15.0]
+    groups = ["A", "A", "A", "A", "A", "B", "B", "B", "B", "B"]
 
     grid = _make_grid(y_pred)
     mock_ds = _make_dataset(y, "repo", groups)
@@ -138,9 +138,9 @@ class TestEvaluateBiasDetected:
 
   def test_report_summary_flags_bias_correctly(self, tmp_path) -> None:
     """Test report summary correctly identifies biased dimension."""
-    y = [10.0, 20.0, 30.0, 10.0, 20.0, 30.0]
-    y_pred = [11.0, 21.0, 31.0, 60.0, 70.0, 80.0]
-    groups = ["A", "A", "A", "B", "B", "B"]
+    y = [10.0, 20.0, 30.0, 40.0, 50.0, 10.0, 20.0, 30.0, 40.0, 50.0]
+    y_pred = [11.0, 21.0, 31.0, 41.0, 51.0, 50.0, 10.0, 1.0, 5.0, 15.0]
+    groups = ["A", "A", "A", "A", "A", "B", "B", "B", "B", "B"]
 
     grid = _make_grid(y_pred)
     mock_ds = _make_dataset(y, "repo", groups)
@@ -149,6 +149,7 @@ class TestEvaluateBiasDetected:
     with (
       patch("training.trainers.utils.harness.Dataset", return_value=mock_ds),
       patch("training.trainers.utils.harness.Paths") as mock_paths,
+      patch("training.trainers.utils.harness.DEFAULT_BIAS_THRESHOLD", 0.15),
       patch(
         "training.trainers.utils.harness.BiasReport.save_report",
         side_effect=lambda data, path: saved_reports.append(data),
@@ -164,9 +165,9 @@ class TestEvaluateBiasDetected:
 
   def test_report_detailed_results_is_flat(self, tmp_path) -> None:
     """Test detailed_results contains flat analysis dict not nested schema."""
-    y = [10.0, 20.0, 30.0, 10.0, 20.0, 30.0]
-    y_pred = [11.0, 21.0, 31.0, 60.0, 70.0, 80.0]
-    groups = ["A", "A", "A", "B", "B", "B"]
+    y = [10.0, 20.0, 30.0, 40.0, 50.0, 10.0, 20.0, 30.0, 40.0, 50.0]
+    y_pred = [11.0, 21.0, 31.0, 41.0, 51.0, 50.0, 10.0, 1.0, 5.0, 15.0]
+    groups = ["A", "A", "A", "A", "A", "B", "B", "B", "B", "B"]
 
     grid = _make_grid(y_pred)
     mock_ds = _make_dataset(y, "repo", groups)
@@ -230,6 +231,12 @@ class TestEvaluateBiasEdgeCases:
       patch("training.trainers.utils.harness.Paths") as mock_paths,
     ):
       mock_paths.models_root = tmp_path
-      result = evaluate_bias(grid, "run-001", "linear", sensitive_feature="repo")
+      result = evaluate_bias(
+        grid,
+        "run-001",
+        "linear",
+        sensitive_feature="repo",
+        threshold=0.15,
+      )
 
     assert result is None
