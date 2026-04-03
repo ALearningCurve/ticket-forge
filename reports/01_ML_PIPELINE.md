@@ -158,7 +158,7 @@ For each requirement sub-part, this report documents:
 
 ## A) train_with_gates.py Contract (Input/Output Reference)
 This is the main script which does all the training and acts
-as a harness/orcestrator.
+as a harness/orchestrator.
 
 ### Flowchart: train_with_gates.py Execution Steps
 
@@ -211,33 +211,32 @@ writes the best model decision, generates analysis artifacts (performance plot,
 cross-validation summaries, sensitivity and SHAP plots), optionally promotes the
 best model in MLflow, and then attempts to push model artifacts to GCP storage.
 
-By default, it trains model families that support sample weights (`forest`, `linear`,
-`xgboost`). `svm` can be included explicitly via `--models`, and currently runs
-the full-kernel variant (`svm_full`).
+By default, it trains model families that support sample weights (`forest`, `svm`,
+`xgboost`, `lgbm`). Additional models can be included explicitly via `--models`.
 
 ### Model families and estimators trained by train.py
 
-- `forest` -> `RandomForestRegressor`
-- `linear` -> `SGDRegressor`
-- `svm` -> `SVR` (currently `svm_full`; an approximate pipeline exists but is disabled)
-- `xgboost` -> `xgboost.XGBRegressor`
+- `forest` -> `RandomForestClassifier`
+- `svm` -> `SVC`
+- `xgboost` -> `xgboost.XGBClassifier`
+- `lgbm` -> `LGBMClassifier`
 
 ### Hyperparameter search in train.py
 
 Each trainer uses `RandomizedSearchCV` with `PredefinedSplit` and
-`scoring="neg_mean_squared_error"`, then refits the best configuration.
+`scoring="f1_macro"`, then refits the best configuration.
 
 There is hyper-parameter tuning configured for:
 
 - `forest`
-- `linear`
-- `svm_full`
+- `svm`
 - `xgboost`
+- `lgbm`
 
 Selection logic after all searches:
 
-- Per-model: best trial is selected by `RandomizedSearchCV` under MSE-based scoring.
-- Cross-model: `train.py` picks the overall best model by highest holdout `r2` from
+- Per-model: best trial is selected by `RandomizedSearchCV` under macro F1 scoring.
+- Cross-model: `train.py` picks the overall best model by highest holdout `macro_f1` from
   `eval_*.json`, and writes that decision to `best.txt`.
 
 ### Flowchart: train.py Execution Steps
@@ -258,7 +257,7 @@ flowchart TD
   L -- Yes --> H
   L -- No --> M[Load eval_*.json metrics from run directory]
   M --> N[Plot performance.png and log artifact]
-  N --> O[Rank models by R2 and write best.txt]
+  N --> O[Rank models by macro F1 and write best.txt]
   O --> P[Save cv_results and run sensitivity analysis]
   P --> Q[End parent MLflow run]
 
@@ -272,7 +271,7 @@ flowchart TD
 
 Notes:
 
-- Best model selection uses highest `r2` found in `eval_*.json` files.
+- Best model selection uses highest `macro_f1` found in `eval_*.json` files.
 - Sensitivity analysis failures are non-fatal and are logged, then execution continues.
 - Artifact push to GCP is best-effort and does not stop training completion on failure.
 
@@ -303,8 +302,8 @@ Notes:
 
 #### Gate controls
 
-- MODEL_CICD_MIN_R2
-- MODEL_CICD_MAX_MAE
+- MODEL_CICD_MIN_ACCURACY
+- MODEL_CICD_MIN_MACRO_F1
 - MODEL_CICD_MAX_BIAS_RELATIVE_GAP
 - MODEL_CICD_MAX_REGRESSION_DEGRADATION
 - MODEL_CICD_BIAS_SLICES
@@ -394,10 +393,10 @@ selected model, eval criteria and so-on.
   - Met
 - What is implemented:
   - apps/training/training/cmd/train.py
-    - _train_models() executes forest, linear, svm, xgboost trainer modules
-    - _load_metrics() and _save_best_model_info() rank by R2 and write best.txt
+    - _train_models() executes forest, svm, xgboost, lgbm trainer modules
+    - _load_metrics() and _save_best_model_info() rank by macro F1 and write best.txt
 - Design decision and justification:
-  - Decision: Multi-model candidate search in one run; best model selected using holdout R2.
+  - Decision: Multi-model candidate search in one run; best model selected using holdout macro F1.
   - Justification: Provides model family comparison with a single operational interface and auditable model choice.
 - train_with_gates.py inputs related:
   - --runid
@@ -415,15 +414,15 @@ selected model, eval criteria and so-on.
   - Met
 - What is implemented:
   - apps/training/training/trainers/utils/harness.py
-    - get_test_accuracy() computes MAE, MSE, RMSE, R2 on test split
+    - get_test_accuracy() computes accuracy, macro F1, macro precision, macro recall on test split
   - apps/training/training/analysis/validation_gate.py
     - evaluate_validation_gate() enforces thresholds
 - Design decision and justification:
-  - Decision: Use regression metrics MAE/RMSE/R2 rather than classification metrics.
-  - Justification: Target is continuous completion time prediction, so regression metrics are the correct statistical contract.
+  - Decision: Use classification metrics (accuracy, macro F1) rather than regression metrics.
+  - Justification: Target is a time-bucket classification task, so classification metrics are the correct statistical contract.
 - train_with_gates.py inputs related:
-  - MODEL_CICD_MIN_R2
-  - MODEL_CICD_MAX_MAE
+  - MODEL_CICD_MIN_ACCURACY
+  - MODEL_CICD_MIN_MACRO_F1
 - Observable outputs:
   - models/{runid}/eval_{model}.json
   - models/{runid}/gate_report.json -> validation_gate
@@ -653,7 +652,7 @@ selected model, eval criteria and so-on.
 - Observable outputs:
   - sample_weights.json when mitigation script is run.
 - Gap and improvement path:
-  - Gap: No closed-loop “detect -> mitigate -> retrain -> re-gate” inside one CI run, depends on `existing data/<dataset_id>/sample_weights.json`
+  - Gap: No closed-loop "detect -> mitigate -> retrain -> re-gate" inside one CI run, depends on `existing data/<dataset_id>/sample_weights.json`
   - Potential Improvement: Add explicit CI stage with deterministic mitigation policy and one bounded retrain cycle.
 
 ### 6.4 Document bias mitigation and trade-offs
@@ -674,7 +673,7 @@ selected model, eval criteria and so-on.
 - Observable outputs:
   - bias_{model}_{slice}.txt and gate_report.json
 - Gap and improvement path:
-  - Gap: No automatic consolidated narrative “trade-off memo” artifact per run. But, we still have these bias reports which are automatically made and used to validate the release (and if bias is too much) it acts as a failure reason (which is emailed to user)
+  - Gap: No automatic consolidated narrative "trade-off memo" artifact per run. But, we still have these bias reports which are automatically made and used to validate the release (and if bias is too much) it acts as a failure reason (which is emailed to user)
   - Improvement: Generate a run-level mitigation_decision.md summarizing pre/post disparities and performance impact.
 
 ---
@@ -706,10 +705,10 @@ selected model, eval criteria and so-on.
 - What is implemented:
   - validation_gate in train_with_gates.py
 - Design decision and justification:
-  - Decision: Gate on MAE/R2 thresholds before promotion decision.
+  - Decision: Gate on accuracy and macro F1 thresholds before promotion decision.
   - Justification: Explicit objective thresholds enforce consistent quality policy.
 - train_with_gates.py inputs related:
-  - MODEL_CICD_MIN_R2, MODEL_CICD_MAX_MAE
+  - MODEL_CICD_MIN_ACCURACY, MODEL_CICD_MIN_MACRO_F1
 - Observable outputs:
   - gate_report.json validation_gate and decision reasons
   - exit code 2 when blocked/failed
@@ -851,7 +850,7 @@ This section is a direct checklist for the additional requirements block.
   - apps/training/training/cmd/train.py::_train_models
   - apps/training/training/cmd/train.py::_save_best_model_info
 - Design decision:
-  - Train multiple model families and select by holdout R2.
+  - Train multiple model families and select by holdout macro F1.
   - Justification: Provides architecture comparison and an auditable, deterministic selection rule.
 
 ### 8.4 Code for model validation
@@ -862,8 +861,8 @@ This section is a direct checklist for the additional requirements block.
   - apps/training/training/trainers/utils/harness.py::get_test_accuracy
   - apps/training/training/analysis/validation_gate.py
 - Design decision:
-  - Use MAE/RMSE/R2 (regression metrics) instead of classification metrics.
-  - Justification: Target variable is continuous completion time.
+  - Use accuracy and macro F1 (classification metrics) instead of regression metrics.
+  - Justification: Target variable is a time bucket classification label, not a continuous value.
 
 ### 8.5 Code for bias checking
 
