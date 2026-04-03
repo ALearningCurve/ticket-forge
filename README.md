@@ -92,6 +92,9 @@ Available recipes:
     default                                        # Configure repository and install dependencies
 
     [airflow]
+   deploy-airflow
+   airflow-smoketest url
+   airflow-rollback image
     airflow-up
 
     [data-pipeline]

@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+sudo apt-get update -y
+sudo apt-get install -y docker.io git curl
+sudo systemctl enable --now docker
+
+if [ ! -d /opt/ticket-forge ]; then
+  sudo git clone "https://github.com/${repository}.git" /opt/ticket-forge
+else
+  cd /opt/ticket-forge
+  sudo git fetch --all --prune
+  sudo git reset --hard origin/main
+fi
+
+sudo mkdir -p /opt/ticket-forge/dags
+sudo mkdir -p /opt/ticket-forge/data
+sudo mkdir -p /opt/ticket-forge/models
+
+export AIRFLOW__DATABASE__SQL_ALCHEMY_CONN='${db_connection}'
+export DATABASE_URL='${app_db_connection}'
+export AIRFLOW__CORE__DAGS_FOLDER='${dags_folder}'
+export AIRFLOW__CORE__LOAD_EXAMPLES='False'
+export AIRFLOW__WEBSERVER__SECRET_KEY='replace-me-in-prod'
+export AIRFLOW_ADMIN_USERNAME='${airflow_username}'
+export AIRFLOW_ADMIN_PASSWORD='${airflow_password}'
+export GCS_BUCKET_NAME='gs://${gcs_bucket}'
+export GOOGLE_CLOUD_PROJECT='${gcp_project}'
+export GOOGLE_CLOUD_REGION='${gcp_region}'
+
+sudo docker rm -f airflow || true
+sudo docker run -d --name airflow --restart unless-stopped \
+  -p 8080:8080 \
+  -e AIRFLOW__DATABASE__SQL_ALCHEMY_CONN \
+  -e DATABASE_URL \
+  -e AIRFLOW__CORE__DAGS_FOLDER \
+  -e AIRFLOW__CORE__LOAD_EXAMPLES \
+  -e AIRFLOW__WEBSERVER__SECRET_KEY \
+  -e AIRFLOW_ADMIN_USERNAME \
+  -e AIRFLOW_ADMIN_PASSWORD \
+  -e GCS_BUCKET_NAME \
+  -e GOOGLE_CLOUD_PROJECT \
+  -e GOOGLE_CLOUD_REGION \
+  -v /opt/ticket-forge/dags:/opt/ticket-forge/dags \
+  -v /opt/ticket-forge/data:/opt/ticket-forge/data \
+  -v /opt/ticket-forge/models:/opt/ticket-forge/models \
+  ${airflow_image}

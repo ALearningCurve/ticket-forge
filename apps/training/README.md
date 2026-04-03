@@ -242,6 +242,40 @@ export TICKET_FORGE_DATASET_ID=/path/to/data/github_issues-2026-02-24T194022Z
 just train
 ```
 
+### Cloud Storage dataset mode
+
+Training can resolve its dataset from a GCS bucket index file instead of local `data/`:
+
+1. Ensure `GCS_BUCKET_NAME` is set to a bucket URI (for example `gs://ticket-forge-training-artifacts-prod`).
+2. Ensure bucket root contains `index.json` with at least:
+
+```json
+{
+    "current_dataset": "gs://ticket-forge-training-artifacts-prod/datasets/v1.0/tickets_transformed_improved.jsonl",
+    "dataset_version": "v1.0",
+    "created_date": "2026-03-29T00:00:00Z"
+}
+```
+
+3. Run training in cloud mode:
+
+```bash
+just train -- --cloud-storage
+```
+
+Optional explicit bucket override:
+
+```bash
+just train -- --cloud-storage --gcs-bucket gs://ticket-forge-training-artifacts-prod
+```
+
+When cloud mode is enabled, run manifests include cloud lineage fields:
+
+- `training_dataset.dataset_source`
+- `training_dataset.dataset_path`
+- `training_dataset.dataset_version`
+- `training_dataset.dataset_id`
+
 ### New run artifacts
 
 Each CI run writes additional artifacts under `models/{run_id}/`:

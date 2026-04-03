@@ -29,6 +29,7 @@ dependencies = [
     "torch>=2.10.0",
     "shap>=0.51.0",
     "google-cloud-storage>=3.10.0",
+    "jsonschema>=4.23.0",
 ]
 
 

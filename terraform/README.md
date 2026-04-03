@@ -4,7 +4,41 @@ This folder manages ticket-forge infrastructure on GCP, including:
 
 - Terraform state and DVC/model storage buckets.
 - GitHub Actions Workload Identity Federation service accounts.
-- A private MLflow tracking server on Cloud Run with Cloud SQL backend.
+- A private MLflow tracking server on Cloud Run with shared Cloud SQL backend.
+- Airflow runtime on Compute Engine VM with IAP/internal-only web access.
+- Cloud Storage training artifacts bucket with `index.json` dataset pointer.
+
+## Airflow + Cloud Storage resources
+
+This feature provisions a hosted Airflow runtime and cloud dataset storage:
+
+- `google_compute_instance.airflow_vm`: Airflow scheduler/webserver runtime.
+- `google_sql_database_instance.mlflow`: managed shared Postgres instance (private IP only on Airflow VPC).
+- `google_sql_database.airflow`: Airflow metadata database.
+- `google_sql_database.ticketforge`: ticket-forge application database.
+- `google_sql_database.mlflow`: MLflow backend database.
+- `google_storage_bucket.training_artifacts`: training datasets/models/manifests.
+- `google_storage_bucket_object.training_index`: bootstrap `index.json` manifest.
+
+Important variables:
+
+- `airflow_image`, `airflow_vm_machine_type`, `airflow_vm_disk_size_gb`
+- `airflow_db_name`, `airflow_db_user`,
+- `shared_cloud_sql_instance_name`
+- `ticketforge_db_name`, `ticketforge_db_user`
+- `training_bucket_name`
+
+Important outputs:
+
+- `airflow_webserver_url`, `airflow_vm_external_ip`
+- `cloud_sql_instance_connection_name`, `cloud_sql_private_ip`
+- `training_bucket_gs_uri`
+
+## Access model
+
+- SSH is restricted to IAP TCP forwarding CIDR (`35.235.240.0/20`).
+- Airflow webserver (`:8080`) is reachable only from inside the VPC subnet or via IAP TCP forwarding.
+- MLflow remains Cloud Run-based; invoker policy is controlled via Terraform IAM members.
 
 ## Prerequisites
 

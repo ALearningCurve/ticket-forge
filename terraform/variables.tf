@@ -38,6 +38,12 @@ variable "mlflow_service_name" {
   default     = "mlflow-tracking"
 }
 
+variable "shared_cloud_sql_instance_name" {
+  description = "Existing Cloud SQL instance name shared by MLflow, Airflow, and ticketforge databases."
+  type        = string
+  default     = "mlflow-tracking-sql"
+}
+
 variable "mlflow_server_image" {
   description = "Optional explicit container image for MLflow server. If null, Terraform uses Artifact Registry path <region>-docker.pkg.dev/<project>/mlflow-repo/mlflow-gcp:<tag>."
   type        = string
@@ -74,6 +80,12 @@ variable "mlflow_image_tag" {
   }
 }
 
+variable "mlflow_db_tier" {
+  description = "Cloud SQL machine tier for MLflow backend store."
+  type        = string
+  default     = "db-custom-1-3840"
+}
+
 variable "mlflow_db_name" {
   description = "Cloud SQL database name used by MLflow backend store."
   type        = string
@@ -86,14 +98,122 @@ variable "mlflow_db_user" {
   default     = "mlflow"
 }
 
-variable "mlflow_db_tier" {
-  description = "Cloud SQL machine tier for MLflow backend store."
-  type        = string
-  default     = "db-custom-1-3840"
-}
-
 variable "mlflow_additional_invokers" {
   description = "Extra Cloud Run invoker members for MLflow (e.g. user:you@example.com)."
   type        = list(string)
   default     = []
+}
+
+variable "environment" {
+  description = "Deployment environment for naming and labeling."
+  type        = string
+  default     = "prod"
+
+  validation {
+    condition     = contains(["prod"], var.environment)
+    error_message = "environment must be one of:prod." // Add staging sometime in the future?
+  }
+}
+
+variable "zone" {
+  description = "Compute Engine zone for the Airflow VM."
+  type        = string
+  default     = "us-east1-b"
+}
+
+variable "airflow_vm_machine_type" {
+  description = "Machine type for the Airflow Compute Engine VM."
+  type        = string
+  default     = "e2-medium"
+}
+
+variable "airflow_vm_disk_size_gb" {
+  description = "Boot disk size for the Airflow VM in GB."
+  type        = number
+  default     = 20
+
+  validation {
+    condition     = var.airflow_vm_disk_size_gb >= 20
+    error_message = "airflow_vm_disk_size_gb must be >= 20."
+  }
+}
+
+variable "airflow_image" {
+  description = "Container image for Airflow runtime."
+  type        = string
+  default     = "ghcr.io/apache/airflow:2.10.4"
+}
+
+variable "airflow_admin_username" {
+  description = "Default Airflow admin username."
+  type        = string
+  default     = "airflow"
+}
+
+variable "airflow_admin_password" {
+  description = "Optional Airflow admin password. If null, fetched from Secret Manager."
+  type        = string
+  default     = null
+  sensitive   = true
+  nullable    = true
+}
+
+variable "airflow_db_name" {
+  description = "Cloud SQL database name for Airflow metadata."
+  type        = string
+  default     = "airflow"
+}
+
+variable "airflow_db_user" {
+  description = "Cloud SQL user for Airflow metadata database."
+  type        = string
+  default     = "airflow"
+}
+
+variable "airflow_db_password" {
+  description = "Optional Cloud SQL password for airflow_db_user. If null, fetched from Secret Manager."
+  type        = string
+  default     = null
+  sensitive   = true
+  nullable    = true
+}
+
+variable "ticketforge_db_name" {
+  description = "Cloud SQL database name for ticket-forge application tables."
+  type        = string
+  default     = "ticketforge"
+}
+
+variable "ticketforge_db_user" {
+  description = "Cloud SQL user for ticket-forge application tables."
+  type        = string
+  default     = "ticketforge"
+}
+
+variable "ticketforge_db_password" {
+  description = "Optional Cloud SQL password for ticketforge_db_user. If null, fetched from Secret Manager."
+  type        = string
+  default     = null
+  sensitive   = true
+  nullable    = true
+}
+
+variable "training_bucket_name" {
+  description = "Cloud Storage bucket for training datasets and artifacts."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "enable_terraform_state_bucket" {
+  description = "Whether to create the Terraform state bucket with this configuration."
+  type        = bool
+  default     = true
+}
+
+variable "terraform_state_bucket_name" {
+  description = "Optional explicit Terraform state bucket name."
+  type        = string
+  default     = null
+  nullable    = true
 }

@@ -35,6 +35,8 @@ All commands run from the **repo root** via [just](https://just.systems). The Ju
 | `just pycheck [paths]` | Lint **then** test in one step |
 | `just check` | Full repo check (Python + Terraform) |
 | `just train [args]` | Run the training pipeline |
+| `just deploy-airflow` | Build and push Airflow image to GHCR, then apply Terraform with that image |
+| `just deploy-airflow-tf [args]` | Terraform-only Airflow apply (no image build/push) |
 
 ### Development lifecycle
 
@@ -42,6 +44,13 @@ All commands run from the **repo root** via [just](https://just.systems). The Ju
 2. **Comment it** — add Google-style docstrings (`"""Summary.\n\nArgs:\n    ...\n"""`) on all public functions, classes, and modules.
 3. **Lint it** — `just pylint <changed paths>`.
 4. **Test it** — `just pytest <test files>`.
+
+For Airflow infrastructure changes, also run:
+
+- `just tf-check`
+- `just airflow-smoketest <airflow-url>` after deploy
+
+For cloud-training dataset changes, update `index.json` in the training bucket and verify `just train -- --cloud-storage` records lineage in `run_manifest.json`.
 
 Always lint before committing. Pre-commit hooks enforce this automatically.
 

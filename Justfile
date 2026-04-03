@@ -121,3 +121,40 @@ tf-build-push-mlflow-image repo='mlflow-repo' tag='v3.10.0':
 airflow-up:
     chmod +777 ./data ./models
     docker compose up -d --build postgres pgadmin airflow
+
+[group('airflow')]
+deploy-airflow:
+    @: "${TF_VAR_project_id:?TF_VAR_project_id must be set in .env}"
+    @: "${TF_VAR_state_bucket:?TF_VAR_state_bucket must be set in .env}"
+    @: "${TF_VAR_region:?TF_VAR_region must be set in .env}"
+    @if ! command -v gh >/dev/null 2>&1; then \
+        echo "gh CLI is required for GHCR auth. Install gh and run 'gh auth login'."; \
+        exit 1; \
+    fi
+    @image_tag=$$(git rev-parse --short=12 HEAD); \
+    image="ghcr.io/alearningcurve/ticket-forge/airflow:$${image_tag}"; \
+    gh_user=$$(gh api user -q .login); \
+    echo "Building and pushing $${image}"; \
+    gh auth token | docker login ghcr.io -u "$${gh_user}" --password-stdin; \
+    docker build -f docker/airflow/Dockerfile -t "$${image}" .; \
+    docker push "$${image}"; \
+    terraform -chdir=terraform apply -auto-approve \
+      -var="project_id=${TF_VAR_project_id}" \
+      -var="state_bucket=${TF_VAR_state_bucket}" \
+      -var="region=${TF_VAR_region}" \
+      -var="zone=us-east1-b" \
+      -var="environment=prod" \
+      -var="airflow_image=$${image}"
+
+[group('airflow')]
+[positional-arguments]
+deploy-airflow-tf *args='':
+    terraform -chdir=terraform apply -auto-approve "$@"
+
+[group('airflow')]
+airflow-smoketest url:
+    bash scripts/ci/airflow_smoketest.sh {{ url }}
+
+[group('airflow')]
+airflow-rollback image:
+    bash scripts/ci/airflow_rollback.sh {{ image }}
