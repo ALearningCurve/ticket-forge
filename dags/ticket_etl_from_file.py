@@ -44,6 +44,26 @@ def _require_database_url() -> str:
   return dsn
 
 
+def _require_gcs_bucket_uri() -> str:
+  """Return normalized GCS_BUCKET_NAME URI from env or raise a task failure."""
+  bucket_uri = os.environ.get("GCS_BUCKET_NAME")
+  if not bucket_uri:
+    msg = "GCS_BUCKET_NAME is required for ticket_etl_from_file DAG."
+    raise AirflowFailException(msg)
+
+  normalized = bucket_uri.strip()
+  if not normalized.startswith("gs://"):
+    msg = "GCS_BUCKET_NAME must use gs://<bucket> format."
+    raise AirflowFailException(msg)
+
+  bucket_name = normalized.removeprefix("gs://").strip("/")
+  if not bucket_name or "/" in bucket_name:
+    msg = "GCS_BUCKET_NAME must include only a bucket name (no object path)."
+    raise AirflowFailException(msg)
+
+  return f"gs://{bucket_name}"
+
+
 def validate_runtime_config(**context: object) -> dict[str, Any]:
   """Validate the input file exists and set up output directory."""
   if not INPUT_RAW_PATH.exists():
@@ -56,6 +76,7 @@ def validate_runtime_config(**context: object) -> dict[str, Any]:
 
   runtime = {
     "dsn": _require_database_url(),
+    "gcs_bucket_uri": _require_gcs_bucket_uri(),
     "output_dir": str(output_dir),
     "run_timestamp": run_timestamp,
   }
@@ -186,9 +207,9 @@ def run_bias_detection(**context: object) -> dict[str, Any]:
 
 def run_bias_mitigation(**context: object) -> dict[str, Any]:
   """Run bias mitigation (sample weights + resample) on transformed data."""
+  import pandas as pd
   from training.analysis.run_bias_mitigation import run_bias_mitigation_weights
   from training.bias import BiasMitigator
-  import pandas as pd
 
   print("Starting bias mitigation...")
 
@@ -322,6 +343,29 @@ def save_dataset_and_weights(**context: object) -> dict[str, Any]:
     print("Saved bias report to", bias_report_path)
     result["bias_report_saved"] = str(bias_report_path)
 
+  return result
+
+
+def upload_output_dir_to_gcs(**context: object) -> dict[str, Any]:
+  """Upload full run output directory to GCS and update index.json."""
+  from training.etl.postload.publish_ticket_etl_output import publish_ticket_etl_output
+
+  runtime = context["task_instance"].xcom_pull(  # type: ignore[index, union-attr]
+    task_ids="validate_runtime_config", key="runtime"
+  )
+
+  output_dir = Path(str(runtime["output_dir"]))
+  run_timestamp = str(runtime["run_timestamp"])
+  bucket_uri = str(runtime["gcs_bucket_uri"])
+
+  result = publish_ticket_etl_output(
+    output_dir=output_dir,
+    bucket_uri=bucket_uri,
+    run_timestamp=run_timestamp,
+  )
+
+  print("Uploaded", result["object_count"], "artifact(s) to", result["object_prefix"])
+  print("Updated dataset index at", result["index_uri"])
   return result
 
 
@@ -474,6 +518,12 @@ with DAG(
     provide_context=True,
   )
 
+  upload_task = PythonOperator(
+    task_id="upload_output_dir_to_gcs",
+    python_callable=upload_output_dir_to_gcs,
+    provide_context=True,
+  )
+
   def send_email_with_report(**context: object) -> None:
     """Send email with bias report."""
     anomaly_text = context["task_instance"].xcom_pull(  # type: ignore[index, union-attr]
@@ -482,8 +532,19 @@ with DAG(
     bias_text = context["task_instance"].xcom_pull(  # type: ignore[index, union-attr]
       task_ids="prepare_bias_report", key="bias_email_text"
     )
+    upload_summary = context["task_instance"].xcom_pull(  # type: ignore[index, union-attr]
+      task_ids="upload_output_dir_to_gcs"
+    )
 
     additional_parts = [text for text in [anomaly_text, bias_text] if text]
+    if isinstance(upload_summary, dict):
+      dataset_uri = upload_summary.get("dataset_uri")
+      index_uri = upload_summary.get("index_uri")
+      if isinstance(dataset_uri, str) and isinstance(index_uri, str):
+        additional_parts.append(
+          f"Cloud dataset published:\n- Dataset: {dataset_uri}\n- Index: {index_uri}"
+        )
+
     additional_text = "\n\n".join(additional_parts) if additional_parts else None
 
     send_dag_status_email(additional_text=additional_text, **context)
@@ -507,5 +568,5 @@ with DAG(
   # Anomaly -> Load to DB -> Replay (independent of bias path)
   _ = anomaly_task >> load_db_task >> replay_task
 
-  # All paths converge before email
-  _ = [save_task, replay_task, profiling_task] >> send_email_task
+  # All paths converge before publication, then email.
+  _ = [save_task, replay_task, profiling_task] >> upload_task >> send_email_task

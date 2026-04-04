@@ -157,7 +157,8 @@ gcp-airflow-deploy:
     : "${TF_VAR_project_id:?TF_VAR_project_id must be set in environment}"
     : "${TF_VAR_state_bucket:?TF_VAR_state_bucket must be set in environment}"
     : "${TF_VAR_region:?TF_VAR_region must be set in environment}"
-    : "${GITHUB_TOKEN:?GITHUB_TOKEN must be set in environment}"
+    github_token_value="${AIRFLOW_GITHUB_TOKEN:-${GITHUB_TOKEN:-}}"
+    : "${github_token_value:?AIRFLOW_GITHUB_TOKEN (or legacy GITHUB_TOKEN) must be set in environment}"
     : "${GMAIL_APP_USERNAME:?GMAIL_APP_USERNAME must be set in environment}"
     : "${GMAIL_APP_PASSWORD:?GMAIL_APP_PASSWORD must be set in environment}"
 
@@ -198,7 +199,7 @@ gcp-airflow-deploy:
         -var="zone=us-east1-b" \
         -var="environment=prod"
 
-    printf '%s' "${GITHUB_TOKEN}" | gcloud secrets versions add "${github_token_secret_id}" --project="${TF_VAR_project_id}" --data-file=-
+    printf '%s' "${github_token_value}" | gcloud secrets versions add "${github_token_secret_id}" --project="${TF_VAR_project_id}" --data-file=-
     printf '%s' "${GMAIL_APP_USERNAME}" | gcloud secrets versions add "${gmail_username_secret_id}" --project="${TF_VAR_project_id}" --data-file=-
     printf '%s' "${GMAIL_APP_PASSWORD}" | gcloud secrets versions add "${gmail_password_secret_id}" --project="${TF_VAR_project_id}" --data-file=-
 
@@ -247,7 +248,7 @@ gcp-proxy target local_port='18080':
 
 # output connection credentials for deployed services
 [group('ops')]
-gcp-get-conn-info:
+tf-outputs:
     #!/usr/bin/env bash
     set -euo pipefail
 

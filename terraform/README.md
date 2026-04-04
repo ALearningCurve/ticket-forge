@@ -200,6 +200,9 @@ WIF_PROVIDER_ID=${output from step 2}
 TF_VAR_PROJECT_ID=your-gcp-project-id
 TF_VAR_STATE_BUCKET=your-tf-state-bucket-name
 TF_VAR_REGION=us-east1
+AIRFLOW_GITHUB_TOKEN=ghp_xxx
+GMAIL_APP_USERNAME=mlopsgroup29@gmail.com
+GMAIL_APP_PASSWORD=app_password
 MLFLOW_TRACKING_URI=${terraform output -raw mlflow_tracking_uri}
 MLFLOW_TRACKING_AUDIENCE=${terraform output -raw mlflow_tracking_audience}
 ...

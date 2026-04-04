@@ -54,7 +54,7 @@ For Airflow infrastructure changes, also run:
 - `just tf-check`
 - `just gcp-airflow-smoketest <airflow-url>` after deploy
 
-For cloud-training dataset changes, update `index.json` in the training bucket and verify `just train -- --cloud-storage` records lineage in `run_manifest.json`.
+For cloud-training dataset changes, `ticket_etl` and `ticket_etl_from_file` now upload the full run output directory and update bucket-root `index.json` automatically on successful runs. For manual or non-DAG uploads, update `index.json` yourself and verify `just train -- --cloud-storage` records lineage in `run_manifest.json`.
 
 Always lint before committing. Pre-commit hooks enforce this automatically.
 

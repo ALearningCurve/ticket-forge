@@ -59,14 +59,14 @@ jobs:
 
       - name: Validate required deployment secrets
         env:
-          REQUIRED_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN || '' }}
+          REQUIRED_AIRFLOW_GITHUB_TOKEN: ${{ secrets.AIRFLOW_GITHUB_TOKEN || '' }}
           REQUIRED_GMAIL_APP_USERNAME: ${{ secrets.GMAIL_APP_USERNAME || '' }}
           REQUIRED_GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD || '' }}
         run: |
           set -euo pipefail
 
-          if [ -z "${REQUIRED_GITHUB_TOKEN}" ]; then
-            echo "::error::Missing required secret: GITHUB_TOKEN"
+          if [ -z "${REQUIRED_AIRFLOW_GITHUB_TOKEN}" ]; then
+            echo "::error::Missing required secret: AIRFLOW_GITHUB_TOKEN"
             exit 1
           fi
 
@@ -86,7 +86,7 @@ jobs:
       - name: Deploy Airflow VM and runtime secrets
         env:
           AIRFLOW_REPO_REF: ${{ steps.repo_ref.outputs.value }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AIRFLOW_GITHUB_TOKEN: ${{ secrets.AIRFLOW_GITHUB_TOKEN }}
           GMAIL_APP_USERNAME: ${{ secrets.GMAIL_APP_USERNAME }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
         run: just gcp-airflow-deploy

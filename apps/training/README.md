@@ -251,7 +251,7 @@ Training can resolve its dataset from a GCS bucket index file instead of local `
 
 ```json
 {
-    "current_dataset": "gs://ticket-forge-training-artifacts-prod/datasets/v1.0/tickets_transformed_improved.jsonl",
+    "current_dataset": "gs://ticket-forge-training-artifacts-prod/some_run_id",
     "dataset_version": "v1.0",
     "created_date": "2026-03-29T00:00:00Z"
 }
