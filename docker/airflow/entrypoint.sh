@@ -49,6 +49,13 @@ airflow users create \
 
 echo "Airflow initialization complete"
 
-# Start Airflow scheduler in background and webserver in foreground
+# If a custom command is provided (e.g., docker compose run airflow <cmd>),
+# execute it directly to avoid spawning an unintended second scheduler/webserver.
+if [ "$#" -gt 0 ]; then
+  echo "Running custom command: $*"
+  exec "$@"
+fi
+
+# Default container behavior: scheduler in background, webserver in foreground.
 airflow scheduler &
 exec airflow webserver

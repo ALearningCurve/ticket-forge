@@ -206,22 +206,20 @@ def run_bias_detection(**context: object) -> dict[str, Any]:
 
 
 def run_bias_mitigation(**context: object) -> dict[str, Any]:
-  """Run bias mitigation (sample weights + resample) on transformed data."""
-  import pandas as pd
+  """Run bias mitigation (sample weights mode) on timestamped data."""
   from training.analysis.run_bias_mitigation import run_bias_mitigation_weights
-  from training.bias import BiasMitigator
 
   print("Starting bias mitigation...")
 
-  runtime = context["task_instance"].xcom_pull(  # type: ignore[index, union-attr]
-    task_ids="validate_runtime_config", key="runtime"
-  )
   transform_path = context["task_instance"].xcom_pull(  # type: ignore[index, union-attr]
     task_ids="run_transform", key="transform_path"
   )
+  runtime = context["task_instance"].xcom_pull(  # type: ignore[index, union-attr]
+    task_ids="validate_runtime_config", key="runtime"
+  )
+
   output_dir = runtime["output_dir"]
 
-  # --- Step 1: Sample weights ---
   mitigation_results = run_bias_mitigation_weights(
     data_path=transform_path, output_dir=output_dir
   )
@@ -233,30 +231,8 @@ def run_bias_mitigation(**context: object) -> dict[str, Any]:
     key="weights_path", value=mitigation_results["weights_path"]
   )
 
-  # --- Step 2: Resample to produce tickets_balanced.jsonl ---
-  print("Resampling data to produce tickets_balanced.jsonl...")
-  tickets = []
-  with open(transform_path, encoding="utf-8") as f:
-    for line in f:
-      if line.strip():
-        tickets.append(json.loads(line))
-
-  df = pd.DataFrame(tickets)
-  balanced_df = BiasMitigator.resample_underrepresented(df, "repo")
-
-  balanced_path = Path(output_dir) / "tickets_balanced.jsonl"
-  with open(balanced_path, "w", encoding="utf-8") as f:
-    for row in balanced_df.to_dict(orient="records"):
-      f.write(json.dumps(row) + "\n")
-
-  print(f"Saved {len(balanced_df):,} balanced tickets → {balanced_path}")
-
-  context["task_instance"].xcom_push(  # type: ignore[index, union-attr]
-    key="balanced_path", value=str(balanced_path)
-  )
-
   print("Bias mitigation complete!")
-  return {"bias_mitigation_done": True, "balanced_tickets": len(balanced_df)}
+  return {"bias_mitigation_done": True}
 
 
 def prepare_bias_report(**context: object) -> dict[str, Any]:
@@ -557,16 +533,20 @@ with DAG(
   )
 
   # Validate -> Transform -> [Anomaly, Profiling] (parallel)
-  _ = validate_task >> transform_task >> [anomaly_task, profiling_task]
+  _ = validate_task >> transform_task >> anomaly_task
 
   # Anomaly -> Bias Detection & Mitigation (parallel)
-  _ = anomaly_task >> [bias_detect_task, bias_mitigate_task]
-
-  # Bias tasks -> Prepare Report -> Save
-  _ = [bias_detect_task, bias_mitigate_task] >> prepare_report_task >> save_task
+  _ = (
+    anomaly_task
+    >> profiling_task
+    >> [bias_detect_task, bias_mitigate_task]
+    >> prepare_report_task
+    >> save_task
+    >> upload_task
+  )
 
   # Anomaly -> Load to DB -> Replay (independent of bias path)
   _ = anomaly_task >> load_db_task >> replay_task
 
   # All paths converge before publication, then email.
-  _ = [save_task, replay_task, profiling_task] >> upload_task >> send_email_task
+  _ = [upload_task, replay_task] >> send_email_task

@@ -582,16 +582,20 @@ with DAG(
   )
 
   # Config -> Scrape -> Transform -> [Anomaly, Profiling] (parallel)
-  _ = validate_task >> scrape_task >> transform_task >> [anomaly_task, profiling_task]
+  _ = validate_task >> scrape_task >> transform_task >> anomaly_task
 
   # Anomaly -> Bias Detection & Mitigation (parallel)
-  _ = anomaly_task >> [bias_detect_task, bias_mitigate_task]
-
-  # Bias tasks -> Prepare Report -> Save
-  _ = [bias_detect_task, bias_mitigate_task] >> prepare_report_task >> save_task
+  _ = (
+    anomaly_task
+    >> profiling_task
+    >> [bias_detect_task, bias_mitigate_task]
+    >> prepare_report_task
+    >> save_task
+    >> upload_task
+  )
 
   # Anomaly -> Load to DB -> Replay (independent of bias path)
   _ = anomaly_task >> load_db_task >> replay_task
 
   # All paths converge before publication, then email.
-  _ = [save_task, replay_task, profiling_task] >> upload_task >> send_email_task
+  _ = [upload_task, replay_task] >> send_email_task

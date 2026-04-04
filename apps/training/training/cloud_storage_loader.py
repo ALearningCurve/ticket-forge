@@ -13,6 +13,11 @@ from shared.logging import get_logger
 
 logger = get_logger(__name__)
 
+_DATASET_FILE_CANDIDATES = (
+  "tickets_transformed_improved.jsonl",
+  "tickets_transformed_improved.jsonl.gz",
+)
+
 
 @dataclass(frozen=True)
 class CloudDatasetReference:
@@ -120,6 +125,22 @@ def _download_prefix(bucket_name: str, prefix: str, target_dir: Path) -> None:
     blob.download_to_filename(destination)
 
 
+def _find_downloaded_dataset_file(local_dir: Path) -> Path | None:
+  """Return the downloaded transformed dataset path when present.
+
+  Args:
+      local_dir: Local directory where the dataset prefix was downloaded.
+
+  Returns:
+      Dataset path when found, else None.
+  """
+  for filename in _DATASET_FILE_CANDIDATES:
+    candidate = local_dir / filename
+    if candidate.exists():
+      return candidate
+  return None
+
+
 def resolve_cloud_dataset(bucket_uri: str | None = None) -> CloudDatasetReference:
   """Resolve and download a cloud dataset defined by index.json.
 
@@ -156,11 +177,11 @@ def resolve_cloud_dataset(bucket_uri: str | None = None) -> CloudDatasetReferenc
   prefix = dataset_path.rsplit("/", 1)[0]
   _download_prefix(bucket_name, prefix, local_dir)
 
-  expected_jsonl = local_dir / "tickets_transformed_improved.jsonl"
-  if not expected_jsonl.exists():
+  expected_dataset = _find_downloaded_dataset_file(local_dir)
+  if expected_dataset is None:
     msg = (
-      "Downloaded cloud dataset does not include tickets_transformed_improved.jsonl; "
-      f"checked {expected_jsonl}"
+      "Downloaded cloud dataset does not include a transformed dataset artifact; "
+      f"expected one of: {', '.join(_DATASET_FILE_CANDIDATES)}"
     )
     raise FileNotFoundError(msg)
 

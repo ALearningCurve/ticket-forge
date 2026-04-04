@@ -10,22 +10,19 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, cast
 
+from google.cloud import storage
+from google.cloud.storage import transfer_manager
+from shared.configuration import getenv_or
 from shared.logging import get_logger
-
-try:
-  from google.cloud import storage  # type: ignore[import]
-
-  HAS_GCS = True
-except ImportError:
-  HAS_GCS = False
-  storage = None  # type: ignore[assignment]
 
 logger = get_logger(__name__)
 
-_REQUIRED_DATASET_FILE = "tickets_transformed_improved.jsonl"
+_REQUIRED_DATASET_FILE = "tickets_transformed_improved.jsonl.gz"
+_UNCOMPRESSED_DATASET_FILE = "tickets_transformed_improved.jsonl"
 _INDEX_OBJECT_NAME = "index.json"
+_DEFAULT_ADC_PATH = Path("/opt/ticket-forge/data/gcp-adc.json")
 
 
 class _BlobProtocol(Protocol):
@@ -39,6 +36,10 @@ class _BlobProtocol(Protocol):
     """Return blob contents decoded as text."""
     ...
 
+  def upload_from_string(self, data: str, content_type: str | None = None) -> None:
+    """Upload text payload to blob storage."""
+    ...
+
 
 class _BucketProtocol(Protocol):
   """Structural type for minimal bucket behavior used by this module."""
@@ -46,6 +47,45 @@ class _BucketProtocol(Protocol):
   def blob(self, blob_name: str) -> _BlobProtocol:
     """Return a blob handle for object operations."""
     ...
+
+
+def _build_storage_client() -> storage.Client:
+  """Create a Cloud Storage client using resilient credential resolution.
+
+  Resolution order:
+  1. `GOOGLE_APPLICATION_CREDENTIALS` when set and non-empty.
+  2. Local default service account file at `/opt/ticket-forge/data/gcp-adc.json`.
+  3. Standard Application Default Credentials fallback.
+
+  Returns:
+      Configured storage client instance.
+
+  Raises:
+      FileNotFoundError: If explicit credentials env points to a missing file.
+  """
+  explicit_path_raw = getenv_or("GOOGLE_APPLICATION_CREDENTIALS")
+  explicit_path = explicit_path_raw.strip() if explicit_path_raw else ""
+
+  if explicit_path:
+    credentials_file = Path(explicit_path)
+    if not credentials_file.is_file():
+      msg = (
+        f"GOOGLE_APPLICATION_CREDENTIALS points to a missing file: {credentials_file}"
+      )
+      raise FileNotFoundError(msg)
+
+    logger.info("Using explicit Google credentials file: %s", credentials_file)
+    return storage.Client.from_service_account_json(str(credentials_file))
+
+  if _DEFAULT_ADC_PATH.is_file():
+    logger.warning(
+      "GOOGLE_APPLICATION_CREDENTIALS is unset; "
+      "falling back to default credentials file: %s",
+      _DEFAULT_ADC_PATH,
+    )
+    return storage.Client.from_service_account_json(str(_DEFAULT_ADC_PATH))
+
+  return storage.Client()
 
 
 def _parse_bucket_uri(bucket_uri: str) -> str:
@@ -91,6 +131,26 @@ def _collect_output_files(output_dir: Path) -> list[Path]:
   return sorted(path for path in output_dir.rglob("*") if path.is_file())
 
 
+def _filter_upload_files(output_dir: Path, files_to_upload: list[Path]) -> list[Path]:
+  """Filter files before upload.
+
+  The uncompressed transformed dataset is retained locally for DAG tasks that
+  read it directly, but cloud publication only includes the compressed variant.
+
+  Args:
+      output_dir: Local run output directory.
+      files_to_upload: Candidate file list.
+
+  Returns:
+      Filtered file list for upload.
+  """
+  return [
+    file_path
+    for file_path in files_to_upload
+    if file_path.relative_to(output_dir).as_posix() != _UNCOMPRESSED_DATASET_FILE
+  ]
+
+
 def _load_index_payload(
   bucket: _BucketProtocol,
   client: object,
@@ -130,6 +190,44 @@ def _load_index_payload(
   return payload
 
 
+def _upload_output_files(
+  bucket: _BucketProtocol,
+  output_dir: Path,
+  prefix: str,
+  files_to_upload: list[Path],
+) -> None:
+  """Upload all output files with transfer manager.
+
+  Args:
+      bucket: Cloud Storage bucket object.
+      output_dir: Local run output directory.
+      prefix: Object prefix in Cloud Storage.
+      files_to_upload: Files discovered under output_dir.
+
+  Raises:
+      RuntimeError: If one or more files fail to upload.
+  """
+  relative_paths = [
+    file_path.relative_to(output_dir).as_posix() for file_path in files_to_upload
+  ]
+  results = transfer_manager.upload_many_from_filenames(
+    bucket,
+    relative_paths,
+    source_directory=str(output_dir),
+    blob_name_prefix=prefix,
+    raise_exception=False,
+  )
+
+  failures: list[str] = []
+  for relative_path, result in zip(relative_paths, results, strict=True):
+    if isinstance(result, Exception):
+      failures.append(f"{relative_path}: {result}")
+
+  if failures:
+    msg = "Failed uploading one or more artifacts to GCS: " + "; ".join(failures)
+    raise RuntimeError(msg)
+
+
 def publish_ticket_etl_output(
   output_dir: Path,
   bucket_uri: str,
@@ -146,14 +244,9 @@ def publish_ticket_etl_output(
       Publication metadata including dataset URI and upload stats.
 
   Raises:
-      RuntimeError: If google-cloud-storage is unavailable.
       FileNotFoundError: If output directory or required dataset file is missing.
       ValueError: If bucket URI or existing index.json is invalid.
   """
-  if not HAS_GCS:
-    msg = "google-cloud-storage is required to publish ticket_etl outputs"
-    raise RuntimeError(msg)
-
   if not output_dir.exists() or not output_dir.is_dir():
     msg = f"Output directory not found: {output_dir}"
     raise FileNotFoundError(msg)
@@ -164,6 +257,7 @@ def publish_ticket_etl_output(
     raise FileNotFoundError(msg)
 
   files_to_upload = _collect_output_files(output_dir)
+  files_to_upload = _filter_upload_files(output_dir, files_to_upload)
   if not files_to_upload:
     msg = f"No files found in output directory: {output_dir}"
     raise FileNotFoundError(msg)
@@ -172,17 +266,11 @@ def publish_ticket_etl_output(
   dataset_id = f"github_issues-{run_timestamp}"
   prefix = f"{dataset_id}/"
 
-  assert storage is not None
-  client = storage.Client()
-  bucket = client.bucket(bucket_name)
+  client = _build_storage_client()
+  bucket = cast(_BucketProtocol, client.bucket(bucket_name))
 
-  bytes_uploaded = 0
-  for file_path in files_to_upload:
-    relative_path = file_path.relative_to(output_dir).as_posix()
-    blob_name = f"{prefix}{relative_path}"
-    blob = bucket.blob(blob_name)
-    blob.upload_from_filename(str(file_path))
-    bytes_uploaded += file_path.stat().st_size
+  _upload_output_files(bucket, output_dir, prefix, files_to_upload)
+  bytes_uploaded = sum(file_path.stat().st_size for file_path in files_to_upload)
 
   dataset_uri = f"gs://{bucket_name}/{prefix}{_REQUIRED_DATASET_FILE}"
 

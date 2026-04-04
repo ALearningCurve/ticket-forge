@@ -17,6 +17,12 @@ AIRFLOW_IAP_INSTANCE="${AIRFLOW_IAP_INSTANCE:-airflow-vm-prod}"
 AIRFLOW_IAP_ZONE="${AIRFLOW_IAP_ZONE:-us-east1-b}"
 AIRFLOW_IAP_LOCAL_PORT="${AIRFLOW_IAP_LOCAL_PORT:-18080}"
 
+AIRFLOW_SMOKETEST_MAX_ATTEMPTS="${AIRFLOW_SMOKETEST_MAX_ATTEMPTS:-24}"
+AIRFLOW_SMOKETEST_SLEEP_SECONDS="${AIRFLOW_SMOKETEST_SLEEP_SECONDS:-10}"
+AIRFLOW_IAP_START_MAX_ATTEMPTS="${AIRFLOW_IAP_START_MAX_ATTEMPTS:-30}"
+AIRFLOW_IAP_RETRY_SLEEP_SECONDS="${AIRFLOW_IAP_RETRY_SLEEP_SECONDS:-10}"
+AIRFLOW_IAP_READY_WAIT_ATTEMPTS="${AIRFLOW_IAP_READY_WAIT_ATTEMPTS:-20}"
+
 tunnel_pid=""
 
 cleanup() {
@@ -52,46 +58,58 @@ start_iap_tunnel_if_needed() {
     return 1
   fi
 
-  echo "Detected private Airflow URL (${host}); starting IAP tunnel via ${AIRFLOW_IAP_INSTANCE}/${AIRFLOW_IAP_ZONE}"
-  gcloud compute start-iap-tunnel "$AIRFLOW_IAP_INSTANCE" 8080 \
-    --zone "$AIRFLOW_IAP_ZONE" \
-    --local-host-port="127.0.0.1:${AIRFLOW_IAP_LOCAL_PORT}" \
-    >/tmp/airflow_iap_tunnel.log 2>&1 &
-  tunnel_pid=$!
+  local start_attempt=0
+  while (( start_attempt < AIRFLOW_IAP_START_MAX_ATTEMPTS )); do
+    start_attempt=$((start_attempt + 1))
+    echo "Detected private Airflow URL (${host}); starting IAP tunnel via ${AIRFLOW_IAP_INSTANCE}/${AIRFLOW_IAP_ZONE} (attempt ${start_attempt}/${AIRFLOW_IAP_START_MAX_ATTEMPTS})"
 
-  local wait_attempts=20
-  local i=0
-  while (( i < wait_attempts )); do
-    i=$((i + 1))
-    if curl --silent --max-time 2 "http://127.0.0.1:${AIRFLOW_IAP_LOCAL_PORT}/health" >/dev/null 2>&1; then
-      AIRFLOW_URL="http://127.0.0.1:${AIRFLOW_IAP_LOCAL_PORT}"
-      HEALTH_URL="${AIRFLOW_URL%/}/health"
-      DAGS_URL="${AIRFLOW_URL%/}/api/v1/dags"
-      echo "IAP tunnel ready; using ${AIRFLOW_URL}"
-      return 0
-    fi
+    gcloud compute start-iap-tunnel "$AIRFLOW_IAP_INSTANCE" 8080 \
+      --zone "$AIRFLOW_IAP_ZONE" \
+      --local-host-port="127.0.0.1:${AIRFLOW_IAP_LOCAL_PORT}" \
+      >/tmp/airflow_iap_tunnel.log 2>&1 &
+    tunnel_pid=$!
 
-    if ! kill -0 "$tunnel_pid" >/dev/null 2>&1; then
-      echo "IAP tunnel process exited unexpectedly"
-      if [[ -f /tmp/airflow_iap_tunnel.log ]]; then
-        tail -n 20 /tmp/airflow_iap_tunnel.log || true
+    local i=0
+    while (( i < AIRFLOW_IAP_READY_WAIT_ATTEMPTS )); do
+      i=$((i + 1))
+      if curl --silent --max-time 2 "http://127.0.0.1:${AIRFLOW_IAP_LOCAL_PORT}/health" >/dev/null 2>&1; then
+        AIRFLOW_URL="http://127.0.0.1:${AIRFLOW_IAP_LOCAL_PORT}"
+        HEALTH_URL="${AIRFLOW_URL%/}/health"
+        DAGS_URL="${AIRFLOW_URL%/}/api/v1/dags"
+        echo "IAP tunnel ready; using ${AIRFLOW_URL}"
+        return 0
       fi
-      return 1
+
+      if ! kill -0 "$tunnel_pid" >/dev/null 2>&1; then
+        echo "IAP tunnel process exited unexpectedly"
+        break
+      fi
+
+      sleep 1
+    done
+
+    if [[ -n "$tunnel_pid" ]] && kill -0 "$tunnel_pid" >/dev/null 2>&1; then
+      kill "$tunnel_pid" >/dev/null 2>&1 || true
+    fi
+    tunnel_pid=""
+
+    if [[ -f /tmp/airflow_iap_tunnel.log ]]; then
+      tail -n 20 /tmp/airflow_iap_tunnel.log || true
     fi
 
-    sleep 1
+    if (( start_attempt < AIRFLOW_IAP_START_MAX_ATTEMPTS )); then
+      echo "Retrying IAP tunnel in ${AIRFLOW_IAP_RETRY_SLEEP_SECONDS}s..."
+      sleep "$AIRFLOW_IAP_RETRY_SLEEP_SECONDS"
+    fi
   done
 
   echo "Timed out waiting for IAP tunnel to become ready"
-  if [[ -f /tmp/airflow_iap_tunnel.log ]]; then
-    tail -n 20 /tmp/airflow_iap_tunnel.log || true
-  fi
   return 1
 }
 
 attempt=0
-max_attempts=3
-sleep_seconds=5
+max_attempts="$AIRFLOW_SMOKETEST_MAX_ATTEMPTS"
+sleep_seconds="$AIRFLOW_SMOKETEST_SLEEP_SECONDS"
 
 start_iap_tunnel_if_needed
 

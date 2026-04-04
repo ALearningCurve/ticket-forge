@@ -227,7 +227,8 @@ EOF
     - Optional override to specify a particular dataset instead of using the latest.
     - Can be a directory name (e.g., `github_issues-2026-02-24T200000Z`) or an absolute path.
     - If relative, resolved relative to `data_root`.
-    - Must contain `tickets_transformed_improved.jsonl`.
+    - Must contain `tickets_transformed_improved.jsonl` or
+      `tickets_transformed_improved.jsonl.gz`.
     - If unset, training defaults to the most recent timestamped pipeline output.
 
 Example: train using a specific dataset from a previous Airflow run:
@@ -251,7 +252,7 @@ Training can resolve its dataset from a GCS bucket index file instead of local `
 
 ```json
 {
-    "current_dataset": "gs://ticket-forge-training-artifacts-prod/some_run_id",
+    "current_dataset": "gs://ticket-forge-training-artifacts-prod/some_run_id/tickets_transformed_improved.jsonl.gz",
     "dataset_version": "v1.0",
     "created_date": "2026-03-29T00:00:00Z"
 }
@@ -261,6 +262,12 @@ Training can resolve its dataset from a GCS bucket index file instead of local `
 
 ```bash
 just train -- --cloud-storage
+
+# Gate-driven CI entrypoint with cloud dataset mode (uses GCS_BUCKET_NAME)
+just train-with-gates -- --runid local-gates-1 --source-uri gcs
+
+# Gate-driven CI entrypoint with local dataset mode
+just train-with-gates -- --runid local-gates-1 --source-uri dvc
 ```
 
 Optional explicit bucket override:

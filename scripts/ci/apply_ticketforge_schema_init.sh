@@ -202,12 +202,7 @@ if [[ "${connected}" -ne 1 ]]; then
   connected=1
 fi
 
-for sql in \
-  scripts/postgres/init/01_extensions.sql \
-  scripts/postgres/init/02_schema.sql \
-  scripts/postgres/init/03_auth.sql \
-  scripts/postgres/init/04_projects.sql \
-  scripts/postgres/init/05_project_tickets.sql; do
+for sql in scripts/postgres/init/*.sql; do
   echo "Applying ${sql}"
   PGPASSWORD="${db_password}" psql \
     -v ON_ERROR_STOP=1 \

@@ -15,7 +15,8 @@ Environment Variables:
     - Can be a directory name (e.g., 'github_issues-2026-02-24T200000Z')
       or an absolute path.
     - If relative, resolved relative to data_root.
-    - Must contain tickets_balanced.jsonl.
+    - Must contain tickets_transformed_improved.jsonl or
+      tickets_transformed_improved.jsonl.gz.
 """
 
 import argparse

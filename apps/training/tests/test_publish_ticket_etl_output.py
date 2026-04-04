@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gzip
 import json
 from pathlib import Path
 from unittest.mock import patch
@@ -110,10 +111,55 @@ def _write_output_file(path: Path, content: str) -> None:
   path.write_text(content, encoding="utf-8")
 
 
+def _write_gzip_output_file(path: Path, content: str) -> None:
+  """Write a UTF-8 text file compressed as gzip.
+
+  Args:
+      path: File path.
+      content: Text content.
+  """
+  path.parent.mkdir(parents=True, exist_ok=True)
+  with gzip.open(path, "wt", encoding="utf-8") as file:
+    file.write(content)
+
+
+def _fake_upload_many_from_filenames(
+  bucket: FakeBucket,
+  filenames: list[str],
+  *,
+  source_directory: str,
+  blob_name_prefix: str,
+  raise_exception: bool,
+) -> list[None]:
+  """Emulate transfer manager uploads into fake bucket blobs.
+
+  Args:
+      bucket: Fake destination bucket.
+      filenames: Relative file paths under source_directory.
+      source_directory: Local base directory.
+      blob_name_prefix: Prefix to prepend to destination object names.
+      raise_exception: Unused transfer-manager flag.
+
+  Returns:
+      Transfer result list where None indicates success.
+  """
+  _ = raise_exception
+
+  results: list[None] = []
+  source_dir_path = Path(source_directory)
+  for filename in filenames:
+    source_path = source_dir_path / filename
+    destination_blob = bucket.blob(f"{blob_name_prefix}{filename}")
+    destination_blob.upload_from_filename(str(source_path))
+    results.append(None)
+
+  return results
+
+
 def test_publish_ticket_etl_output_uploads_all_files_and_updates_index(
   tmp_path: Path,
 ) -> None:
-  """Publishes full directory and updates index pointer to the run dataset."""
+  """Publishes full directory with compressed dataset and updates index."""
   from training.etl.postload.publish_ticket_etl_output import publish_ticket_etl_output
 
   run_timestamp = "2026-04-03T120000Z"
@@ -124,7 +170,14 @@ def test_publish_ticket_etl_output_uploads_all_files_and_updates_index(
     output_dir / "tickets_transformed_improved.jsonl",
     '{"id": "T-1"}\n',
   )
-  _write_output_file(output_dir / "sample_weights.json", '{"repo": {"a": 1.0}}\n')
+  _write_gzip_output_file(
+    output_dir / "tickets_transformed_improved.jsonl.gz",
+    '{"id": "T-1"}\n',
+  )
+  _write_output_file(
+    output_dir / "sample_weights.json",
+    '{"repo": {"a": 1.0}}\n',
+  )
   _write_output_file(output_dir / "reports" / "bias_report.txt", "bias report\n")
 
   fake_client = FakeClient()
@@ -134,10 +187,15 @@ def test_publish_ticket_etl_output_uploads_all_files_and_updates_index(
   )
 
   with (
-    patch("training.etl.postload.publish_ticket_etl_output.HAS_GCS", True),
     patch("training.etl.postload.publish_ticket_etl_output.storage") as mock_storage,
+    patch(
+      "training.etl.postload.publish_ticket_etl_output.transfer_manager"
+    ) as mock_transfer_manager,
   ):
     mock_storage.Client.return_value = fake_client
+    mock_transfer_manager.upload_many_from_filenames.side_effect = (
+      _fake_upload_many_from_filenames
+    )
     result = publish_ticket_etl_output(
       output_dir=output_dir,
       bucket_uri="gs://test-bucket",
@@ -149,12 +207,13 @@ def test_publish_ticket_etl_output_uploads_all_files_and_updates_index(
   assert result["dataset_version"] == run_timestamp
   assert (
     result["dataset_uri"]
-    == f"gs://test-bucket/{dataset_id}/tickets_transformed_improved.jsonl"
+    == f"gs://test-bucket/{dataset_id}/tickets_transformed_improved.jsonl.gz"
   )
   assert result["index_uri"] == "gs://test-bucket/index.json"
   assert result["object_count"] == 3
 
-  assert f"{dataset_id}/tickets_transformed_improved.jsonl" in bucket._blobs
+  assert f"{dataset_id}/tickets_transformed_improved.jsonl.gz" in bucket._blobs
+  assert f"{dataset_id}/tickets_transformed_improved.jsonl" not in bucket._blobs
   assert f"{dataset_id}/sample_weights.json" in bucket._blobs
   assert f"{dataset_id}/reports/bias_report.txt" in bucket._blobs
 
@@ -171,17 +230,14 @@ def test_publish_ticket_etl_output_uploads_all_files_and_updates_index(
 def test_publish_ticket_etl_output_requires_primary_dataset_file(
   tmp_path: Path,
 ) -> None:
-  """Fails fast when tickets_transformed_improved.jsonl is missing."""
+  """Fails fast when tickets_transformed_improved.jsonl.gz is missing."""
   from training.etl.postload.publish_ticket_etl_output import publish_ticket_etl_output
 
   output_dir = tmp_path / "github_issues-2026-04-03T120500Z"
   output_dir.mkdir(parents=True)
   _write_output_file(output_dir / "sample_weights.json", "{}\n")
 
-  with (
-    patch("training.etl.postload.publish_ticket_etl_output.HAS_GCS", True),
-    patch("training.etl.postload.publish_ticket_etl_output.storage") as mock_storage,
-  ):
+  with patch("training.etl.postload.publish_ticket_etl_output.storage") as mock_storage:
     mock_storage.Client.return_value = FakeClient()
     with pytest.raises(FileNotFoundError, match="Required dataset file not found"):
       publish_ticket_etl_output(
@@ -197,12 +253,9 @@ def test_publish_ticket_etl_output_rejects_bucket_object_path(tmp_path: Path) ->
 
   output_dir = tmp_path / "github_issues-2026-04-03T121000Z"
   output_dir.mkdir(parents=True)
-  _write_output_file(output_dir / "tickets_transformed_improved.jsonl", "{}\n")
+  _write_gzip_output_file(output_dir / "tickets_transformed_improved.jsonl.gz", "{}\n")
 
-  with (
-    patch("training.etl.postload.publish_ticket_etl_output.HAS_GCS", True),
-    patch("training.etl.postload.publish_ticket_etl_output.storage") as mock_storage,
-  ):
+  with patch("training.etl.postload.publish_ticket_etl_output.storage") as mock_storage:
     mock_storage.Client.return_value = FakeClient()
     with pytest.raises(ValueError, match="must not include an object path"):
       publish_ticket_etl_output(
@@ -218,17 +271,22 @@ def test_publish_ticket_etl_output_raises_on_malformed_index(tmp_path: Path) -> 
 
   output_dir = tmp_path / "github_issues-2026-04-03T121500Z"
   output_dir.mkdir(parents=True)
-  _write_output_file(output_dir / "tickets_transformed_improved.jsonl", "{}\n")
+  _write_gzip_output_file(output_dir / "tickets_transformed_improved.jsonl.gz", "{}\n")
 
   fake_client = FakeClient()
   bucket = fake_client.bucket("test-bucket")
   bucket.blob("index.json").upload_from_string("{this-is-not-json")
 
   with (
-    patch("training.etl.postload.publish_ticket_etl_output.HAS_GCS", True),
     patch("training.etl.postload.publish_ticket_etl_output.storage") as mock_storage,
+    patch(
+      "training.etl.postload.publish_ticket_etl_output.transfer_manager"
+    ) as mock_transfer_manager,
   ):
     mock_storage.Client.return_value = fake_client
+    mock_transfer_manager.upload_many_from_filenames.side_effect = (
+      _fake_upload_many_from_filenames
+    )
     with pytest.raises(ValueError, match="Malformed JSON"):
       publish_ticket_etl_output(
         output_dir=output_dir,

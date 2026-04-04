@@ -230,15 +230,21 @@ gcp-proxy target local_port='18080':
                     --local-host-port="127.0.0.1:{{ local_port }}"
                 ;;
             cloud-sql|cloudsql|sql)
-                sql_instance="${TF_VAR_shared_cloud_sql_instance_name:-mlflow-tracking-sql}"
-                sql_target="${TF_VAR_project_id}:${region}:${sql_instance}"
-                if ! command -v cloud-sql-proxy >/dev/null 2>&1; then
-                    echo "cloud-sql-proxy is required for Cloud SQL tunneling."
-                    echo "Install: https://cloud.google.com/sql/docs/postgres/connect-auth-proxy#install"
+                zone="${TF_VAR_zone:-us-east1-b}"
+                instance="${AIRFLOW_VM_NAME:-airflow-vm-prod}"
+                cloud_sql_private_ip="$(terraform -chdir=terraform output -raw cloud_sql_private_ip 2>/dev/null || true)"
+                if [[ -z "${cloud_sql_private_ip}" ]]; then
+                    echo "Could not resolve cloud_sql_private_ip from Terraform outputs."
+                    echo "Run: just tf output cloud_sql_private_ip"
                     exit 1
                 fi
-                echo "Opening Cloud SQL proxy: 127.0.0.1:{{ local_port }} -> ${sql_target}"
-                exec cloud-sql-proxy --private-ip "${sql_target}" --port "{{ local_port }}"
+                echo "Opening Cloud SQL IAP relay: 127.0.0.1:{{ local_port }} -> ${cloud_sql_private_ip}:5432 via ${instance} (${zone})"
+                exec gcloud compute ssh \
+                    --project="${TF_VAR_project_id}" \
+                    --zone="${zone}" \
+                    --tunnel-through-iap \
+                    "${instance}" \
+                    -- -N -L "127.0.0.1:{{ local_port }}:${cloud_sql_private_ip}:5432"
                 ;;
             *)
                 echo "Usage: just gcp-proxy <airflow|cloud-sql> [local_port]"
@@ -257,7 +263,6 @@ tf-outputs:
     env_name="${TF_VAR_environment:-prod}"
     airflow_admin_username="${TF_VAR_airflow_admin_username:-airflow}"
     airflow_db_user="${TF_VAR_airflow_db_user:-airflow}"
-    ticketforge_db_user="${TF_VAR_ticketforge_db_user:-ticketforge}"
     mlflow_db_user="${TF_VAR_mlflow_db_user:-mlflow}"
     mlflow_service_name="${TF_VAR_mlflow_service_name:-mlflow-tracking}"
 
@@ -277,8 +282,43 @@ tf-outputs:
             --secret="${secret_id}" 2>/dev/null || echo "<missing or inaccessible>"
     }
 
-    airflow_url="$(terraform -chdir=terraform output -raw airflow_webserver_url 2>/dev/null || echo '<unavailable>')"
-    mlflow_url="$(terraform -chdir=terraform output -raw mlflow_tracking_uri 2>/dev/null || echo '<unavailable>')"
+    tf_output_or() {
+        local output_name="$1"
+        local default_value="$2"
+
+        local value=""
+        if value="$(just tf output -raw "${output_name}" 2>/dev/null)"; then
+            if [[ -n "${value}" ]]; then
+                echo "${value}"
+                return 0
+            fi
+        fi
+
+        echo "${default_value}"
+    }
+
+    urlencode() {
+        local raw="$1"
+        python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$raw"
+    }
+
+    airflow_url="$(tf_output_or airflow_webserver_url '<unavailable>')"
+    mlflow_url="$(tf_output_or mlflow_tracking_uri '<unavailable>')"
+    cloud_sql_private_ip="$(tf_output_or cloud_sql_private_ip '<unavailable>')"
+    cloud_sql_connection_name="$(tf_output_or cloud_sql_instance_connection_name '<unavailable>')"
+    airflow_db_name="$(tf_output_or cloud_sql_database_name "${TF_VAR_airflow_db_name:-airflow}")"
+    ticketforge_db_name="$(tf_output_or cloud_sql_ticketforge_database_name "${TF_VAR_ticketforge_db_name:-ticketforge}")"
+    ticketforge_db_user="$(tf_output_or cloud_sql_ticketforge_database_user "${TF_VAR_ticketforge_db_user:-ticketforge}")"
+    mlflow_db_name="$(tf_output_or cloud_sql_mlflow_database_name "${TF_VAR_mlflow_db_name:-mlflow}")"
+    ticketforge_db_password="$(get_secret "${ticketforge_db_secret_id}")"
+
+    ticketforge_db_user_uri="$(urlencode "${ticketforge_db_user}")"
+    ticketforge_db_password_uri="$(urlencode "${ticketforge_db_password}")"
+    ticketforge_db_name_uri="$(urlencode "${ticketforge_db_name}")"
+
+    ticketforge_proxy_dsn="postgresql://${ticketforge_db_user_uri}:${ticketforge_db_password_uri}@127.0.0.1:5432/${ticketforge_db_name_uri}"
+    ticketforge_private_dsn="postgresql://${ticketforge_db_user_uri}:${ticketforge_db_password_uri}@${cloud_sql_private_ip}:5432/${ticketforge_db_name_uri}"
+    ticketforge_socket_dsn="postgresql://${ticketforge_db_user_uri}:${ticketforge_db_password_uri}@/${ticketforge_db_name_uri}?host=/cloudsql/${cloud_sql_connection_name}"
 
     echo "=== Airflow ==="
     echo "URL:      ${airflow_url}"
@@ -293,12 +333,23 @@ tf-outputs:
     echo
 
     echo "=== Cloud SQL Users ==="
-    echo "Airflow DB user (${airflow_db_user}):     $(get_secret "${airflow_db_secret_id}")"
-    echo "Ticketforge DB user (${ticketforge_db_user}): $(get_secret "${ticketforge_db_secret_id}")"
-    echo "MLflow DB user (${mlflow_db_user}):      $(get_secret "${mlflow_db_secret_id}")"
+    echo "Airflow DB (${airflow_db_name}) user (${airflow_db_user}):     $(get_secret "${airflow_db_secret_id}")"
+    echo "Ticketforge DB (${ticketforge_db_name}) user (${ticketforge_db_user}): $(get_secret "${ticketforge_db_secret_id}")"
+    echo "MLflow DB (${mlflow_db_name}) user (${mlflow_db_user}):      $(get_secret "${mlflow_db_secret_id}")"
     echo
 
     echo "=== Runtime Integrations ==="
     echo "GMAIL_APP_USERNAME: $(get_secret "${gmail_username_secret_id}")"
     echo "GMAIL_APP_PASSWORD: $(get_secret "${gmail_password_secret_id}")"
     echo "GITHUB_TOKEN:       $(get_secret "${github_token_secret_id}")"
+
+    echo
+    echo "=== Ticketforge Connection Strings ==="
+    echo "Proxy DSN (run: just gcp-proxy cloud-sql 5432):"
+    echo "${ticketforge_proxy_dsn}"
+    echo
+    echo "Private IP DSN (requires network path to Cloud SQL private IP):"
+    echo "${ticketforge_private_dsn}"
+    echo
+    echo "Cloud SQL Socket DSN (for GCP runtimes):"
+    echo "${ticketforge_socket_dsn}"

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gzip
 import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -23,7 +24,7 @@ def test_resolve_cloud_dataset_downloads_prefix_and_returns_reference(
 ) -> None:
   """Cloud loader resolves index.json, downloads prefix, and returns metadata."""
   index = {
-    "current_dataset": "gs://bucket/datasets/v1/tickets_transformed_improved.jsonl",
+    "current_dataset": "gs://bucket/datasets/v1/tickets_transformed_improved.jsonl.gz",
     "dataset_version": "v1.0",
     "dataset_id": "dataset-v1",
   }
@@ -32,10 +33,11 @@ def test_resolve_cloud_dataset_downloads_prefix_and_returns_reference(
   index_blob = _blob("index.json", json.dumps(index))
 
   data_blob = MagicMock()
-  data_blob.name = "datasets/v1/tickets_transformed_improved.jsonl"
+  data_blob.name = "datasets/v1/tickets_transformed_improved.jsonl.gz"
 
   def _download_to_filename(filename: str) -> None:
-    Path(filename).write_text("{}\n", encoding="utf-8")
+    with gzip.open(filename, "wt", encoding="utf-8") as file:
+      file.write("{}\n")
 
   data_blob.download_to_filename.side_effect = _download_to_filename
 
@@ -56,7 +58,7 @@ def test_resolve_cloud_dataset_downloads_prefix_and_returns_reference(
   assert result.dataset_uri == index["current_dataset"]
   assert result.dataset_version == "v1.0"
   assert result.dataset_id == "dataset-v1"
-  assert (result.local_directory / "tickets_transformed_improved.jsonl").exists()
+  assert (result.local_directory / "tickets_transformed_improved.jsonl.gz").exists()
 
 
 def test_resolve_cloud_dataset_fails_for_missing_index(
