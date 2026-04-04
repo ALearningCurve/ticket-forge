@@ -103,7 +103,11 @@ uv run -m training.etl.ingest.transform
 
 ## Model Training
 
-**Supported models:** Random Forest, Linear Regression, SVM (kernel approximation), XGBoost.
+**Supported models:** Random Forest, Linear Regression, SVM (kernel approximation), XGBoost, LightGBM.
+
+> [!NOTE]
+> LightGBM requires an OpenMP runtime. On Debian/Ubuntu Linux, install
+> `libgomp1` if you see `OSError: libgomp.so.1: cannot open shared object file`.
 
 > [!IMPORTANT]
 > Current trainers use dummy/sample data for validation and are not trained on the full dataset. Full model training on production data is planned for the next deliverable. The training harness, hyperparameter search, and evaluation pipeline are production-ready and validated with subset data (`Dataset.as_sklearn_cv_split(subset_size=20)`).
