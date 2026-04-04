@@ -58,80 +58,38 @@ jobs:
         uses: hashicorp/setup-terraform@v3
 
       - name: Validate required deployment secrets
+        env:
+          REQUIRED_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN || '' }}
+          REQUIRED_GMAIL_APP_USERNAME: ${{ secrets.GMAIL_APP_USERNAME || '' }}
+          REQUIRED_GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD || '' }}
         run: |
-          : "${{ secrets.GITHUB_TOKEN || '' }}"
-          : "${{ secrets.GMAIL_APP_USERNAME || '' }}"
-          : "${{ secrets.GMAIL_APP_PASSWORD || '' }}"
+          set -euo pipefail
+
+          if [ -z "${REQUIRED_GITHUB_TOKEN}" ]; then
+            echo "::error::Missing required secret: GITHUB_TOKEN"
+            exit 1
+          fi
+
+          if [ -z "${REQUIRED_GMAIL_APP_USERNAME}" ]; then
+            echo "::error::Missing required secret: GMAIL_APP_USERNAME"
+            exit 1
+          fi
+
+          if [ -z "${REQUIRED_GMAIL_APP_PASSWORD}" ]; then
+            echo "::error::Missing required secret: GMAIL_APP_PASSWORD"
+            exit 1
+          fi
 
       - name: Terraform Init
         run: terraform -chdir=terraform init -backend-config="bucket=${TF_VAR_state_bucket}"
 
-      - name: Import existing runtime secrets (if present)
-        run: |
-          set -euo pipefail
-
-          github_token_secret_id="${TF_VAR_airflow_github_token_secret_id:-airflow-github-token-prod}"
-          gmail_username_secret_id="${TF_VAR_airflow_gmail_app_username_secret_id:-airflow-gmail-app-username-prod}"
-          gmail_password_secret_id="${TF_VAR_airflow_gmail_app_password_secret_id:-airflow-gmail-app-password-prod}"
-
-          if gcloud secrets describe "${github_token_secret_id}" --project="${TF_VAR_project_id}" >/dev/null 2>&1; then
-            terraform -chdir=terraform import \
-              -var="project_id=${TF_VAR_project_id}" \
-              -var="state_bucket=${TF_VAR_state_bucket}" \
-              -var="region=${TF_VAR_region}" \
-              -var="zone=${TF_VAR_zone}" \
-              -var="environment=${TF_VAR_environment}" \
-              'google_secret_manager_secret.airflow_runtime["github_token"]' \
-              "projects/${TF_VAR_project_id}/secrets/${github_token_secret_id}" >/dev/null 2>&1 || true
-          fi
-
-          if gcloud secrets describe "${gmail_username_secret_id}" --project="${TF_VAR_project_id}" >/dev/null 2>&1; then
-            terraform -chdir=terraform import \
-              -var="project_id=${TF_VAR_project_id}" \
-              -var="state_bucket=${TF_VAR_state_bucket}" \
-              -var="region=${TF_VAR_region}" \
-              -var="zone=${TF_VAR_zone}" \
-              -var="environment=${TF_VAR_environment}" \
-              'google_secret_manager_secret.airflow_runtime["gmail_app_username"]' \
-              "projects/${TF_VAR_project_id}/secrets/${gmail_username_secret_id}" >/dev/null 2>&1 || true
-          fi
-
-          if gcloud secrets describe "${gmail_password_secret_id}" --project="${TF_VAR_project_id}" >/dev/null 2>&1; then
-            terraform -chdir=terraform import \
-              -var="project_id=${TF_VAR_project_id}" \
-              -var="state_bucket=${TF_VAR_state_bucket}" \
-              -var="region=${TF_VAR_region}" \
-              -var="zone=${TF_VAR_zone}" \
-              -var="environment=${TF_VAR_environment}" \
-              'google_secret_manager_secret.airflow_runtime["gmail_app_password"]' \
-              "projects/${TF_VAR_project_id}/secrets/${gmail_password_secret_id}" >/dev/null 2>&1 || true
-          fi
-
-      - name: Publish runtime secret versions
+      - name: Deploy Airflow VM and runtime secrets
         env:
-          GITHUB_TOKEN_AIRFLOW: ${{ secrets.GITHUB_TOKEN }}
+          AIRFLOW_REPO_REF: ${{ steps.repo_ref.outputs.value }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GMAIL_APP_USERNAME: ${{ secrets.GMAIL_APP_USERNAME }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
-        run: |
-          set -euo pipefail
-
-          github_token_secret_id="${TF_VAR_airflow_github_token_secret_id:-airflow-github-token-prod}"
-          gmail_username_secret_id="${TF_VAR_airflow_gmail_app_username_secret_id:-airflow-gmail-app-username-prod}"
-          gmail_password_secret_id="${TF_VAR_airflow_gmail_app_password_secret_id:-airflow-gmail-app-password-prod}"
-
-          printf '%s' "${GITHUB_TOKEN_AIRFLOW}" | gcloud secrets versions add "${github_token_secret_id}" --project="${TF_VAR_project_id}" --data-file=-
-          printf '%s' "${GMAIL_APP_USERNAME}" | gcloud secrets versions add "${gmail_username_secret_id}" --project="${TF_VAR_project_id}" --data-file=-
-          printf '%s' "${GMAIL_APP_PASSWORD}" | gcloud secrets versions add "${gmail_password_secret_id}" --project="${TF_VAR_project_id}" --data-file=-
-
-      - name: Terraform Apply (deploy Airflow VM)
-        run: |
-          terraform -chdir=terraform apply -auto-approve \
-            -var="project_id=${TF_VAR_project_id}" \
-            -var="state_bucket=${TF_VAR_state_bucket}" \
-            -var="region=${TF_VAR_region}" \
-            -var="zone=${TF_VAR_zone}" \
-            -var="environment=${TF_VAR_environment}" \
-            -var="airflow_repo_ref=${{ steps.repo_ref.outputs.value }}"
+        run: just gcp-airflow-deploy
 
       - name: Install PostgreSQL client and Cloud SQL Auth Proxy
         run: |
@@ -147,4 +105,4 @@ jobs:
       - name: Smoke test
         run: |
           airflow_url=$(terraform -chdir=terraform output -raw airflow_webserver_url)
-          bash scripts/ci/airflow_smoketest.sh "${airflow_url}"
+          just gcp-airflow-smoketest "${airflow_url}"

@@ -374,6 +374,12 @@ def _run_post_training_actions(run_id: str, promote: bool) -> None:
 def main() -> None:
   """Trains models according to user params."""
   models_list, run_id, promote, use_cloud_storage, gcs_bucket = _parse_arguments()
+
+  # Create output directory for this run
+  run_dir = Paths.models_root / run_id
+  run_dir.mkdir(parents=True, exist_ok=True)
+  _ensure_run_manifest(run_id)
+
   cloud_dataset_ref = _configure_cloud_dataset(
     run_id=run_id,
     use_cloud_storage=use_cloud_storage,
@@ -395,11 +401,6 @@ def main() -> None:
   _enable_autolog(max_tuning_runs=max_tuning_runs)
   logger.info("MLflow configured for training harness: %s", tracking_uri)
   logger.info("Max tuning runs to log: %d", max_tuning_runs)
-
-  # Create output directory for this run
-  run_dir = Paths.models_root / run_id
-  run_dir.mkdir(parents=True, exist_ok=True)
-  _ensure_run_manifest(run_id)
 
   _run_mlflow_training_pipeline(models_list=models_list, run_id=run_id, run_dir=run_dir)
   _run_post_training_actions(run_id=run_id, promote=promote)

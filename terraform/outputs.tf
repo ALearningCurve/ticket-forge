@@ -80,5 +80,5 @@ output "vpc_network_name" {
 
 output "terraform_state_bucket_name" {
   description = "Bucket used for Terraform state backend configuration."
-  value       = local.effective_state_bucket
+  value       = var.state_bucket
 }

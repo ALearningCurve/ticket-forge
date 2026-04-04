@@ -39,7 +39,7 @@ variable "mlflow_service_name" {
 }
 
 variable "shared_cloud_sql_instance_name" {
-  description = "Existing Cloud SQL instance name shared by MLflow, Airflow, and ticketforge databases."
+  description = "Cloud SQL instance name shared by MLflow, Airflow, and ticketforge databases (import existing instance before first apply when reusing one)."
   type        = string
   default     = "mlflow-tracking-sql"
 }
@@ -182,6 +182,20 @@ variable "airflow_gmail_app_password_secret_id" {
   default     = "airflow-gmail-app-password-prod"
 }
 
+variable "airflow_webserver_secret_key_secret_id" {
+  description = "Secret Manager secret id containing Airflow webserver secret key used for session/CSRF signing."
+  type        = string
+  default     = "airflow-webserver-secret-key-prod"
+}
+
+variable "airflow_webserver_secret_key" {
+  description = "Optional explicit Airflow webserver secret key. If null, Terraform generates a strong key and stores it in Secret Manager."
+  type        = string
+  default     = null
+  sensitive   = true
+  nullable    = true
+}
+
 variable "airflow_admin_username" {
   description = "Default Airflow admin username."
   type        = string
@@ -247,11 +261,4 @@ variable "enable_terraform_state_bucket" {
   description = "Whether to create the Terraform state bucket with this configuration."
   type        = bool
   default     = true
-}
-
-variable "terraform_state_bucket_name" {
-  description = "Optional explicit Terraform state bucket name."
-  type        = string
-  default     = null
-  nullable    = true
 }

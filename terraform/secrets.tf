@@ -3,6 +3,11 @@ resource "random_password" "airflow_admin_password" {
   special = false
 }
 
+resource "random_password" "airflow_webserver_secret_key" {
+  length  = 64
+  special = false
+}
+
 resource "google_secret_manager_secret" "airflow_admin_password" {
   secret_id = "airflow-admin-password-${var.environment}"
 
@@ -16,6 +21,21 @@ resource "google_secret_manager_secret" "airflow_admin_password" {
 resource "google_secret_manager_secret_version" "airflow_admin_password" {
   secret      = google_secret_manager_secret.airflow_admin_password.id
   secret_data = coalesce(var.airflow_admin_password, random_password.airflow_admin_password.result)
+}
+
+resource "google_secret_manager_secret" "airflow_webserver_secret_key" {
+  secret_id = var.airflow_webserver_secret_key_secret_id
+
+  replication {
+    auto {}
+  }
+
+  depends_on = [google_project_service.airflow_services]
+}
+
+resource "google_secret_manager_secret_version" "airflow_webserver_secret_key" {
+  secret      = google_secret_manager_secret.airflow_webserver_secret_key.id
+  secret_data = coalesce(var.airflow_webserver_secret_key, random_password.airflow_webserver_secret_key.result)
 }
 
 resource "google_secret_manager_secret" "airflow_db_password" {

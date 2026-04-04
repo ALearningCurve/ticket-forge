@@ -1,6 +1,5 @@
 locals {
-  airflow_vm_name        = "airflow-vm-${var.environment}"
-  effective_state_bucket = coalesce(var.terraform_state_bucket_name, var.state_bucket)
+  airflow_vm_name = "airflow-vm-${var.environment}"
   effective_training_bucket = coalesce(
     var.training_bucket_name,
     "ticket-forge-training-artifacts-${var.project_id}-${var.environment}",
@@ -80,20 +79,21 @@ resource "google_compute_instance" "airflow_vm" {
   }
 
   metadata_startup_script = templatefile("${path.module}/templates/airflow_startup.sh.tftpl", {
-    repository                   = var.repository
-    repository_ref               = var.airflow_repo_ref
-    airflow_version              = var.airflow_version
-    airflow_username             = var.airflow_admin_username
-    airflow_password             = local.airflow_admin_password
-    db_connection                = local.airflow_sqlalchemy_conn
-    app_db_connection            = local.ticketforge_sqlalchemy_conn
-    dags_folder                  = "/opt/ticket-forge/dags"
-    gcs_bucket                   = google_storage_bucket.training_artifacts.name
-    gcp_region                   = var.region
-    gcp_project                  = var.project_id
-    github_token_secret_id       = var.airflow_github_token_secret_id
-    gmail_app_username_secret_id = var.airflow_gmail_app_username_secret_id
-    gmail_app_password_secret_id = var.airflow_gmail_app_password_secret_id
+    repository                             = var.repository
+    repository_ref                         = var.airflow_repo_ref
+    airflow_version                        = var.airflow_version
+    airflow_username                       = var.airflow_admin_username
+    airflow_password                       = local.airflow_admin_password
+    db_connection                          = local.airflow_sqlalchemy_conn
+    app_db_connection                      = local.ticketforge_sqlalchemy_conn
+    dags_folder                            = "/opt/ticket-forge/dags"
+    gcs_bucket                             = google_storage_bucket.training_artifacts.name
+    gcp_region                             = var.region
+    gcp_project                            = var.project_id
+    github_token_secret_id                 = var.airflow_github_token_secret_id
+    gmail_app_username_secret_id           = var.airflow_gmail_app_username_secret_id
+    gmail_app_password_secret_id           = var.airflow_gmail_app_password_secret_id
+    airflow_webserver_secret_key_secret_id = var.airflow_webserver_secret_key_secret_id
   })
 
   allow_stopping_for_update = true
@@ -107,5 +107,6 @@ resource "google_compute_instance" "airflow_vm" {
     google_project_service.airflow_services,
     google_sql_database.airflow,
     google_storage_bucket.training_artifacts,
+    google_secret_manager_secret_version.airflow_webserver_secret_key,
   ]
 }

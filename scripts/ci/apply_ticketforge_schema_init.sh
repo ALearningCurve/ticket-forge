@@ -52,7 +52,7 @@ probe_log="$(mktemp -t cloud-sql-proxy-probe.XXXXXX.log)"
 proxy_pid=""
 private_ip_reachable=0
 
-if timeout 3 bash -c "</dev/tcp/${cloud_sql_private_ip}/3307" >/dev/null 2>&1; then
+if timeout 3 bash -c "</dev/tcp/${cloud_sql_private_ip}/5432" >/dev/null 2>&1; then
   private_ip_reachable=1
 fi
 
