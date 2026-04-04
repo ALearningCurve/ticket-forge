@@ -4,6 +4,7 @@ resource "google_project_service" "mlflow_services" {
     "sqladmin.googleapis.com",
     "secretmanager.googleapis.com",
     "artifactregistry.googleapis.com",
+    "vpcaccess.googleapis.com",
   ])
 
   project            = var.project_id
@@ -117,6 +118,14 @@ resource "google_cloud_run_v2_service" "mlflow" {
     scaling {
       min_instance_count = 0
       max_instance_count = 2
+    }
+
+    vpc_access {
+      network_interfaces {
+        network    = google_compute_network.airflow_vpc.id
+        subnetwork = google_compute_subnetwork.airflow_subnet.id
+      }
+      egress = "PRIVATE_RANGES_ONLY"
     }
 
     volumes {

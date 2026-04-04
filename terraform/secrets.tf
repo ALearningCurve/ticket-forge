@@ -48,25 +48,29 @@ resource "google_secret_manager_secret_version" "ticketforge_db_password" {
   secret_data = coalesce(var.ticketforge_db_password, random_password.ticketforge_db_password.result)
 }
 
-data "google_secret_manager_secret_version" "airflow_admin_password" {
-  secret  = google_secret_manager_secret.airflow_admin_password.secret_id
-  version = "latest"
+locals {
+  airflow_runtime_secret_ids = {
+    github_token       = var.airflow_github_token_secret_id
+    gmail_app_username = var.airflow_gmail_app_username_secret_id
+    gmail_app_password = var.airflow_gmail_app_password_secret_id
+  }
 }
 
-data "google_secret_manager_secret_version" "airflow_db_password" {
-  secret  = google_secret_manager_secret.airflow_db_password.secret_id
-  version = "latest"
-}
+resource "google_secret_manager_secret" "airflow_runtime" {
+  for_each  = local.airflow_runtime_secret_ids
+  secret_id = each.value
 
-data "google_secret_manager_secret_version" "ticketforge_db_password" {
-  secret  = google_secret_manager_secret.ticketforge_db_password.secret_id
-  version = "latest"
+  replication {
+    auto {}
+  }
+
+  depends_on = [google_project_service.airflow_services]
 }
 
 locals {
-  airflow_admin_password        = data.google_secret_manager_secret_version.airflow_admin_password.secret_data
-  airflow_db_password_value     = data.google_secret_manager_secret_version.airflow_db_password.secret_data
-  ticketforge_db_password_value = data.google_secret_manager_secret_version.ticketforge_db_password.secret_data
+  airflow_admin_password        = coalesce(var.airflow_admin_password, random_password.airflow_admin_password.result)
+  airflow_db_password_value     = coalesce(var.airflow_db_password, random_password.airflow_db_password.result)
+  ticketforge_db_password_value = coalesce(var.ticketforge_db_password, random_password.ticketforge_db_password.result)
   airflow_sqlalchemy_conn = format(
     "postgresql+psycopg2://%s:%s@%s/%s",
     var.airflow_db_user,
@@ -75,7 +79,7 @@ locals {
     var.airflow_db_name,
   )
   ticketforge_sqlalchemy_conn = format(
-    "postgresql+psycopg2://%s:%s@%s/%s",
+    "postgresql://%s:%s@%s/%s",
     var.ticketforge_db_user,
     local.ticketforge_db_password_value,
     google_sql_database_instance.mlflow.private_ip_address,

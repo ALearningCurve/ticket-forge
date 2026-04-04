@@ -83,7 +83,21 @@ variable "mlflow_image_tag" {
 variable "mlflow_db_tier" {
   description = "Cloud SQL machine tier for MLflow backend store."
   type        = string
-  default     = "db-custom-1-3840"
+  default     = "db-g1-small"
+}
+
+variable "cloud_sql_max_connections" {
+  description = "Optional Postgres max_connections override for the shared Cloud SQL instance. Leave null to use Cloud SQL tier defaults."
+  type        = number
+  default     = 500
+  nullable    = true
+
+  validation {
+    condition = var.cloud_sql_max_connections == null || (
+      var.cloud_sql_max_connections >= 20 && var.cloud_sql_max_connections <= 5000
+    )
+    error_message = "cloud_sql_max_connections must be null or between 20 and 5000."
+  }
 }
 
 variable "mlflow_db_name" {
@@ -138,10 +152,34 @@ variable "airflow_vm_disk_size_gb" {
   }
 }
 
-variable "airflow_image" {
-  description = "Container image for Airflow runtime."
+variable "airflow_repo_ref" {
+  description = "Git ref (branch, tag, or commit SHA) checked out on the Airflow VM during deploy."
   type        = string
-  default     = "ghcr.io/apache/airflow:2.10.4"
+  default     = "main"
+}
+
+variable "airflow_version" {
+  description = "Apache Airflow version installed natively on the Airflow VM."
+  type        = string
+  default     = "2.10.4"
+}
+
+variable "airflow_github_token_secret_id" {
+  description = "Secret Manager secret id containing the GitHub token used by Airflow runtime."
+  type        = string
+  default     = "airflow-github-token-prod"
+}
+
+variable "airflow_gmail_app_username_secret_id" {
+  description = "Secret Manager secret id containing the Gmail app username used by Airflow SMTP config."
+  type        = string
+  default     = "airflow-gmail-app-username-prod"
+}
+
+variable "airflow_gmail_app_password_secret_id" {
+  description = "Secret Manager secret id containing the Gmail app password used by Airflow SMTP config."
+  type        = string
+  default     = "airflow-gmail-app-password-prod"
 }
 
 variable "airflow_admin_username" {

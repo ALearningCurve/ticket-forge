@@ -24,11 +24,19 @@ resource "google_sql_database_instance" "mlflow" {
   settings {
     tier              = var.mlflow_db_tier
     availability_type = "ZONAL"
-    disk_size         = 20
+    disk_size         = 40
     disk_type         = "PD_SSD"
 
     backup_configuration {
       enabled = true
+    }
+
+    dynamic "database_flags" {
+      for_each = var.cloud_sql_max_connections == null ? [] : [var.cloud_sql_max_connections]
+      content {
+        name  = "max_connections"
+        value = tostring(database_flags.value)
+      }
     }
 
     ip_configuration {

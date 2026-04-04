@@ -35,8 +35,12 @@ All commands run from the **repo root** via [just](https://just.systems). The Ju
 | `just pycheck [paths]` | Lint **then** test in one step |
 | `just check` | Full repo check (Python + Terraform) |
 | `just train [args]` | Run the training pipeline |
-| `just deploy-airflow` | Build and push Airflow image to GHCR, then apply Terraform with that image |
-| `just deploy-airflow-tf [args]` | Terraform-only Airflow apply (no image build/push) |
+| `just gcp-airflow-deploy` | Deploy/update private Airflow VM using Terraform and startup script with `airflow_repo_ref` |
+| `just gcp-ticketforge-schema-init` | Apply ticketforge Postgres init SQL scripts against Cloud SQL via local proxy |
+| `just gcp-airflow-smoketest <url>` | Smoke test Airflow health/API (supports private URL with IAP tunnel) |
+| `just gcp-airflow-trigger <url> <dag_id> [conf_json] [run_id]` | Trigger an Airflow DAG run through the REST API (supports private URL with IAP tunnel) |
+| `just gcp-proxy <airflow\|cloud-sql> [port]` | Open local proxy tunnel to Airflow webserver or Cloud SQL |
+| `just gcp-get-conn-info` | Print deployed service URLs and credentials from Secret Manager |
 
 ### Development lifecycle
 
@@ -48,7 +52,7 @@ All commands run from the **repo root** via [just](https://just.systems). The Ju
 For Airflow infrastructure changes, also run:
 
 - `just tf-check`
-- `just airflow-smoketest <airflow-url>` after deploy
+- `just gcp-airflow-smoketest <airflow-url>` after deploy
 
 For cloud-training dataset changes, update `index.json` in the training bucket and verify `just train -- --cloud-storage` records lineage in `run_manifest.json`.
 

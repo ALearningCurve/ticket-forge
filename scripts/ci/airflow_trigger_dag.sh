@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -lt 1 ]]; then
-  echo "Usage: $0 <airflow-url>"
+if [[ $# -lt 2 ]]; then
+  echo "Usage: $0 <airflow-url> <dag-id> [conf-json] [run-id]"
   exit 2
 fi
 
 AIRFLOW_URL="$1"
-HEALTH_URL="${AIRFLOW_URL%/}/health"
-DAGS_URL="${AIRFLOW_URL%/}/api/v1/dags"
+DAG_ID="$2"
+CONF_JSON="${3:-{}}"
+RUN_ID="${4:-manual__$(date -u +%Y%m%dT%H%M%SZ)}"
 
-AIRFLOW_SMOKETEST_USERNAME="${AIRFLOW_SMOKETEST_USERNAME:-}"
-AIRFLOW_SMOKETEST_PASSWORD="${AIRFLOW_SMOKETEST_PASSWORD:-}"
+AIRFLOW_API_USERNAME="${AIRFLOW_API_USERNAME:-${AIRFLOW_SMOKETEST_USERNAME:-}}"
+AIRFLOW_API_PASSWORD="${AIRFLOW_API_PASSWORD:-${AIRFLOW_SMOKETEST_PASSWORD:-}}"
 
 AIRFLOW_IAP_INSTANCE="${AIRFLOW_IAP_INSTANCE:-airflow-vm-prod}"
 AIRFLOW_IAP_ZONE="${AIRFLOW_IAP_ZONE:-us-east1-b}"
@@ -65,8 +66,6 @@ start_iap_tunnel_if_needed() {
     i=$((i + 1))
     if curl --silent --max-time 2 "http://127.0.0.1:${AIRFLOW_IAP_LOCAL_PORT}/health" >/dev/null 2>&1; then
       AIRFLOW_URL="http://127.0.0.1:${AIRFLOW_IAP_LOCAL_PORT}"
-      HEALTH_URL="${AIRFLOW_URL%/}/health"
-      DAGS_URL="${AIRFLOW_URL%/}/api/v1/dags"
       echo "IAP tunnel ready; using ${AIRFLOW_URL}"
       return 0
     fi
@@ -89,43 +88,49 @@ start_iap_tunnel_if_needed() {
   return 1
 }
 
-attempt=0
-max_attempts=3
-sleep_seconds=5
+if ! command -v jq >/dev/null 2>&1; then
+  echo "jq is required to build and validate the Airflow trigger payload"
+  exit 1
+fi
+
+if ! echo "$CONF_JSON" | jq -e 'type == "object"' >/dev/null 2>&1; then
+  echo "conf-json must be a valid JSON object, for example: '{\"force\":true}'"
+  exit 2
+fi
 
 start_iap_tunnel_if_needed
 
-while (( attempt < max_attempts )); do
-  attempt=$((attempt + 1))
-  echo "Smoketest attempt ${attempt}/${max_attempts}: ${HEALTH_URL}"
+TRIGGER_URL="${AIRFLOW_URL%/}/api/v1/dags/${DAG_ID}/dagRuns"
+PAYLOAD="$(jq -c -n --arg run_id "$RUN_ID" --argjson conf "$CONF_JSON" '{dag_run_id: $run_id, conf: $conf}')"
 
-  if curl --fail --silent --show-error "$HEALTH_URL" >/dev/null; then
-    echo "Health endpoint is reachable"
+auth_args=()
+if [[ -n "$AIRFLOW_API_USERNAME" ]] && [[ -n "$AIRFLOW_API_PASSWORD" ]]; then
+  auth_args=(--user "${AIRFLOW_API_USERNAME}:${AIRFLOW_API_PASSWORD}")
+fi
 
-    auth_args=()
-    if [[ -n "$AIRFLOW_SMOKETEST_USERNAME" ]] && [[ -n "$AIRFLOW_SMOKETEST_PASSWORD" ]]; then
-      auth_args=(--user "${AIRFLOW_SMOKETEST_USERNAME}:${AIRFLOW_SMOKETEST_PASSWORD}")
-    fi
+http_code="$(curl --silent --show-error \
+  --output /tmp/airflow_trigger_response.json \
+  --write-out '%{http_code}' \
+  --request POST \
+  --header 'Content-Type: application/json' \
+  "${auth_args[@]}" \
+  --data "$PAYLOAD" \
+  "$TRIGGER_URL" || true)"
 
-    http_code="$(curl --silent --show-error --output /tmp/airflow_dags_response.json --write-out '%{http_code}' "${auth_args[@]}" "$DAGS_URL" || true)"
+if [[ "$http_code" == "200" || "$http_code" == "201" ]]; then
+  echo "DAG run triggered successfully"
+  jq '.' /tmp/airflow_trigger_response.json 2>/dev/null || cat /tmp/airflow_trigger_response.json
+  exit 0
+fi
 
-    if [[ "$http_code" == "200" ]] && grep -q '"dags"' /tmp/airflow_dags_response.json; then
-      echo "DAG API reachable and payload looks valid"
-      exit 0
-    fi
+if [[ "$http_code" == "401" ]] && [[ -z "$AIRFLOW_API_USERNAME" ]]; then
+  echo "DAG trigger endpoint requires authentication (HTTP 401)."
+  echo "Set AIRFLOW_API_USERNAME and AIRFLOW_API_PASSWORD (or AIRFLOW_SMOKETEST_USERNAME/PASSWORD) and retry."
+  exit 1
+fi
 
-    if [[ "$http_code" == "401" ]] && [[ -z "$AIRFLOW_SMOKETEST_USERNAME" ]]; then
-      echo "DAG API reachable but requires authentication (401)"
-      exit 0
-    fi
-
-    echo "DAG API check failed (HTTP ${http_code})"
-  else
-    echo "Health endpoint check failed"
-  fi
-
-  sleep "$sleep_seconds"
-done
-
-echo "Smoketest failed after ${max_attempts} attempts"
+echo "Failed to trigger DAG '${DAG_ID}' (HTTP ${http_code})"
+if [[ -s /tmp/airflow_trigger_response.json ]]; then
+  jq '.' /tmp/airflow_trigger_response.json 2>/dev/null || cat /tmp/airflow_trigger_response.json
+fi
 exit 1

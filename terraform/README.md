@@ -22,11 +22,13 @@ This feature provisions a hosted Airflow runtime and cloud dataset storage:
 
 Important variables:
 
-- `airflow_image`, `airflow_vm_machine_type`, `airflow_vm_disk_size_gb`
+- `airflow_repo_ref`, `airflow_version`, `airflow_vm_machine_type`, `airflow_vm_disk_size_gb`
 - `airflow_db_name`, `airflow_db_user`,
 - `shared_cloud_sql_instance_name`
+- `mlflow_db_tier`, `cloud_sql_max_connections`
 - `ticketforge_db_name`, `ticketforge_db_user`
 - `training_bucket_name`
+- `airflow_github_token_secret_id`, `airflow_gmail_app_username_secret_id`, `airflow_gmail_app_password_secret_id`
 
 Important outputs:
 
@@ -47,6 +49,7 @@ Important outputs:
 - Auth configured via one of:
   - `gcloud auth application-default login`
   - `GOOGLE_APPLICATION_CREDENTIALS` pointing to a service account key file (set in .env file)
+- If modifying or connecting to CloudSQL instance then follow this doc to install [SQL CLI dependencies](https://docs.cloud.google.com/sql/docs/postgres/connect-admin-ip)
 
 ## First-time setup
 
@@ -104,6 +107,33 @@ Terraform defaults now point Cloud Run at:
 
 3. Follow [action setup](#actions-setup) if not done so already.
 
+## Airflow runtime secrets (VM)
+
+The Airflow VM startup script reads runtime secrets from Secret Manager using the
+VM service account (`airflow-runtime-sa`) and injects them as container env vars:
+
+- `GITHUB_TOKEN`
+- `GMAIL_APP_USERNAME`
+- `GMAIL_APP_PASSWORD`
+
+Create/update the secrets before deploying:
+
+```bash
+echo -n "$GITHUB_TOKEN" | gcloud secrets versions add airflow-github-token-prod --data-file=-
+echo -n "$GMAIL_APP_USERNAME" | gcloud secrets versions add airflow-gmail-app-username-prod --data-file=-
+echo -n "$GMAIL_APP_PASSWORD" | gcloud secrets versions add airflow-gmail-app-password-prod --data-file=-
+```
+
+If the secrets do not exist yet:
+
+```bash
+gcloud secrets create airflow-github-token-prod --replication-policy=automatic
+gcloud secrets create airflow-gmail-app-username-prod --replication-policy=automatic
+gcloud secrets create airflow-gmail-app-password-prod --replication-policy=automatic
+```
+
+Use Terraform variables to override the secret ids per environment if needed.
+
 ## Common scripts (Just)
 
 After the initial setup, you can run the following commands:
@@ -121,10 +151,42 @@ From repo root:
 - Run arbitrary terraform commands:
   - `just tf` (i.e. `just tf apply`)
 
+Airflow VM deploy and operations:
+
+- Deploy/update Airflow and runtime secrets from current git commit:
+  - `just gcp-airflow-deploy`
+- Apply ticketforge schema SQL scripts to Cloud SQL:
+  - `just gcp-ticketforge-schema-init` - applies Cloud SQL schema init through the private Cloud SQL proxy path and requires a machine with VPC access.
+- Deploy a specific remote ref (branch/tag/SHA):
+  - `AIRFLOW_REPO_REF=main just gcp-airflow-deploy`
+- Run Airflow smoke checks:
+  - `just gcp-airflow-smoketest <airflow-url>`
+- Trigger an Airflow DAG run via API:
+  - `just gcp-airflow-trigger <airflow-url> <dag_id> [conf_json] [run_id]`
+- Open local proxy tunnels:
+  - `just gcp-proxy airflow 18080`
+  - `just gcp-proxy cloud-sql 5433`
+- Retrieve service URLs and credentials:
+  - `just gcp-get-conn-info`
+
+## Cloud SQL connection capacity
+
+If you hit errors like `remaining connection slots are reserved for non-replication superuser connections`, increase connection capacity for the shared Postgres instance:
+
+1. Increase `mlflow_db_tier` (preferred first step).
+2. Optionally set `cloud_sql_max_connections` to an explicit value supported by that tier.
+
+Example in `terraform.tfvars`:
+
+```hcl
+mlflow_db_tier            = "db-custom-1-3840"
+cloud_sql_max_connections = 300
+```
+
 ## Actions Setup
 
 1. Complete the [first-time setup ](#first-time-setup) to create infrastructure
-2. Then, run `just get-wif-provider`
+2. Then, run `just gcp-get-wif-provider`
 3. Set github actions secret variables (Settings > Secrets and variables > Actions). Note that the variables for the environment are in all uppercase, but are mapped to the correct casing in the action file.
 
 ```sh
@@ -144,6 +206,19 @@ The `ml-pipeline-sa` service account is granted `roles/run.viewer` by Terraform
 so CI can resolve `MLFLOW_TRACKING_URI` via:
 
 `gcloud run services describe mlflow-tracking --region <region> --format=value(status.url)`
+
+## GitHub Airflow Deploy Workflow
+
+`.github/workflows/airflow-deploy.yml` now follows the native VM deployment path:
+
+1. Resolves deploy ref from CI (`workflow_run.head_sha`) or manual dispatch SHA.
+2. Ensures runtime Secret Manager containers exist and publishes secret versions.
+3. Applies Terraform with `airflow_repo_ref=<resolved sha>`.
+4. Runs schema init scripts against Cloud SQL.
+5. Executes `scripts/ci/airflow_smoketest.sh` against `airflow_webserver_url`.
+
+The prior image build/tag/rollback flow has been removed because Airflow VM deploys
+no longer use an Artifact Registry runtime image.
 
 ## MLflow Access Model (POC)
 

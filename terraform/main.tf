@@ -80,16 +80,20 @@ resource "google_compute_instance" "airflow_vm" {
   }
 
   metadata_startup_script = templatefile("${path.module}/templates/airflow_startup.sh.tftpl", {
-    airflow_image     = var.airflow_image
-    repository        = var.repository
-    airflow_username  = var.airflow_admin_username
-    airflow_password  = local.airflow_admin_password
-    db_connection     = local.airflow_sqlalchemy_conn
-    app_db_connection = local.ticketforge_sqlalchemy_conn
-    dags_folder       = "/opt/ticket-forge/dags"
-    gcs_bucket        = google_storage_bucket.training_artifacts.name
-    gcp_region        = var.region
-    gcp_project       = var.project_id
+    repository                   = var.repository
+    repository_ref               = var.airflow_repo_ref
+    airflow_version              = var.airflow_version
+    airflow_username             = var.airflow_admin_username
+    airflow_password             = local.airflow_admin_password
+    db_connection                = local.airflow_sqlalchemy_conn
+    app_db_connection            = local.ticketforge_sqlalchemy_conn
+    dags_folder                  = "/opt/ticket-forge/dags"
+    gcs_bucket                   = google_storage_bucket.training_artifacts.name
+    gcp_region                   = var.region
+    gcp_project                  = var.project_id
+    github_token_secret_id       = var.airflow_github_token_secret_id
+    gmail_app_username_secret_id = var.airflow_gmail_app_username_secret_id
+    gmail_app_password_secret_id = var.airflow_gmail_app_password_secret_id
   })
 
   allow_stopping_for_update = true
