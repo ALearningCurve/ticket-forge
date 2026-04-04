@@ -88,6 +88,7 @@ locals {
     "roles/container.admin",                 # Manage GKE Clusters
     "roles/run.admin",                       # Manage Cloud Run Services
     "roles/artifactregistry.admin",          # Manage Artifact Registry repositories/images
+    "roles/servicenetworking.networksAdmin", # Manage Private Service Connect / VPC peering for managed services
     "roles/cloudsql.admin",                  # Manage Cloud SQL instances/databases/users
     "roles/secretmanager.admin",             # Manage Secret Manager secrets/versions/iam
     "roles/storage.admin",                   # Manage GCS Buckets

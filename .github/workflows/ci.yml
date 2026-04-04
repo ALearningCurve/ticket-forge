@@ -182,6 +182,11 @@ jobs:
           workload_identity_provider: ${{ secrets.WIF_PROVIDER_ID }}
           service_account: 'tf-apply-sa@${{ secrets.TF_VAR_PROJECT_ID }}.iam.gserviceaccount.com'
 
+      - name: Setup gcloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.TF_VAR_PROJECT_ID }}
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
