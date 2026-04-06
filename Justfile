@@ -129,6 +129,11 @@ airflow-up:
 gcp-airflow-smoketest url:
     bash scripts/ci/airflow_smoketest.sh {{ url }}
 
+# validates required workflows, scripts, and reports before submission
+[group('ops')]
+verify-submission-ready:
+    bash scripts/ci/verify_submission_ready.sh
+
 # applies ticketforge Postgres schema init scripts through Cloud SQL Auth Proxy
 [group('ops')]
 gcp-ticketforge-schema-init:

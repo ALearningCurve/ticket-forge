@@ -104,8 +104,23 @@ GCP Airflow operations:
 - `just gcp-proxy airflow [local_port]` - open IAP tunnel to Airflow webserver.
 - `just gcp-proxy cloud-sql [local_port]` - open Cloud SQL proxy to shared Postgres.
 - `just gcp-get-conn-info` - print service URLs and credentials from Secret Manager.
+- `just verify-submission-ready` - validate that required workflows, scripts, and reports are present before submission.
 
 Use `just --list` to view the full command set.
+
+## Operations Workflows
+
+The repo uses three operational GitHub Actions workflows beyond the base `CI/CD`
+gate:
+
+- `Airflow Deploy` - deploys the Airflow runtime and writes a deployment report.
+- `Model Monitoring` - checks the latest cloud-published dataset for drift and
+  can trigger retraining automatically.
+- `Model CI/CD` - retrains, gates, promotes, and records release artifacts for
+  the model lifecycle.
+
+See [reports/02_DEPLOYMENT_AND_SUBMISSION.md](./reports/02_DEPLOYMENT_AND_SUBMISSION.md)
+for the submission mapping and verification checklist.
 
 ## Airflow Deployment (GCP)
 

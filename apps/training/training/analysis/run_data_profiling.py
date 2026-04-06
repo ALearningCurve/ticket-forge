@@ -1,6 +1,7 @@
 """Data profiling script using Great Expectations and custom skew detection."""
 
 import argparse
+import gzip
 import json
 import logging
 from pathlib import Path
@@ -42,9 +43,10 @@ class NumpyEncoder(json.JSONEncoder):
 
 
 def load_jsonl(path: Path) -> pd.DataFrame:
-  """Load a JSONL file into a DataFrame."""
+  """Load a JSONL or JSONL.GZ file into a DataFrame."""
   tickets = []
-  with open(path, encoding="utf-8") as f:
+  open_fn = gzip.open if path.suffix == ".gz" else open
+  with open_fn(path, "rt", encoding="utf-8") as f:
     for line in f:
       if line.strip():
         tickets.append(json.loads(line))

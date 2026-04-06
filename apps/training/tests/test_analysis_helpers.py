@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gzip
 import json
 import tempfile
 from pathlib import Path
@@ -215,5 +216,21 @@ class TestLoadJsonl:
     try:
       df = load_jsonl(temp_path)
       assert len(df) == 2
+    finally:
+      temp_path.unlink(missing_ok=True)
+
+  def test_load_jsonl_reads_gzip_files(self) -> None:
+    """load_jsonl supports .jsonl.gz inputs for cloud-published datasets."""
+    with tempfile.NamedTemporaryFile(suffix=".jsonl.gz", delete=False) as f:
+      temp_path = Path(f.name)
+
+    try:
+      with gzip.open(temp_path, "wt", encoding="utf-8") as gz:
+        gz.write(json.dumps({"x": 1}) + "\n")
+        gz.write(json.dumps({"x": 2}) + "\n")
+
+      df = load_jsonl(temp_path)
+      assert len(df) == 2
+      assert list(df["x"]) == [1, 2]
     finally:
       temp_path.unlink(missing_ok=True)
