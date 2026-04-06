@@ -1,5 +1,6 @@
 """Tests for bias evaluation in training harness."""
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -240,3 +241,96 @@ class TestEvaluateBiasEdgeCases:
       )
 
     assert result is None
+
+
+class TestGetTestAccuracy:
+  """Tests for confidence score metrics in get_test_accuracy."""
+
+  def test_confidence_metrics_present(self, tmp_path: Path) -> None:
+    """Test that mean_confidence and low_confidence_rate are in eval output."""
+    import json
+
+    from training.trainers.utils.harness import get_test_accuracy
+
+    y = [0, 1, 2, 3, 0, 1, 2, 3, 0, 1]
+    proba = np.eye(4)[[0, 1, 2, 3, 0, 1, 2, 3, 0, 1]]  # perfect confidence
+
+    grid = MagicMock()
+    grid.predict.return_value = np.array(y)
+    grid.predict_proba.return_value = proba
+
+    mock_ds = MagicMock()
+    mock_ds.load_x.return_value = np.zeros((10, 384))
+    mock_ds.load_y.return_value = np.array(y)
+
+    with (
+      patch("training.trainers.utils.harness.Dataset", return_value=mock_ds),
+      patch("training.trainers.utils.harness.Paths") as mock_paths,
+    ):
+      mock_paths.models_root = tmp_path
+      get_test_accuracy(grid, "run-001", "xgboost")
+
+    eval_path = tmp_path / "run-001" / "eval_xgboost.json"
+    assert eval_path.exists()
+    metrics = json.loads(eval_path.read_text())
+    assert "mean_confidence" in metrics
+    assert "low_confidence_rate" in metrics
+    assert metrics["mean_confidence"] == 1.0
+    assert metrics["low_confidence_rate"] == 0.0
+
+  def test_confidence_metrics_low_confidence(self, tmp_path: Path) -> None:
+    """Test low_confidence_rate is non-zero when model is uncertain."""
+    import json
+
+    from training.trainers.utils.harness import get_test_accuracy
+
+    y = [0, 1, 2, 3]
+    # uniform probabilities = maximum uncertainty
+    proba = np.full((4, 4), 0.25)
+
+    grid = MagicMock()
+    grid.predict.return_value = np.array(y)
+    grid.predict_proba.return_value = proba
+
+    mock_ds = MagicMock()
+    mock_ds.load_x.return_value = np.zeros((4, 384))
+    mock_ds.load_y.return_value = np.array(y)
+
+    with (
+      patch("training.trainers.utils.harness.Dataset", return_value=mock_ds),
+      patch("training.trainers.utils.harness.Paths") as mock_paths,
+    ):
+      mock_paths.models_root = tmp_path
+      get_test_accuracy(grid, "run-001", "xgboost")
+
+    metrics = json.loads((tmp_path / "run-001" / "eval_xgboost.json").read_text())
+    assert metrics["mean_confidence"] == 0.25
+    assert metrics["low_confidence_rate"] == 1.0  # all predictions < 50% confident
+
+  def test_confidence_metrics_absent_when_no_predict_proba(
+    self, tmp_path: Path
+  ) -> None:
+    """Test mean_confidence is 0 when model has no predict_proba."""
+    import json
+
+    from training.trainers.utils.harness import get_test_accuracy
+
+    y = [0, 1, 2, 3]
+
+    grid = MagicMock(spec=["predict"])  # no predict_proba
+    grid.predict.return_value = np.array(y)
+
+    mock_ds = MagicMock()
+    mock_ds.load_x.return_value = np.zeros((4, 384))
+    mock_ds.load_y.return_value = np.array(y)
+
+    with (
+      patch("training.trainers.utils.harness.Dataset", return_value=mock_ds),
+      patch("training.trainers.utils.harness.Paths") as mock_paths,
+    ):
+      mock_paths.models_root = tmp_path
+      get_test_accuracy(grid, "run-001", "svm")
+
+    metrics = json.loads((tmp_path / "run-001" / "eval_svm.json").read_text())
+    assert metrics["mean_confidence"] == 0.0
+    assert metrics["low_confidence_rate"] == 0.0
