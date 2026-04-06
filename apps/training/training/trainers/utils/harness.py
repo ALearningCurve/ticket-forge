@@ -107,11 +107,17 @@ def get_test_accuracy(
   @fs_cache(Paths.models_root / run_id / f"eval_{model_name}.json", saver=JsonSaver())
   def compute_metrics() -> dict[str, float]:
     test_dataset = Dataset(split="test")
-
     x = test_dataset.load_x()
-    y = test_dataset.load_y()  # integer class labels (0-5)
-
+    y = test_dataset.load_y()  # integer class labels (0-3)
     y_pred = grid.predict(x)
+
+    # Confidence scores — max probability across classes per prediction
+    confidence_scores: list[float] = []
+    low_confidence_rate: float = 0.0
+    if hasattr(grid, "predict_proba"):
+      proba = grid.predict_proba(x)
+      confidence_scores = proba.max(axis=1).tolist()
+      low_confidence_rate = float((proba.max(axis=1) < 0.5).mean())
 
     return {
       "accuracy": accuracy_score(y, y_pred),
@@ -120,6 +126,12 @@ def get_test_accuracy(
       "macro_recall": recall_score(y, y_pred, average="macro"),
       "confusion_matrix": confusion_matrix(y, y_pred).tolist(),
       "classification_report": classification_report(y, y_pred, output_dict=True),
+      "mean_confidence": (
+        float(sum(confidence_scores) / len(confidence_scores))
+        if confidence_scores
+        else 0.0
+      ),
+      "low_confidence_rate": low_confidence_rate,
     }
 
   metrics = compute_metrics()

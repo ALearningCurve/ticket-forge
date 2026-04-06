@@ -40,7 +40,7 @@ def fit_grid(
   ]
 
   model = xgb.XGBClassifier(
-    num_class=6,
+    num_class=4,
     objective="multi:softmax",
     random_state=RANDOM_SEED,
     device="cpu",
