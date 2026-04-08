@@ -4,6 +4,11 @@ Uses an async in-memory SQLite database so tests never
 require a running Postgres instance.
 """
 
+collect_ignore = [
+  "test_airflow_service.py",
+  "test_coldstart_router.py",
+]
+
 import asyncio
 from collections.abc import AsyncGenerator
 

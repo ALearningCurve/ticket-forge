@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useState, useCallback } from "react";
 import {
   AlertTriangle,
   Bookmark,
@@ -134,31 +134,20 @@ export function TicketDetailModal({
   onDeleted,
 }: TicketDetailModalProps) {
   const { token } = useAuth();
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [priority, setPriority] = useState("medium");
-  const [type, setType] = useState("task");
-  const [size, setSize] = useState("M");
-  const [assigneeId, setAssigneeId] = useState<string | null>(null);
-  const [dueDate, setDueDate] = useState("");
-  const [labels, setLabels] = useState<string[]>([]);
+  const [title, setTitle] = useState(ticket?.title || "");
+  const [description, setDescription] = useState(ticket?.description || "");
+  const [priority, setPriority] = useState(ticket?.priority || "medium");
+  const [type, setType] = useState(ticket?.type || "task");
+  const [size, setSize] = useState(ticket?.size || "M");
+  const [assigneeId, setAssigneeId] = useState<string | null>(
+    ticket?.assignee?.id || null
+  );
+  const [dueDate, setDueDate] = useState(ticket?.due_date || "");
+  const [labels, setLabels] = useState<string[]>(ticket?.labels || []);
   const [newLabel, setNewLabel] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showLabelInput, setShowLabelInput] = useState(false);
-
-  useEffect(() => {
-    if (ticket) {
-      setTitle(ticket.title);
-      setDescription(ticket.description || "");
-      setPriority(ticket.priority);
-      setType(ticket.type);
-      setSize(ticket.size || "M");
-      setAssigneeId(ticket.assignee?.id || null);
-      setDueDate(ticket.due_date || "");
-      setLabels(ticket.labels || []);
-    }
-  }, [ticket]);
 
   const handleSave = useCallback(async () => {
     if (!token || !ticket) return;
@@ -238,7 +227,7 @@ export function TicketDetailModal({
   const recommendedMember = members.find((m) => m.user_id !== assigneeId);
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+    <Dialog key={ticket.id} open={open} onOpenChange={(v) => !v && onClose()}>
       {/* Container setup: 
         Flex column so Header/Footer stick, with max-height to fit screen.
       */}
@@ -483,7 +472,12 @@ export function TicketDetailModal({
                 <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
                   Size
                 </Label>
-                <Select value={size} onValueChange={setSize}>
+                <Select
+                  value={size}
+                  onValueChange={(value) =>
+                    setSize(value as "S" | "M" | "L" | "XL")
+                  }
+                >
                   <SelectTrigger className="h-9 text-sm bg-background">
                     <SelectValue />
                   </SelectTrigger>

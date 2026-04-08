@@ -95,7 +95,7 @@ export function TeamView({ members, tickets }: TeamViewProps) {
   );
   const [selectedMemberIndex, setSelectedMemberIndex] = useState(0);
 
-  function getRecommendedTickets(userId: string): TicketResponse[] {
+  function getRecommendedTickets(): TicketResponse[] {
     return tickets.filter((t) => !t.assignee).slice(0, 5);
   }
 
@@ -375,9 +375,9 @@ export function TeamView({ members, tickets }: TeamViewProps) {
                   and current workload, these tickets are the best match.
                 </p>
 
-                {getRecommendedTickets(selectedMember.user_id).length > 0 ? (
+                {getRecommendedTickets().length > 0 ? (
                   <div className="space-y-2">
-                    {getRecommendedTickets(selectedMember.user_id).map(
+                    {getRecommendedTickets().map(
                       (ticket) => {
                         const score = getMatchScore();
                         return (

@@ -8,7 +8,6 @@ import {
   GripVertical,
   Loader2,
   Plus,
-  Ruler,
   Save,
   Target,
   Trash2,
