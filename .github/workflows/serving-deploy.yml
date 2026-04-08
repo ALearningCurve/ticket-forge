@@ -1,9 +1,8 @@
 name: Serving Deploy
 
 on:
-  workflow_run:
-    workflows: ["CI/CD", "Model CI/CD"]
-    types: [completed]
+  push:
+    branches: ["main"]
   workflow_dispatch:
     inputs:
       deploy_backend:
@@ -23,6 +22,25 @@ on:
         required: false
         default: ""
         type: string
+      trigger_workflow:
+        description: "Optional upstream workflow name for reporting"
+        required: false
+        default: ""
+        type: string
+      trigger_run_id:
+        description: "Optional upstream workflow run id"
+        required: false
+        default: ""
+        type: string
+      trigger_run_url:
+        description: "Optional upstream workflow run URL"
+        required: false
+        default: ""
+        type: string
+
+concurrency:
+  group: serving-deploy-prod
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -38,9 +56,6 @@ env:
 
 jobs:
   resolve-context:
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     outputs:
       deploy_backend: ${{ steps.resolve.outputs.deploy_backend }}
@@ -50,55 +65,112 @@ jobs:
       trigger_workflow: ${{ steps.resolve.outputs.trigger_workflow }}
       trigger_run_id: ${{ steps.resolve.outputs.trigger_run_id }}
       trigger_run_url: ${{ steps.resolve.outputs.trigger_run_url }}
-      manual_model_version: ${{ steps.resolve.outputs.manual_model_version }}
+      trigger_kind: ${{ steps.resolve.outputs.trigger_kind }}
+      serving_model_version: ${{ steps.resolve.outputs.serving_model_version }}
     steps:
       - name: Resolve deploy context
         id: resolve
+        env:
+          INPUT_TRIGGER_WORKFLOW: ${{ github.event.inputs.trigger_workflow }}
+          INPUT_TRIGGER_RUN_ID: ${{ github.event.inputs.trigger_run_id }}
+          INPUT_TRIGGER_RUN_URL: ${{ github.event.inputs.trigger_run_url }}
         run: |
           set -euo pipefail
 
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "deploy_backend=${{ github.event.inputs.deploy_backend }}" >> "$GITHUB_OUTPUT"
-            echo "deploy_frontend=${{ github.event.inputs.deploy_frontend }}" >> "$GITHUB_OUTPUT"
+          if [[ "${{ github.ref_name }}" != "main" ]]; then
+            echo "Serving deploy is restricted to the main branch" >&2
+            exit 1
+          fi
+
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            echo "deploy_backend=true" >> "$GITHUB_OUTPUT"
+            echo "deploy_frontend=true" >> "$GITHUB_OUTPUT"
             echo "source_sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
             echo "source_ref=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
-            echo "trigger_workflow=manual-dispatch" >> "$GITHUB_OUTPUT"
+            echo "trigger_workflow=push-main" >> "$GITHUB_OUTPUT"
             echo "trigger_run_id=" >> "$GITHUB_OUTPUT"
             echo "trigger_run_url=" >> "$GITHUB_OUTPUT"
-            echo "manual_model_version=${{ github.event.inputs.serving_model_version }}" >> "$GITHUB_OUTPUT"
+            echo "trigger_kind=push" >> "$GITHUB_OUTPUT"
+            echo "serving_model_version=" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          trigger_workflow="${{ github.event.workflow_run.name }}"
-          source_sha="${{ github.event.workflow_run.head_sha }}"
-          source_ref="${{ github.event.workflow_run.head_branch }}"
-          trigger_run_id="${{ github.event.workflow_run.id }}"
-          trigger_run_url="${{ github.event.workflow_run.html_url }}"
-          deploy_backend="false"
-          deploy_frontend="false"
-
-          if [[ "${trigger_workflow}" == "CI/CD" && "${source_ref}" == "main" ]]; then
-            deploy_backend="true"
-            deploy_frontend="true"
-          elif [[ "${trigger_workflow}" == "Model CI/CD" ]]; then
-            deploy_backend="true"
+          trigger_workflow="${INPUT_TRIGGER_WORKFLOW:-}"
+          if [[ -z "${trigger_workflow}" ]]; then
+            trigger_workflow="manual-dispatch"
           fi
 
-          echo "deploy_backend=${deploy_backend}" >> "$GITHUB_OUTPUT"
-          echo "deploy_frontend=${deploy_frontend}" >> "$GITHUB_OUTPUT"
-          echo "source_sha=${source_sha}" >> "$GITHUB_OUTPUT"
-          echo "source_ref=${source_ref}" >> "$GITHUB_OUTPUT"
+          echo "deploy_backend=${{ github.event.inputs.deploy_backend }}" >> "$GITHUB_OUTPUT"
+          echo "deploy_frontend=${{ github.event.inputs.deploy_frontend }}" >> "$GITHUB_OUTPUT"
+          echo "source_sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          echo "source_ref=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
           echo "trigger_workflow=${trigger_workflow}" >> "$GITHUB_OUTPUT"
-          echo "trigger_run_id=${trigger_run_id}" >> "$GITHUB_OUTPUT"
-          echo "trigger_run_url=${trigger_run_url}" >> "$GITHUB_OUTPUT"
-          echo "manual_model_version=" >> "$GITHUB_OUTPUT"
+          echo "trigger_run_id=${INPUT_TRIGGER_RUN_ID:-}" >> "$GITHUB_OUTPUT"
+          echo "trigger_run_url=${INPUT_TRIGGER_RUN_URL:-}" >> "$GITHUB_OUTPUT"
+          echo "trigger_kind=workflow_dispatch" >> "$GITHUB_OUTPUT"
+          echo "serving_model_version=${{ github.event.inputs.serving_model_version }}" >> "$GITHUB_OUTPUT"
+
+  wait-for-ci:
+    name: Deploy / Wait For CI Gate
+    needs: [resolve-context]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for CI/CD on this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ needs.resolve-context.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+
+          run_id=""
+          for _ in $(seq 1 30); do
+            runs_json="$(gh run list \
+              --repo "${{ github.repository }}" \
+              --workflow "CI/CD" \
+              --branch "main" \
+              --event "push" \
+              --limit 20 \
+              --json databaseId,headSha,status,conclusion)"
+            run_id="$(
+              RUNS_JSON="${runs_json}" SOURCE_SHA="${SOURCE_SHA}" python3 - <<'PY'
+              import json
+              import os
+
+              runs = json.loads(os.environ["RUNS_JSON"])
+              for run in runs:
+                  if run.get("headSha") == os.environ["SOURCE_SHA"]:
+                      print(run.get("databaseId", ""))
+                      break
+              PY
+            )"
+            if [[ -n "${run_id}" ]]; then
+              break
+            fi
+            sleep 10
+          done
+
+          if [[ -z "${run_id}" ]]; then
+            echo "Could not find CI/CD workflow run for ${SOURCE_SHA}" >&2
+            exit 1
+          fi
+
+          gh run watch "${run_id}" --repo "${{ github.repository }}" --interval 10
+          conclusion="$(gh run view "${run_id}" --repo "${{ github.repository }}" --json conclusion --jq .conclusion)"
+          if [[ "${conclusion}" != "success" ]]; then
+            echo "CI/CD concluded with status ${conclusion}" >&2
+            exit 1
+          fi
 
   bootstrap-serving-infra:
     name: Deploy / Bootstrap Serving Infra
-    needs: [resolve-context]
+    needs: [resolve-context, wait-for-ci]
     if: >-
-      needs.resolve-context.outputs.deploy_backend == 'true' ||
-      needs.resolve-context.outputs.deploy_frontend == 'true'
+      (needs.wait-for-ci.result == 'success' || needs.wait-for-ci.result == 'skipped') &&
+      (
+        needs.resolve-context.outputs.deploy_backend == 'true' ||
+        needs.resolve-context.outputs.deploy_frontend == 'true'
+      )
     runs-on: ubuntu-latest
     outputs:
       backend_service_name: ${{ steps.targets.outputs.backend_service_name }}
@@ -110,8 +182,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.resolve-context.outputs.source_sha }}
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -178,14 +248,14 @@ jobs:
 
   deploy-backend:
     name: Deploy / Backend Serving API
-    needs: [resolve-context, bootstrap-serving-infra]
-    if: needs.resolve-context.outputs.deploy_backend == 'true'
+    needs: [resolve-context, wait-for-ci, bootstrap-serving-infra]
+    if: >-
+      (needs.wait-for-ci.result == 'success' || needs.wait-for-ci.result == 'skipped') &&
+      needs.resolve-context.outputs.deploy_backend == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.resolve-context.outputs.source_sha }}
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -207,57 +277,35 @@ jobs:
       - name: Resolve serving model version
         id: model-version
         env:
-          GH_TOKEN: ${{ github.token }}
-          TRIGGER_WORKFLOW: ${{ needs.resolve-context.outputs.trigger_workflow }}
-          TRIGGER_RUN_ID: ${{ needs.resolve-context.outputs.trigger_run_id }}
-          MANUAL_MODEL_VERSION: ${{ needs.resolve-context.outputs.manual_model_version }}
+          MANUAL_MODEL_VERSION: ${{ needs.resolve-context.outputs.serving_model_version }}
           BACKEND_SERVICE_NAME: ${{ needs.bootstrap-serving-infra.outputs.backend_service_name }}
         run: |
           set -euo pipefail
 
           resolved_version="${MANUAL_MODEL_VERSION}"
-
-          if [[ -z "${resolved_version}" && "${TRIGGER_WORKFLOW}" == "Model CI/CD" && -n "${TRIGGER_RUN_ID}" ]]; then
-            mkdir -p workflow-artifacts
-            gh run download "${TRIGGER_RUN_ID}" --repo "${{ github.repository }}" --dir workflow-artifacts || true
-            gate_report="$(find workflow-artifacts -path '*/models/*/gate_report.json' | head -n1 || true)"
-            if [[ -n "${gate_report}" ]]; then
-              resolved_version="$(python3 - "${gate_report}" <<'PY'
-              import json
-              import sys
-              from pathlib import Path
-
-              report = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-              decision = report.get("promotion_decision", {}) if isinstance(report, dict) else {}
-              version = decision.get("promoted_model_version")
-              print("" if version is None else str(version))
-              PY
-              )"
-            fi
-          fi
-
           if [[ -z "${resolved_version}" ]]; then
             service_json="$(gcloud run services describe "${BACKEND_SERVICE_NAME}" \
               --region="${TF_VAR_region}" \
               --format=json)"
-            resolved_version="$(SERVICE_JSON="${service_json}" python3 - <<'PY'
-            import json
-            import os
+            resolved_version="$(
+              SERVICE_JSON="${service_json}" python3 - <<'PY'
+              import json
+              import os
 
-            service = json.loads(os.environ["SERVICE_JSON"])
-            envs = (
-                service.get("spec", {})
-                .get("template", {})
-                .get("containers", [{}])[0]
-                .get("env", [])
-            )
-            for item in envs:
-                if item.get("name") == "SERVING_MODEL_VERSION":
-                    print(item.get("value", ""))
-                    break
-            else:
-                print("")
-            PY
+              service = json.loads(os.environ["SERVICE_JSON"])
+              envs = (
+                  service.get("spec", {})
+                  .get("template", {})
+                  .get("containers", [{}])[0]
+                  .get("env", [])
+              )
+              for item in envs:
+                  if item.get("name") == "SERVING_MODEL_VERSION":
+                      print(item.get("value", ""))
+                      break
+              else:
+                  print("")
+              PY
             )"
           fi
 
@@ -318,6 +366,7 @@ jobs:
           JOB_STATUS: ${{ job.status }}
           SOURCE_SHA: ${{ needs.resolve-context.outputs.source_sha }}
           SOURCE_REF: ${{ needs.resolve-context.outputs.source_ref }}
+          TRIGGER_KIND: ${{ needs.resolve-context.outputs.trigger_kind }}
           TRIGGER_WORKFLOW: ${{ needs.resolve-context.outputs.trigger_workflow }}
           TRIGGER_RUN_URL: ${{ needs.resolve-context.outputs.trigger_run_url }}
           MODEL_VERSION: ${{ steps.model-version.outputs.value }}
@@ -337,25 +386,25 @@ jobs:
 
           failure_reasons = []
           if os.environ["JOB_STATUS"] != "success":
-            failure_reasons.append("backend-deploy-or-smoketest-failed")
+              failure_reasons.append("backend-deploy-or-smoketest-failed")
 
           report = build_ops_report(
-            report_type="deployment",
-            workflow_name="Serving Deploy / Backend",
-            status=os.environ["JOB_STATUS"],
-            trigger="workflow_run" if os.environ["TRIGGER_WORKFLOW"] != "manual-dispatch" else "workflow_dispatch",
-            trigger_reason=os.environ["TRIGGER_WORKFLOW"],
-            workflow_url=f"https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
-            commit_sha=os.environ["SOURCE_SHA"],
-            source_ref=os.environ["SOURCE_REF"],
-            model_version=os.environ["MODEL_VERSION"] or None,
-            deployment_target=os.environ["BACKEND_SERVICE_URL"],
-            deployment_revision=os.environ["BACKEND_REVISION"] or None,
-            failure_reasons=failure_reasons,
-            metadata={
-              "trigger_run_url": os.environ["TRIGGER_RUN_URL"],
-              "image": os.environ["BACKEND_IMAGE"],
-            },
+              report_type="deployment",
+              workflow_name="Serving Deploy / Backend",
+              status=os.environ["JOB_STATUS"],
+              trigger=os.environ["TRIGGER_KIND"],
+              trigger_reason=os.environ["TRIGGER_WORKFLOW"],
+              workflow_url=f"https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+              commit_sha=os.environ["SOURCE_SHA"],
+              source_ref=os.environ["SOURCE_REF"],
+              model_version=os.environ["MODEL_VERSION"] or None,
+              deployment_target=os.environ["BACKEND_SERVICE_URL"],
+              deployment_revision=os.environ["BACKEND_REVISION"] or None,
+              failure_reasons=failure_reasons,
+              metadata={
+                  "trigger_run_url": os.environ["TRIGGER_RUN_URL"],
+                  "image": os.environ["BACKEND_IMAGE"],
+              },
           )
           write_ops_report(Path("reports/runtime/backend_deployment_report.json"), report)
           PY
@@ -386,34 +435,33 @@ jobs:
 
           report_path = Path("reports/runtime/backend_deployment_report.json")
           if not report_path.exists():
-            raise SystemExit("backend deployment report missing")
+              raise SystemExit("backend deployment report missing")
 
           sender = os.environ.get("GMAIL_APP_USERNAME")
           password = os.environ.get("GMAIL_APP_PASSWORD")
           if not sender or not password:
-            raise SystemExit("GMAIL_APP_USERNAME / GMAIL_APP_PASSWORD not set")
+              raise SystemExit("GMAIL_APP_USERNAME / GMAIL_APP_PASSWORD not set")
 
           report = json.loads(report_path.read_text(encoding="utf-8"))
           send_gmail_notification(
-            report,
-            sender_email=sender,
-            sender_password=password,
+              report,
+              sender_email=sender,
+              sender_password=password,
           )
           PY
         continue-on-error: true
 
   deploy-frontend:
     name: Deploy / Frontend Web App
-    needs: [resolve-context, bootstrap-serving-infra, deploy-backend]
+    needs: [resolve-context, wait-for-ci, bootstrap-serving-infra, deploy-backend]
     if: >-
+      (needs.wait-for-ci.result == 'success' || needs.wait-for-ci.result == 'skipped') &&
       needs.resolve-context.outputs.deploy_frontend == 'true' &&
       (needs.deploy-backend.result == 'success' || needs.deploy-backend.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.resolve-context.outputs.source_sha }}
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -486,6 +534,7 @@ jobs:
           JOB_STATUS: ${{ job.status }}
           SOURCE_SHA: ${{ needs.resolve-context.outputs.source_sha }}
           SOURCE_REF: ${{ needs.resolve-context.outputs.source_ref }}
+          TRIGGER_KIND: ${{ needs.resolve-context.outputs.trigger_kind }}
           TRIGGER_WORKFLOW: ${{ needs.resolve-context.outputs.trigger_workflow }}
           TRIGGER_RUN_URL: ${{ needs.resolve-context.outputs.trigger_run_url }}
           FRONTEND_SERVICE_URL: ${{ needs.bootstrap-serving-infra.outputs.frontend_service_url }}
@@ -504,24 +553,24 @@ jobs:
 
           failure_reasons = []
           if os.environ["JOB_STATUS"] != "success":
-            failure_reasons.append("frontend-deploy-or-smoketest-failed")
+              failure_reasons.append("frontend-deploy-or-smoketest-failed")
 
           report = build_ops_report(
-            report_type="deployment",
-            workflow_name="Serving Deploy / Frontend",
-            status=os.environ["JOB_STATUS"],
-            trigger="workflow_run" if os.environ["TRIGGER_WORKFLOW"] != "manual-dispatch" else "workflow_dispatch",
-            trigger_reason=os.environ["TRIGGER_WORKFLOW"],
-            workflow_url=f"https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
-            commit_sha=os.environ["SOURCE_SHA"],
-            source_ref=os.environ["SOURCE_REF"],
-            deployment_target=os.environ["FRONTEND_SERVICE_URL"],
-            deployment_revision=os.environ["FRONTEND_REVISION"] or None,
-            failure_reasons=failure_reasons,
-            metadata={
-              "trigger_run_url": os.environ["TRIGGER_RUN_URL"],
-              "image": os.environ["FRONTEND_IMAGE"],
-            },
+              report_type="deployment",
+              workflow_name="Serving Deploy / Frontend",
+              status=os.environ["JOB_STATUS"],
+              trigger=os.environ["TRIGGER_KIND"],
+              trigger_reason=os.environ["TRIGGER_WORKFLOW"],
+              workflow_url=f"https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+              commit_sha=os.environ["SOURCE_SHA"],
+              source_ref=os.environ["SOURCE_REF"],
+              deployment_target=os.environ["FRONTEND_SERVICE_URL"],
+              deployment_revision=os.environ["FRONTEND_REVISION"] or None,
+              failure_reasons=failure_reasons,
+              metadata={
+                  "trigger_run_url": os.environ["TRIGGER_RUN_URL"],
+                  "image": os.environ["FRONTEND_IMAGE"],
+              },
           )
           write_ops_report(Path("reports/runtime/frontend_deployment_report.json"), report)
           PY
@@ -552,18 +601,18 @@ jobs:
 
           report_path = Path("reports/runtime/frontend_deployment_report.json")
           if not report_path.exists():
-            raise SystemExit("frontend deployment report missing")
+              raise SystemExit("frontend deployment report missing")
 
           sender = os.environ.get("GMAIL_APP_USERNAME")
           password = os.environ.get("GMAIL_APP_PASSWORD")
           if not sender or not password:
-            raise SystemExit("GMAIL_APP_USERNAME / GMAIL_APP_PASSWORD not set")
+              raise SystemExit("GMAIL_APP_USERNAME / GMAIL_APP_PASSWORD not set")
 
           report = json.loads(report_path.read_text(encoding="utf-8"))
           send_gmail_notification(
-            report,
-            sender_email=sender,
-            sender_password=password,
+              report,
+              sender_email=sender,
+              sender_password=password,
           )
           PY
         continue-on-error: true

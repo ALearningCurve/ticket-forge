@@ -11,7 +11,7 @@ import pytest
 from sqlalchemy import select
 
 from web_backend.models.inference import InferenceEvent
-from web_backend.services.inference import _build_feature_vector
+from web_backend.services.inference import _build_feature_vector, _normalize_ticket_text
 
 
 class _FakeEstimator:
@@ -54,6 +54,23 @@ def test_build_feature_vector_matches_training_shape() -> None:
     assert summary.repo == "hashicorp/terraform"
     assert summary.keyword_count == 2
     assert summary.time_to_assignment_hours == 3.0
+
+
+def test_normalize_ticket_text_strips_markdown_links_without_dropping_labels() -> None:
+    """Markdown cleanup should remove URLs/images while keeping useful link labels."""
+    normalized = _normalize_ticket_text(
+        "Deploy regression",
+        (
+            "See [deployment guide](https://example.com/docs) before rollout.\n"
+            "![architecture](https://example.com/diagram.png)\n"
+            "`kubectl rollout status deploy/web`"
+        ),
+    )
+
+    assert "https://example.com" not in normalized
+    assert "deployment guide" in normalized
+    assert "architecture" not in normalized
+    assert "kubectl rollout status deploy/web" in normalized
 
 
 @pytest.mark.asyncio

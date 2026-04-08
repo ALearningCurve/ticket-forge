@@ -45,8 +45,6 @@ _REPO_FEATURE_ORDER = (
     "prometheus/prometheus",
 )
 _CODE_BLOCK_RE = re.compile(r"```(.*?)```", re.DOTALL)
-_IMAGE_LINK_RE = re.compile(r"!\[.*?\]\(.*?\)")
-_LINK_RE = re.compile(r"\[.*?\]\(.*?\)")
 _INLINE_CODE_RE = re.compile(r"`([^`]*)`")
 _MAX_TTA_HOURS = 720.0
 
@@ -89,6 +87,63 @@ def _truncate_code_block(code: str) -> str:
     return "\n".join(lines[:10] + ["..."] + lines[-10:])
 
 
+def _find_balanced_section_end(
+    text: str,
+    start_index: int,
+    opening: str,
+    closing: str,
+) -> int:
+    """Return the closing delimiter index for a balanced markdown section."""
+    depth = 1
+    index = start_index
+    while index < len(text):
+        char = text[index]
+        if char == "\\":
+            index += 2
+            continue
+        if char == opening:
+            depth += 1
+        elif char == closing:
+            depth -= 1
+            if depth == 0:
+                return index
+        index += 1
+    return -1
+
+
+def _strip_markdown_links(text: str) -> str:
+    """Strip markdown image/link syntax without regex backtracking."""
+    chunks: list[str] = []
+    index = 0
+
+    while index < len(text):
+        is_image = text.startswith("![", index)
+        if is_image or text[index] == "[":
+            label_start = index + (2 if is_image else 1)
+            label_end = _find_balanced_section_end(text, label_start, "[", "]")
+            if (
+                label_end != -1
+                and label_end + 1 < len(text)
+                and text[label_end + 1] == "("
+            ):
+                target_end = _find_balanced_section_end(
+                    text,
+                    label_end + 2,
+                    "(",
+                    ")",
+                )
+                if target_end != -1:
+                    if not is_image:
+                        chunks.append(text[label_start:label_end])
+                    index = target_end + 1
+                    continue
+
+        chunks.append(text[index])
+        index += 1
+
+    return "".join(chunks)
+
+
 def _normalize_ticket_text(title: str, body: str) -> str:
     """Normalize markdown-heavy ticket text into a model-friendly payload."""
     safe_body = body or ""
@@ -97,8 +152,7 @@ def _normalize_ticket_text(title: str, body: str) -> str:
         return _truncate_code_block(match.group(1))
 
     safe_body = _CODE_BLOCK_RE.sub(_replace_code_block, safe_body)
-    safe_body = _IMAGE_LINK_RE.sub("", safe_body)
-    safe_body = _LINK_RE.sub("", safe_body)
+    safe_body = _strip_markdown_links(safe_body)
     safe_body = _INLINE_CODE_RE.sub(r"\1", safe_body)
     safe_body = re.sub(r"[>#*_~-]", " ", safe_body)
     safe_body = re.sub(r"\n{3,}", "\n\n", safe_body)

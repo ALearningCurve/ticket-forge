@@ -28,6 +28,7 @@ on:
         type: string
 
 permissions:
+  actions: write
   contents: read
   id-token: write
 
@@ -49,6 +50,8 @@ jobs:
       executed: 'true'
       dataset_source: ${{ steps.workflow-inputs.outputs.dataset_source }}
       trigger_reason: ${{ steps.workflow-inputs.outputs.trigger_reason }}
+      promoted_model_version: ${{ steps.promotion-meta.outputs.promoted_model_version }}
+      gate_decision: ${{ steps.promotion-meta.outputs.gate_decision }}
 
     steps:
       - name: Checkout
@@ -145,6 +148,32 @@ jobs:
 
           MLFLOW_MAX_TUNING_RUNS: "5"                        # Hyperparameter tuning iterations (default: 50)
           GCS_BUCKET_NAME: gs://ticket-forge-training-artifacts-${{ secrets.TF_VAR_PROJECT_ID }}-prod
+
+      - name: Resolve promotion metadata
+        id: promotion-meta
+        if: always()
+        env:
+          RUN_ID: ${{ steps.run-meta.outputs.run_id }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          gate_path = Path(f"models/{os.environ['RUN_ID']}/gate_report.json")
+          promoted_model_version = ""
+          gate_decision = ""
+
+          if gate_path.exists():
+            gate = json.loads(gate_path.read_text(encoding="utf-8"))
+            decision = gate.get("promotion_decision", {}) if isinstance(gate, dict) else {}
+            promoted_model_version = str(decision.get("promoted_model_version") or "")
+            gate_decision = str(decision.get("decision") or "")
+
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+            output.write(f"promoted_model_version={promoted_model_version}\n")
+            output.write(f"gate_decision={gate_decision}\n")
+          PY
 
       - name: Write gate summary
         if: always()
@@ -359,3 +388,27 @@ jobs:
             models/${{ needs.train-and-promote.outputs.run_id }}/gate_report.json
           retention-days: 30
           if-no-files-found: warn
+
+  dispatch-serving-deploy:
+    name: Train / Dispatch Serving Redeploy
+    needs: [train-and-promote]
+    if: >-
+      needs.train-and-promote.result == 'success' &&
+      needs.train-and-promote.outputs.promoted_model_version != '' &&
+      github.ref_name == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger backend redeploy for promoted model
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MODEL_VERSION: ${{ needs.train-and-promote.outputs.promoted_model_version }}
+        run: |
+          gh workflow run serving-deploy.yml \
+            --repo "${{ github.repository }}" \
+            --ref main \
+            -f "deploy_backend=true" \
+            -f "deploy_frontend=false" \
+            -f "serving_model_version=${MODEL_VERSION}" \
+            -f "trigger_workflow=Model CI/CD" \
+            -f "trigger_run_id=${{ github.run_id }}" \
+            -f "trigger_run_url=https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
