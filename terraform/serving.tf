@@ -94,7 +94,7 @@ resource "google_cloud_run_v2_service" "web_backend" {
 
       env {
         name  = "CORS_ORIGINS"
-        value = join(",", var.web_backend_cors_origins)
+        value = jsonencode(var.web_backend_cors_origins)
       }
 
       env {
