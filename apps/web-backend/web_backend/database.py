@@ -36,7 +36,8 @@ def _normalize_async_database_url(database_url: str) -> str:
     parsed_url = make_url(normalized_url)
     if parsed_url.get_backend_name() == "postgresql":
         parsed_url = parsed_url.set(drivername="postgresql+asyncpg")
-        return str(parsed_url)
+        # ``str(URL)`` masks passwords as ``***``, which breaks real DB auth.
+        return parsed_url.render_as_string(hide_password=False)
 
     return normalized_url
 

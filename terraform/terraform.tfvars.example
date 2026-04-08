@@ -1,6 +1,6 @@
 project_id  = "your-gcp-project-id"
 region      = "us-east1"
-zone        = "us-east1-b"
+zone        = "us-east1-c"
 environment = "prod"
 shared_cloud_sql_instance_name = "mlflow-tracking-sql"
 
