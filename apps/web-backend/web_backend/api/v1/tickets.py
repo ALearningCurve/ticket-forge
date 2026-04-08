@@ -55,6 +55,7 @@ def _ticket_to_response(ticket) -> TicketResponse:
         description=ticket.description,
         priority=ticket.priority,
         type=ticket.type,
+        size=ticket.size,
         labels=ticket.labels,
         due_date=ticket.due_date,
         position=ticket.position,

@@ -8,7 +8,9 @@ import {
   GripVertical,
   Loader2,
   Plus,
+  Ruler,
   Save,
+  Target,
   Trash2,
   Users,
 } from "lucide-react";
@@ -27,6 +29,13 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 
 import { useAuth } from "@/lib/auth-context";
@@ -43,6 +52,13 @@ import {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+const sizeOptions = [
+  { value: "S", label: "Small" },
+  { value: "M", label: "Medium" },
+  { value: "L", label: "Large" },
+  { value: "XL", label: "Extra Large" },
+];
+
 export default function ProjectSettingsPage() {
   const params = useParams();
   const router = useRouter();
@@ -52,12 +68,18 @@ export default function ProjectSettingsPage() {
   const [project, setProject] = useState<ProjectResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Edit form state
+  // General
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [defaultTicketSize, setDefaultTicketSize] = useState("M");
   const [isSaving, setIsSaving] = useState(false);
 
-  // Board columns state
+  // Capacity
+  const [weeklyPoints, setWeeklyPoints] = useState(10);
+  const [sizePoints, setSizePoints] = useState({ S: 1, M: 2, L: 3, XL: 5 });
+  const [isSavingCapacity, setIsSavingCapacity] = useState(false);
+
+  // Columns
   const [columns, setColumns] = useState<{ id?: string; name: string }[]>([]);
   const [isSavingColumns, setIsSavingColumns] = useState(false);
 
@@ -74,6 +96,9 @@ export default function ProjectSettingsPage() {
         setProject(data);
         setName(data.name);
         setDescription(data.description || "");
+        setDefaultTicketSize(data.default_ticket_size || "M");
+        setWeeklyPoints(data.weekly_points_per_member || 10);
+        setSizePoints(data.size_points_map || { S: 1, M: 2, L: 3, XL: 5 });
         setColumns(
           data.board_columns
             .sort((a, b) => a.position - b.position)
@@ -91,7 +116,6 @@ export default function ProjectSettingsPage() {
   const canManage = myRole === "owner" || myRole === "admin";
   const isOwner = myRole === "owner";
 
-  // ---- Save project details ----
   async function handleSaveDetails() {
     if (!token || !project) return;
     setIsSaving(true);
@@ -106,6 +130,7 @@ export default function ProjectSettingsPage() {
       body: JSON.stringify({
         name: name.trim() || undefined,
         description: description.trim(),
+        default_ticket_size: defaultTicketSize,
       }),
     });
 
@@ -120,13 +145,40 @@ export default function ProjectSettingsPage() {
     setProject(updated);
     toast.success("Project updated");
 
-    // If slug changed, redirect
     if (updated.slug !== slug) {
       router.replace(`/projects/${updated.slug}/settings`);
     }
   }
 
-  // ---- Column management (local state for now, save placeholder) ----
+  async function handleSaveCapacity() {
+    if (!token || !project) return;
+    setIsSavingCapacity(true);
+
+    const res = await fetch(`${API_BASE}/api/v1/projects/${slug}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      credentials: "include",
+      body: JSON.stringify({
+        weekly_points_per_member: weeklyPoints,
+        size_points_map: sizePoints,
+      }),
+    });
+
+    setIsSavingCapacity(false);
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      toast.error(err?.detail || "Failed to update capacity settings");
+      return;
+    }
+
+    const updated = await res.json();
+    setProject(updated);
+    toast.success("Capacity settings saved");
+  }
+
   function addColumn() {
     if (columns.length >= 12) return;
     setColumns([...columns, { name: "" }]);
@@ -144,8 +196,6 @@ export default function ProjectSettingsPage() {
   }
 
   async function handleSaveColumns() {
-    // TODO: backend endpoint for bulk column update
-    // For now just show success toast
     const nonEmpty = columns.filter((c) => c.name.trim());
     if (nonEmpty.length === 0) {
       toast.error("Add at least one board column");
@@ -157,13 +207,11 @@ export default function ProjectSettingsPage() {
       return;
     }
     setIsSavingColumns(true);
-    // Simulated save
     await new Promise((r) => setTimeout(r, 500));
     setIsSavingColumns(false);
     toast.success("Board columns saved");
   }
 
-  // ---- Member management ----
   async function handleAddMember(memberUser: UserSearchResult) {
     if (!token || !project) return;
     const { data, error } = await addProjectMember(token, project.slug, {
@@ -230,7 +278,6 @@ export default function ProjectSettingsPage() {
     }
   }
 
-  // ---- Delete project ----
   async function handleDelete() {
     if (!token || !project) return;
     const confirmed = window.confirm(
@@ -259,7 +306,6 @@ export default function ProjectSettingsPage() {
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-8">
-      {/* Header */}
       <Link
         href={`/projects/${slug}`}
         className="mb-4 inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
@@ -270,17 +316,17 @@ export default function ProjectSettingsPage() {
 
       <h1 className="text-2xl font-bold tracking-tight">Project settings</h1>
       <p className="text-sm text-muted-foreground">
-        Manage your project details, board, and team.
+        Manage your project details, capacity, board, and team.
       </p>
 
       <Separator className="my-6" />
 
-      {/* ---- Section 1: Project Details ---- */}
+      {/* ---- General ---- */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">General</CardTitle>
           <CardDescription>
-            Update project name and description.
+            Update project name, description, and default ticket size.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -304,6 +350,28 @@ export default function ProjectSettingsPage() {
               maxLength={500}
             />
           </div>
+          <div className="space-y-2">
+            <Label>Default ticket size</Label>
+            <Select
+              value={defaultTicketSize}
+              onValueChange={setDefaultTicketSize}
+              disabled={!canManage}
+            >
+              <SelectTrigger className="w-full max-w-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {sizeOptions.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    <span className="font-semibold">{opt.value}</span>
+                    <span className="ml-2 text-muted-foreground">
+                      {opt.label}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </CardContent>
         {canManage && (
           <CardFooter className="justify-end">
@@ -321,7 +389,139 @@ export default function ProjectSettingsPage() {
 
       <Separator className="my-6" />
 
-      {/* ---- Section 2: Board Columns ---- */}
+      {/* ---- Sprint Capacity ---- */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Target className="size-4" />
+            Sprint capacity
+          </CardTitle>
+          <CardDescription>
+            Set the weekly point budget per member and how many points each
+            ticket size is worth. The AI recommendation system uses this to
+            balance workload across the team.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {/* Weekly points */}
+          <div className="space-y-2">
+            <Label htmlFor="weekly-points">
+              Weekly points per member
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              Each team member can be assigned up to this many points of work
+              per week.
+            </p>
+            <div className="flex items-center gap-3">
+              <Input
+                id="weekly-points"
+                type="number"
+                min={1}
+                max={100}
+                value={weeklyPoints}
+                onChange={(e) =>
+                  setWeeklyPoints(parseInt(e.target.value, 10) || 1)
+                }
+                disabled={!canManage}
+                className="w-24"
+              />
+              <span className="text-sm text-muted-foreground">
+                points / week
+              </span>
+            </div>
+          </div>
+
+          <Separator />
+
+          {/* Size point values */}
+          <div className="space-y-3">
+            <Label>Points per ticket size</Label>
+            <p className="text-xs text-muted-foreground">
+              Define how many points each ticket size costs. Larger tickets
+              consume more of a member&apos;s weekly budget.
+            </p>
+
+            <div className="grid grid-cols-4 gap-3">
+              {(["S", "M", "L", "XL"] as const).map((sz) => (
+                <div key={sz} className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <Badge
+                      variant="secondary"
+                      className="text-xs font-bold"
+                    >
+                      {sz}
+                    </Badge>
+                  </div>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={sizePoints[sz]}
+                    onChange={(e) =>
+                      setSizePoints({
+                        ...sizePoints,
+                        [sz]: parseInt(e.target.value, 10) || 0,
+                      })
+                    }
+                    disabled={!canManage}
+                    className="text-center"
+                  />
+                  <p className="text-center text-[10px] text-muted-foreground">
+                    {sizePoints[sz] === 1
+                      ? "1 point"
+                      : `${sizePoints[sz]} points`}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Visual summary */}
+          <div className="rounded-lg border bg-muted/30 p-4">
+            <p className="mb-2 text-xs font-medium text-muted-foreground">
+              Capacity example
+            </p>
+            <p className="text-sm">
+              With <span className="font-semibold">{weeklyPoints} pts/week</span>,
+              a member can handle:
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {(["S", "M", "L", "XL"] as const).map((sz) => {
+                const pts = sizePoints[sz];
+                const count = pts > 0 ? Math.floor(weeklyPoints / pts) : 0;
+                return (
+                  <Badge key={sz} variant="outline" className="text-xs">
+                    {count}× {sz}
+                    <span className="ml-1 text-muted-foreground">
+                      ({pts}pt each)
+                    </span>
+                  </Badge>
+                );
+              })}
+            </div>
+          </div>
+        </CardContent>
+        {canManage && (
+          <CardFooter className="justify-end">
+            <Button
+              onClick={handleSaveCapacity}
+              disabled={isSavingCapacity}
+              size="sm"
+            >
+              {isSavingCapacity ? (
+                <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+              ) : (
+                <Save className="mr-1.5 size-3.5" />
+              )}
+              Save capacity
+            </Button>
+          </CardFooter>
+        )}
+      </Card>
+
+      <Separator className="my-6" />
+
+      {/* ---- Board Columns ---- */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
@@ -390,7 +590,7 @@ export default function ProjectSettingsPage() {
 
       <Separator className="my-6" />
 
-      {/* ---- Section 3: Members ---- */}
+      {/* ---- Members ---- */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
@@ -402,7 +602,6 @@ export default function ProjectSettingsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* Add member search */}
           {canManage && (
             <MemberSearch
               selected={[]}
@@ -412,7 +611,6 @@ export default function ProjectSettingsPage() {
             />
           )}
 
-          {/* Member list */}
           <div className="space-y-2">
             {project.members.map((member) => (
               <div
@@ -440,7 +638,6 @@ export default function ProjectSettingsPage() {
                 </div>
 
                 <div className="flex items-center gap-2">
-                  {/* Role selector */}
                   {isOwner && member.role !== "owner" ? (
                     <select
                       value={member.role}
@@ -458,7 +655,6 @@ export default function ProjectSettingsPage() {
                     </Badge>
                   )}
 
-                  {/* Remove button */}
                   {canManage &&
                     member.role !== "owner" &&
                     member.user_id !== user?.id && (

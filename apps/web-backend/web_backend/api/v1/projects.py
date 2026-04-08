@@ -37,15 +37,10 @@ from web_backend.services.projects import (
 router = APIRouter(prefix="/projects", tags=["Projects"])
 
 
-# ------------------------------------------------------------------ #
-#  Helper: build ProjectResponse from ORM Project
-# ------------------------------------------------------------------ #
-
-
 def _project_to_response(project, members=None) -> ProjectResponse:
     """Convert ORM Project to API response with nested members/columns."""
     member_responses = []
-    for m in members or project.members:
+    for m in (members or project.members):
         member_responses.append(
             MemberResponse(
                 id=m.id,
@@ -65,18 +60,17 @@ def _project_to_response(project, members=None) -> ProjectResponse:
         slug=project.slug,
         description=project.description,
         created_by=project.created_by,
+        default_ticket_size=project.default_ticket_size,
+        weekly_points_per_member=project.weekly_points_per_member,
+        size_points_map=project.size_points_map,
         created_at=project.created_at,
         updated_at=project.updated_at,
         board_columns=[
-            BoardColumnResponse.model_validate(c) for c in project.board_columns
+            BoardColumnResponse.model_validate(c)
+            for c in project.board_columns
         ],
         members=member_responses,
     )
-
-
-# ------------------------------------------------------------------ #
-#  POST /projects — create project
-# ------------------------------------------------------------------ #
 
 
 @router.post(
@@ -101,11 +95,6 @@ async def create_project_endpoint(
     return _project_to_response(project)
 
 
-# ------------------------------------------------------------------ #
-#  GET /projects — list user's projects
-# ------------------------------------------------------------------ #
-
-
 @router.get("", response_model=list[ProjectListItem])
 async def list_projects(
     current_user: AuthUser = Depends(get_current_user),
@@ -113,11 +102,6 @@ async def list_projects(
 ) -> list[ProjectListItem]:
     """List all projects the current user belongs to."""
     return await list_user_projects(db, current_user.id)
-
-
-# ------------------------------------------------------------------ #
-#  GET /projects/:slug — project detail
-# ------------------------------------------------------------------ #
 
 
 @router.get("/{slug}", response_model=ProjectResponse)
@@ -138,11 +122,6 @@ async def get_project(
     return _project_to_response(project)
 
 
-# ------------------------------------------------------------------ #
-#  PATCH /projects/:slug — update project
-# ------------------------------------------------------------------ #
-
-
 @router.patch("/{slug}", response_model=ProjectResponse)
 async def update_project_endpoint(
     slug: str,
@@ -150,10 +129,15 @@ async def update_project_endpoint(
     current_user: AuthUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ProjectResponse:
-    """Update project name/description (owner or admin)."""
+    """Update project settings (owner or admin)."""
     try:
         project = await update_project(
-            db, slug, current_user.id, name=data.name, description=data.description
+            db, slug, current_user.id,
+            name=data.name,
+            description=data.description,
+            default_ticket_size=data.default_ticket_size,
+            weekly_points_per_member=data.weekly_points_per_member,
+            size_points_map=data.size_points_map.model_dump() if data.size_points_map else None,
         )
     except ValueError as exc:
         raise HTTPException(
@@ -166,14 +150,8 @@ async def update_project_endpoint(
             detail=str(exc),
         ) from exc
 
-    # Reload with relationships
     project_loaded, _ = await get_project_detail(db, project.slug, current_user.id)
     return _project_to_response(project_loaded)
-
-
-# ------------------------------------------------------------------ #
-#  DELETE /projects/:slug — delete project
-# ------------------------------------------------------------------ #
 
 
 @router.delete("/{slug}", response_model=MessageResponse)
@@ -197,11 +175,6 @@ async def delete_project_endpoint(
         ) from exc
 
     return MessageResponse(message="Project deleted")
-
-
-# ------------------------------------------------------------------ #
-#  POST /projects/:slug/members — add member
-# ------------------------------------------------------------------ #
 
 
 @router.post(
@@ -230,11 +203,6 @@ async def add_member_endpoint(
         ) from exc
 
 
-# ------------------------------------------------------------------ #
-#  DELETE /projects/:slug/members/:user_id — remove member
-# ------------------------------------------------------------------ #
-
-
 @router.delete("/{slug}/members/{user_id}", response_model=MessageResponse)
 async def remove_member_endpoint(
     slug: str,
@@ -259,11 +227,6 @@ async def remove_member_endpoint(
     return MessageResponse(message="Member removed")
 
 
-# ------------------------------------------------------------------ #
-#  PATCH /projects/:slug/members/:user_id — update role
-# ------------------------------------------------------------------ #
-
-
 @router.patch("/{slug}/members/{user_id}", response_model=MemberResponse)
 async def update_role_endpoint(
     slug: str,
@@ -274,7 +237,9 @@ async def update_role_endpoint(
 ) -> MemberResponse:
     """Change a member's role (owner only)."""
     try:
-        return await update_member_role(db, slug, current_user.id, user_id, data.role)
+        return await update_member_role(
+            db, slug, current_user.id, user_id, data.role
+        )
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

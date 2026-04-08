@@ -8,6 +8,7 @@ from sqlalchemy import (
     Enum,
     ForeignKey,
     Integer,
+    JSON,
     String,
     Text,
     UniqueConstraint,
@@ -18,13 +19,17 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from web_backend.models.base import Base, TimestampMixin
 
+DEFAULT_SIZE_POINTS = {"S": 1, "M": 2, "L": 3, "XL": 5}
+
 
 class Project(TimestampMixin, Base):
     """Top-level project/board container."""
 
     __tablename__ = "projects"
 
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, default=uuid.uuid4
+    )
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     slug: Mapped[str] = mapped_column(
         String(100), unique=True, nullable=False, index=True
@@ -35,6 +40,17 @@ class Project(TimestampMixin, Base):
         ForeignKey("auth_users.id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
+    )
+    default_ticket_size: Mapped[str] = mapped_column(
+        Enum("S", "M", "L", "XL", name="ticket_size", create_type=False),
+        nullable=False,
+        default="M",
+    )
+    weekly_points_per_member: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=10
+    )
+    size_points_map: Mapped[dict] = mapped_column(
+        JSON, nullable=False, default=lambda: dict(DEFAULT_SIZE_POINTS)
     )
 
     # Relationships
@@ -57,7 +73,9 @@ class ProjectMember(Base):
 
     __tablename__ = "project_members"
 
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, default=uuid.uuid4
+    )
     project_id: Mapped[uuid.UUID] = mapped_column(
         Uuid,
         ForeignKey("projects.id", ondelete="CASCADE"),
@@ -82,9 +100,7 @@ class ProjectMember(Base):
     )
 
     __table_args__ = (
-        UniqueConstraint(
-            "project_id", "user_id", name="uq_project_members_project_user"
-        ),
+        UniqueConstraint("project_id", "user_id", name="uq_project_members_project_user"),
     )
 
     # Relationships
@@ -97,7 +113,9 @@ class ProjectBoardColumn(Base):
 
     __tablename__ = "project_board_columns"
 
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, default=uuid.uuid4
+    )
     project_id: Mapped[uuid.UUID] = mapped_column(
         Uuid,
         ForeignKey("projects.id", ondelete="CASCADE"),
@@ -113,9 +131,7 @@ class ProjectBoardColumn(Base):
     )
 
     __table_args__ = (
-        UniqueConstraint(
-            "project_id", "position", name="uq_board_columns_project_position"
-        ),
+        UniqueConstraint("project_id", "position", name="uq_board_columns_project_position"),
         UniqueConstraint("project_id", "name", name="uq_board_columns_project_name"),
     )
 

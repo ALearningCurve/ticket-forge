@@ -72,6 +72,9 @@ export interface ProjectResponse {
   name: string;
   slug: string;
   description: string | null;
+  default_ticket_size: string;
+  weekly_points_per_member: number;
+  size_points_map: { S: number; M: number; L: number; XL: number };
   created_by: string;
   created_at: string;
   updated_at: string;
@@ -96,6 +99,7 @@ export interface TicketResponse {
   description: string | null;
   priority: string;
   type: string;
+  size: "S" | "M" | "L" | "XL";
   labels: string[];
   due_date: string | null;
   position: number;
@@ -144,6 +148,7 @@ export interface TicketCreateRequest {
   column_id: string;
   priority?: string;
   type?: string;
+  size?: string;
   labels?: string[];
   due_date?: string;
   assignee_id?: string | null;
@@ -154,6 +159,7 @@ export interface TicketUpdateRequest {
   description?: string;
   priority?: string;
   type?: string;
+  size?: string;
   labels?: string[];
   due_date?: string;
   assignee_id?: string | null;
