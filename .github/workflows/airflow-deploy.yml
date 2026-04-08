@@ -38,13 +38,20 @@ jobs:
 
       - name: Resolve Airflow repo ref
         id: repo_ref
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          WORKFLOW_HEAD_SHA: ${{ github.event.workflow_run.head_sha || '' }}
+          REF_NAME: ${{ github.ref_name }}
+          COMMIT_SHA: ${{ github.sha }}
         run: |
-          if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
-            repo_ref="${{ github.event.workflow_run.head_branch }}"
-            commit_sha="${{ github.event.workflow_run.head_sha }}"
+          set -euo pipefail
+
+          if [[ "${EVENT_NAME}" == "workflow_run" ]]; then
+            repo_ref="main"
+            commit_sha="${WORKFLOW_HEAD_SHA}"
           else
-            repo_ref="${{ github.ref_name }}"
-            commit_sha="${{ github.sha }}"
+            repo_ref="${REF_NAME}"
+            commit_sha="${COMMIT_SHA}"
           fi
 
           if [[ -z "${repo_ref}" ]]; then
