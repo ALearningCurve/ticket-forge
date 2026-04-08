@@ -3,11 +3,18 @@
 import {
   createContext,
   useContext,
+  useEffect,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
 
-import type { UserResponse } from "@/lib/api";
+import {
+  getCurrentUser,
+  logout as logoutRequest,
+  refreshSession,
+  type UserResponse,
+} from "@/lib/api";
 
 type AuthState = {
   user: UserResponse | null;
@@ -22,65 +29,84 @@ type AuthContextValue = {
   logout: () => void;
 };
 
-const AUTH_STORAGE_KEY = "ticket-forge.auth";
-
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
-function readStoredAuth(): AuthState {
-  if (typeof window === "undefined") {
-    return { user: null, accessToken: null };
-  }
-
-  try {
-    const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
-    if (!raw) {
-      return { user: null, accessToken: null };
-    }
-
-    const parsed = JSON.parse(raw) as AuthState;
-    return {
-      user: parsed.user ?? null,
-      accessToken: parsed.accessToken ?? null,
-    };
-  } catch {
-    return { user: null, accessToken: null };
-  }
-}
-
-function persistAuth(next: AuthState) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  if (!next.user || !next.accessToken) {
-    window.localStorage.removeItem(AUTH_STORAGE_KEY);
-    return;
-  }
-
-  window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(next));
-}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [auth, setAuthState] = useState<AuthState>(() => readStoredAuth());
+  const [auth, setAuthState] = useState<AuthState>({
+    user: null,
+    accessToken: null,
+  });
+  const [isLoading, setIsLoading] = useState(true);
+  const didRestoreSession = useRef(false);
 
   function setAuth(user: UserResponse, accessToken: string) {
-    const next = { user, accessToken };
-    setAuthState(next);
-    persistAuth(next);
+    setAuthState({ user, accessToken });
+    setIsLoading(false);
   }
 
   function logout() {
-    const next = { user: null, accessToken: null };
-    setAuthState(next);
-    persistAuth(next);
+    const token = auth.accessToken;
+    setAuthState({ user: null, accessToken: null });
+    setIsLoading(false);
+
+    if (!token) {
+      return;
+    }
+
+    void logoutRequest(token);
   }
+
+  useEffect(() => {
+    if (didRestoreSession.current) {
+      return;
+    }
+    didRestoreSession.current = true;
+
+    let isCancelled = false;
+
+    async function restoreSession() {
+      const refreshed = await refreshSession();
+      if (isCancelled || refreshed.error || !refreshed.data) {
+        if (!isCancelled) {
+          setAuthState({ user: null, accessToken: null });
+          setIsLoading(false);
+        }
+        return;
+      }
+
+      const accessToken = refreshed.data.access_token;
+      const currentUser = await getCurrentUser(accessToken);
+      if (isCancelled) {
+        return;
+      }
+
+      if (currentUser.error || !currentUser.data) {
+        setAuthState({ user: null, accessToken: null });
+        setIsLoading(false);
+        return;
+      }
+
+      setAuthState({
+        user: currentUser.data,
+        accessToken,
+      });
+      setIsLoading(false);
+    }
+
+    void restoreSession();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, []);
 
   return (
     <AuthContext.Provider
       value={{
         user: auth.user,
         token: auth.accessToken,
-        isLoading: false,
+        isLoading,
         setAuth,
         logout,
       }}

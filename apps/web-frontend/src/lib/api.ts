@@ -24,6 +24,10 @@ export interface AuthResponse {
   access_token: string;
 }
 
+export interface TokenResponse {
+  access_token: string;
+}
+
 export interface ProjectListItem {
   id: string;
   name: string;
@@ -192,12 +196,21 @@ async function request<T>(
   path: string,
   { body, token, headers, ...init }: RequestOptions = {}
 ): Promise<ApiResult<T>> {
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers: withJsonHeaders(token, headers),
-    credentials: "include",
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  let response: Response;
+
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      ...init,
+      headers: withJsonHeaders(token, headers),
+      credentials: "include",
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch (error) {
+    return {
+      data: null,
+      error: error instanceof Error ? error.message : "Request failed",
+    };
+  }
 
   if (!response.ok) {
     return {
@@ -225,6 +238,26 @@ export function signup(values: SignupRequest) {
   return request<AuthResponse>("/api/v1/auth/signup", {
     method: "POST",
     body: values,
+  });
+}
+
+export function refreshSession() {
+  return request<TokenResponse>("/api/v1/auth/refresh", {
+    method: "POST",
+  });
+}
+
+export function getCurrentUser(token: string) {
+  return request<UserResponse>("/api/v1/auth/me", {
+    method: "GET",
+    token,
+  });
+}
+
+export function logout(token: string) {
+  return request<{ message: string }>("/api/v1/auth/logout", {
+    method: "POST",
+    token,
   });
 }
 
