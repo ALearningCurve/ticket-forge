@@ -132,18 +132,7 @@ jobs:
               --event "push" \
               --limit 20 \
               --json databaseId,headSha,status,conclusion)"
-            run_id="$(
-              RUNS_JSON="${runs_json}" SOURCE_SHA="${SOURCE_SHA}" python3 - <<'PY'
-              import json
-              import os
-
-              runs = json.loads(os.environ["RUNS_JSON"])
-              for run in runs:
-                  if run.get("headSha") == os.environ["SOURCE_SHA"]:
-                      print(run.get("databaseId", ""))
-                      break
-              PY
-            )"
+            run_id="$(RUNS_JSON="${runs_json}" SOURCE_SHA="${SOURCE_SHA}" python3 -c 'import json, os; runs = json.loads(os.environ["RUNS_JSON"]); print(next((str(run.get("databaseId", "")) for run in runs if run.get("headSha") == os.environ["SOURCE_SHA"]), ""))')"
             if [[ -n "${run_id}" ]]; then
               break
             fi
@@ -193,6 +182,19 @@ jobs:
         uses: google-github-actions/setup-gcloud@v2
         with:
           project_id: ${{ env.TF_VAR_project_id }}
+
+      - name: Bootstrap required tf-apply IAM roles
+        run: |
+          set -euo pipefail
+
+          tf_apply_member="serviceAccount:tf-apply-sa@${TF_VAR_project_id}.iam.gserviceaccount.com"
+
+          for role in roles/iam.serviceAccountAdmin; do
+            gcloud projects add-iam-policy-binding "${TF_VAR_project_id}" \
+              --member="${tf_apply_member}" \
+              --role="${role}" \
+              --quiet
+          done
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
