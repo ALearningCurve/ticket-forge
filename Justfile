@@ -211,6 +211,8 @@ gcp-airflow-deploy:
 
     repo_ref="${AIRFLOW_REPO_REF:-$(git rev-parse HEAD)}"
 
+    zone="${TF_VAR_zone:-us-east1-c}"
+
     # Fail fast when deploying with a detached SHA that is not visible on origin.
     if [[ "${repo_ref}" =~ ^[0-9a-f]{40}$ ]]; then
         if ! git ls-remote origin | awk '{print $1}' | grep -Fxq "${repo_ref}"; then
@@ -224,13 +226,13 @@ gcp-airflow-deploy:
 
     # Import already-existing secrets so Terraform can manage them without 409 conflicts.
     if gcloud secrets describe "${github_token_secret_id}" --project="${TF_VAR_project_id}" >/dev/null 2>&1; then
-        terraform -chdir=terraform import -var="project_id=${TF_VAR_project_id}" -var="state_bucket=${TF_VAR_state_bucket}" -var="region=${TF_VAR_region}" -var="zone=us-east1-b" -var="environment=prod" 'google_secret_manager_secret.airflow_runtime["github_token"]' "projects/${TF_VAR_project_id}/secrets/${github_token_secret_id}" >/dev/null 2>&1 || true
+        terraform -chdir=terraform import -var="project_id=${TF_VAR_project_id}" -var="state_bucket=${TF_VAR_state_bucket}" -var="region=${TF_VAR_region}" -var="zone=${zone}" -var="environment=prod" 'google_secret_manager_secret.airflow_runtime["github_token"]' "projects/${TF_VAR_project_id}/secrets/${github_token_secret_id}" >/dev/null 2>&1 || true
     fi
     if gcloud secrets describe "${gmail_username_secret_id}" --project="${TF_VAR_project_id}" >/dev/null 2>&1; then
-        terraform -chdir=terraform import -var="project_id=${TF_VAR_project_id}" -var="state_bucket=${TF_VAR_state_bucket}" -var="region=${TF_VAR_region}" -var="zone=us-east1-b" -var="environment=prod" 'google_secret_manager_secret.airflow_runtime["gmail_app_username"]' "projects/${TF_VAR_project_id}/secrets/${gmail_username_secret_id}" >/dev/null 2>&1 || true
+        terraform -chdir=terraform import -var="project_id=${TF_VAR_project_id}" -var="state_bucket=${TF_VAR_state_bucket}" -var="region=${TF_VAR_region}" -var="zone=${zone}" -var="environment=prod" 'google_secret_manager_secret.airflow_runtime["gmail_app_username"]' "projects/${TF_VAR_project_id}/secrets/${gmail_username_secret_id}" >/dev/null 2>&1 || true
     fi
     if gcloud secrets describe "${gmail_password_secret_id}" --project="${TF_VAR_project_id}" >/dev/null 2>&1; then
-        terraform -chdir=terraform import -var="project_id=${TF_VAR_project_id}" -var="state_bucket=${TF_VAR_state_bucket}" -var="region=${TF_VAR_region}" -var="zone=us-east1-b" -var="environment=prod" 'google_secret_manager_secret.airflow_runtime["gmail_app_password"]' "projects/${TF_VAR_project_id}/secrets/${gmail_password_secret_id}" >/dev/null 2>&1 || true
+        terraform -chdir=terraform import -var="project_id=${TF_VAR_project_id}" -var="state_bucket=${TF_VAR_state_bucket}" -var="region=${TF_VAR_region}" -var="zone=${zone}" -var="environment=prod" 'google_secret_manager_secret.airflow_runtime["gmail_app_password"]' "projects/${TF_VAR_project_id}/secrets/${gmail_password_secret_id}" >/dev/null 2>&1 || true
     fi
 
     # Ensure Terraform-managed runtime secrets exist before adding versions.
@@ -239,7 +241,7 @@ gcp-airflow-deploy:
         -var="project_id=${TF_VAR_project_id}" \
         -var="state_bucket=${TF_VAR_state_bucket}" \
         -var="region=${TF_VAR_region}" \
-        -var="zone=us-east1-b" \
+        -var="zone=${zone}" \
         -var="environment=prod"
 
     add_secret_version_if_changed "${github_token_secret_id}" "${github_token_value}"
@@ -250,7 +252,7 @@ gcp-airflow-deploy:
       -var="project_id=${TF_VAR_project_id}" \
       -var="state_bucket=${TF_VAR_state_bucket}" \
       -var="region=${TF_VAR_region}" \
-      -var="zone=us-east1-b" \
+      -var="zone=${zone}" \
       -var="environment=prod" \
       -var="airflow_repo_ref=${repo_ref}"
 
@@ -265,7 +267,7 @@ gcp-proxy target local_port='18080':
 
         case "{{ target }}" in
             airflow)
-                zone="${TF_VAR_zone:-us-east1-b}"
+                zone="${TF_VAR_zone:-us-east1-c}"
                 instance="${AIRFLOW_VM_NAME:-airflow-vm-prod}"
                 echo "Opening Airflow IAP tunnel: 127.0.0.1:{{ local_port }} -> ${instance}:8080 (${zone})"
                 exec gcloud compute start-iap-tunnel "${instance}" 8080 \
@@ -273,7 +275,7 @@ gcp-proxy target local_port='18080':
                     --local-host-port="127.0.0.1:{{ local_port }}"
                 ;;
             cloud-sql|cloudsql|sql)
-                zone="${TF_VAR_zone:-us-east1-b}"
+                zone="${TF_VAR_zone:-us-east1-c}"
                 instance="${AIRFLOW_VM_NAME:-airflow-vm-prod}"
                 cloud_sql_private_ip="$(terraform -chdir=terraform output -raw cloud_sql_private_ip 2>/dev/null || true)"
                 if [[ -z "${cloud_sql_private_ip}" ]]; then

@@ -15,7 +15,7 @@ env:
   TF_VAR_project_id: ${{ secrets.TF_VAR_PROJECT_ID || secrets.TF_VAR_project_id }}
   TF_VAR_state_bucket: ${{ secrets.TF_VAR_STATE_BUCKET || secrets.TF_VAR_state_bucket }}
   TF_VAR_region: ${{ secrets.TF_VAR_REGION || secrets.TF_VAR_region }}
-  TF_VAR_zone: us-east1-b
+  TF_VAR_zone: us-east1-c
   TF_VAR_environment: prod
 
 jobs:
@@ -40,10 +40,19 @@ jobs:
         id: repo_ref
         run: |
           if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
-            echo "value=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+            repo_ref="${{ github.event.workflow_run.head_branch }}"
+            commit_sha="${{ github.event.workflow_run.head_sha }}"
           else
-            echo "value=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+            repo_ref="${{ github.ref_name }}"
+            commit_sha="${{ github.sha }}"
           fi
+
+          if [[ -z "${repo_ref}" ]]; then
+            repo_ref="${commit_sha}"
+          fi
+
+          echo "value=${repo_ref}" >> "$GITHUB_OUTPUT"
+          echo "commit_sha=${commit_sha}" >> "$GITHUB_OUTPUT"
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -137,18 +146,26 @@ jobs:
         run: |
           set -euo pipefail
 
-          instance_name=$(terraform -chdir=terraform output -raw airflow_vm_instance_name)
-          airflow_url=$(terraform -chdir=terraform output -raw airflow_webserver_url)
-          instance_id=$(gcloud compute instances describe "${instance_name}" \
+          instance_name="$(terraform -chdir=terraform output -raw airflow_vm_instance_name 2>/dev/null || true)"
+          airflow_url="$(terraform -chdir=terraform output -raw airflow_webserver_url 2>/dev/null || true)"
+          instance_id=""
+          runtime_sha=""
+
+          if [[ -n "${instance_name}" ]] && gcloud compute instances describe "${instance_name}" \
             --project="${TF_VAR_project_id}" \
             --zone="${TF_VAR_zone}" \
-            --format='value(id)')
-          runtime_sha="$(gcloud compute ssh "${instance_name}" \
-            --project="${TF_VAR_project_id}" \
-            --zone="${TF_VAR_zone}" \
-            --tunnel-through-iap \
-            --quiet \
-            --command='cd /opt/ticket-forge && git rev-parse HEAD' 2>/dev/null || true)"
+            --format='value(id)' >/dev/null 2>&1; then
+            instance_id="$(gcloud compute instances describe "${instance_name}" \
+              --project="${TF_VAR_project_id}" \
+              --zone="${TF_VAR_zone}" \
+              --format='value(id)' || true)"
+            runtime_sha="$(gcloud compute ssh "${instance_name}" \
+              --project="${TF_VAR_project_id}" \
+              --zone="${TF_VAR_zone}" \
+              --tunnel-through-iap \
+              --quiet \
+              --command='cd /opt/ticket-forge && git rev-parse HEAD' 2>/dev/null || true)"
+          fi
 
           echo "instance_name=${instance_name}" >> "$GITHUB_OUTPUT"
           echo "instance_id=${instance_id}" >> "$GITHUB_OUTPUT"
@@ -191,7 +208,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           TRIGGER_REASON: ${{ github.event_name == 'workflow_run' && 'ci-success' || 'manual-dispatch' }}
           WORKFLOW_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          COMMIT_SHA: ${{ steps.repo_ref.outputs.value }}
+          COMMIT_SHA: ${{ steps.repo_ref.outputs.commit_sha }}
           SOURCE_REF: ${{ steps.repo_ref.outputs.value }}
           DEPLOYMENT_TARGET: ${{ steps.deployment-meta.outputs.instance_name }}
           DEPLOYMENT_REVISION: ${{ steps.deployment-meta.outputs.runtime_sha }}

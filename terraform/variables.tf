@@ -212,7 +212,7 @@ variable "environment" {
 variable "zone" {
   description = "Compute Engine zone for the Airflow VM."
   type        = string
-  default     = "us-east1-b"
+  default     = "us-east1-c"
 }
 
 variable "airflow_vm_machine_type" {
