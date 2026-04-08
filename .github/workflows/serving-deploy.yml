@@ -144,17 +144,46 @@ jobs:
             exit 1
           fi
 
-          gh run watch "${run_id}" --repo "${{ github.repository }}" --interval 10
-          conclusion="$(gh run view "${run_id}" --repo "${{ github.repository }}" --json conclusion --jq .conclusion)"
-          if [[ "${conclusion}" != "success" ]]; then
-            echo "CI/CD concluded with status ${conclusion}" >&2
-            exit 1
-          fi
+          for _ in $(seq 1 90); do
+            jobs_json="$(gh run view "${run_id}" --repo "${{ github.repository }}" --json jobs)"
+            gate_result="$(
+              JOBS_JSON="${jobs_json}" python3 -c '
+              import json
+              import os
+
+              jobs = json.loads(os.environ["JOBS_JSON"]).get("jobs", [])
+              gate = next((job for job in jobs if job.get("name") == "Check / Finished"), None)
+              if gate is None:
+                  print("missing")
+              elif gate.get("status") != "completed":
+                  print("pending")
+              else:
+                  print(gate.get("conclusion") or "unknown")
+              '
+            )"
+
+            case "${gate_result}" in
+              success)
+                exit 0
+                ;;
+              pending|missing)
+                sleep 10
+                ;;
+              *)
+                echo "CI/CD test gate concluded with status ${gate_result}" >&2
+                exit 1
+                ;;
+            esac
+          done
+
+          echo "Timed out waiting for CI/CD test gate on ${SOURCE_SHA}" >&2
+          exit 1
 
   bootstrap-serving-infra:
     name: Deploy / Bootstrap Serving Infra
     needs: [resolve-context, wait-for-ci]
     if: >-
+      always() &&
       (needs.wait-for-ci.result == 'success' || needs.wait-for-ci.result == 'skipped') &&
       (
         needs.resolve-context.outputs.deploy_backend == 'true' ||
@@ -252,7 +281,9 @@ jobs:
     name: Deploy / Backend Serving API
     needs: [resolve-context, wait-for-ci, bootstrap-serving-infra]
     if: >-
+      always() &&
       (needs.wait-for-ci.result == 'success' || needs.wait-for-ci.result == 'skipped') &&
+      needs.bootstrap-serving-infra.result == 'success' &&
       needs.resolve-context.outputs.deploy_backend == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -438,7 +469,9 @@ jobs:
     name: Deploy / Frontend Web App
     needs: [resolve-context, wait-for-ci, bootstrap-serving-infra, deploy-backend]
     if: >-
+      always() &&
       (needs.wait-for-ci.result == 'success' || needs.wait-for-ci.result == 'skipped') &&
+      needs.bootstrap-serving-infra.result == 'success' &&
       needs.resolve-context.outputs.deploy_frontend == 'true' &&
       (needs.deploy-backend.result == 'success' || needs.deploy-backend.result == 'skipped')
     runs-on: ubuntu-latest
