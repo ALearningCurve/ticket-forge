@@ -46,6 +46,7 @@ _DATETIME_FMT = "%Y-%m-%dT%H:%M:%SZ"
 _MAX_TTA_HOURS = 720.0  # cap time-to-assignment at 30 days
 _DATASET_FILE_CANDIDATES = (
   "tickets_transformed_improved.jsonl",
+  "tickets_balanced.jsonl",
   "tickets_transformed_improved.jsonl.gz",
 )
 
@@ -134,7 +135,7 @@ def find_latest_pipeline_output() -> Path:
   timestamped = sorted(data_root.glob("github_issues-*"), reverse=True)
   for candidate in timestamped:
     if _find_dataset_file(candidate) is not None:
-      logger.info(f"latest piece of data: {candidate}")
+      logger.info(f"found data directory: {candidate}")
       return candidate
   legacy = data_root / "github_issues"
   if _find_dataset_file(legacy) is not None:
@@ -272,7 +273,7 @@ class Dataset(BaseModel):
       records = records[: self.subset_size]
 
     logger.info(
-      f"loaded {len(records)}/{n_records} record(s) {self.subset_size=} {self.split=}"
+      f"loaded {len(records)}/{n_records} record(s) {self.subset_size=} {self.split=} {dataset_path=}"
     )
     return records
 
@@ -443,24 +444,24 @@ class Dataset(BaseModel):
 
     # Try loading from the latest pipeline output directory first,
     # then fall back to the legacy fixed path.
-    candidates: list[Path] = []
-    try:
-      candidates.append(find_latest_pipeline_output() / "sample_weights.json")
-    except FileNotFoundError:
-      pass
-    candidates.append(Paths.data_root / "github_issues" / "sample_weights.json")
+    # candidates: list[Path] = []
+    # try:
+    #   candidates.append(find_latest_pipeline_output() / "sample_weights.json")
+    # except FileNotFoundError:
+    #   pass
+    # candidates.append(Paths.data_root / "github_issues" / "sample_weights.json")
 
-    for weights_path in candidates:
-      try:
-        with open(weights_path) as f:
-          data: dict[str, Any] = json.load(f)
-        saved_col: str = data.get("group_col", group_col)
-        weights_by_group: dict[str, float] = data.get("weights_by_group", {})
-        if saved_col in meta.columns and weights_by_group:
-          w = meta[saved_col].map(weights_by_group).fillna(1.0)  # type: ignore[arg-type]
-          return w.to_numpy(dtype=np.float64)  # type: ignore[return-value]
-      except (FileNotFoundError, json.JSONDecodeError):
-        continue
+    # for weights_path in candidates:
+    #   try:
+    #     with open(weights_path) as f:
+    #       data: dict[str, Any] = json.load(f)
+    #     saved_col: str = data.get("group_col", group_col)
+    #     weights_by_group: dict[str, float] = data.get("weights_by_group", {})
+    #     if saved_col in meta.columns and weights_by_group:
+    #       w = meta[saved_col].map(weights_by_group).fillna(1.0)  # type: ignore[arg-type]
+    #       return w.to_numpy(dtype=np.float64)  # type: ignore[return-value]
+    #   except (FileNotFoundError, json.JSONDecodeError):
+    #     continue
 
     # Fallback: inverse-frequency weights from metadata repo column
     group_counts = meta[group_col].value_counts()
