@@ -289,26 +289,7 @@ jobs:
             service_json="$(gcloud run services describe "${BACKEND_SERVICE_NAME}" \
               --region="${TF_VAR_region}" \
               --format=json)"
-            resolved_version="$(
-              SERVICE_JSON="${service_json}" python3 - <<'PY'
-              import json
-              import os
-
-              service = json.loads(os.environ["SERVICE_JSON"])
-              envs = (
-                  service.get("spec", {})
-                  .get("template", {})
-                  .get("containers", [{}])[0]
-                  .get("env", [])
-              )
-              for item in envs:
-                  if item.get("name") == "SERVING_MODEL_VERSION":
-                      print(item.get("value", ""))
-                      break
-              else:
-                  print("")
-              PY
-            )"
+            resolved_version="$(SERVICE_JSON="${service_json}" python3 -c 'import json, os; service = json.loads(os.environ["SERVICE_JSON"]); envs = service.get("spec", {}).get("template", {}).get("containers", [{}])[0].get("env", []); print(next((item.get("value", "") for item in envs if item.get("name") == "SERVING_MODEL_VERSION"), ""))')"
           fi
 
           echo "value=${resolved_version}" >> "$GITHUB_OUTPUT"
