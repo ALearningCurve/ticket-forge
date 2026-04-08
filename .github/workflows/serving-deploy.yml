@@ -132,18 +132,7 @@ jobs:
               --event "push" \
               --limit 20 \
               --json databaseId,headSha,status,conclusion)"
-            run_id="$(
-              RUNS_JSON="${runs_json}" SOURCE_SHA="${SOURCE_SHA}" python3 - <<'PY'
-              import json
-              import os
-
-              runs = json.loads(os.environ["RUNS_JSON"])
-              for run in runs:
-                  if run.get("headSha") == os.environ["SOURCE_SHA"]:
-                      print(run.get("databaseId", ""))
-                      break
-              PY
-            )"
+            run_id="$(RUNS_JSON="${runs_json}" SOURCE_SHA="${SOURCE_SHA}" python3 -c 'import json, os; runs = json.loads(os.environ["RUNS_JSON"]); print(next((str(run.get("databaseId", "")) for run in runs if run.get("headSha") == os.environ["SOURCE_SHA"]), ""))')"
             if [[ -n "${run_id}" ]]; then
               break
             fi
