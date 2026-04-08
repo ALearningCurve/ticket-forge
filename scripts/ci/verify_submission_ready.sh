@@ -14,41 +14,49 @@ check_file() {
   fi
 }
 
-check_command() {
+check_required_command() {
   local command_name="$1"
   if command -v "$command_name" >/dev/null 2>&1; then
     printf 'PASS  command:%s\n' "$command_name"
   else
-    printf 'WARN  command:%s missing from PATH\n' "$command_name"
-    warnings+=("command:$command_name")
+    printf 'FAIL  command:%s missing from PATH\n' "$command_name"
+    failures+=("command:$command_name")
   fi
 }
 
 echo "TicketForge submission-readiness verification"
 echo
 
-check_command uv
-check_command node
-check_command npm
-check_command just
-check_command terraform
-check_command gh
-check_command gcloud
+check_required_command uv
+check_required_command node
+check_required_command npm
+check_required_command just
+check_required_command terraform
+check_required_command gh
+check_required_command gcloud
 
 echo
 check_file ".github/workflows/ci.yml"
 check_file ".github/workflows/model-cicd.yml"
 check_file ".github/workflows/model-monitoring.yml"
 check_file ".github/workflows/airflow-deploy.yml"
+check_file ".github/workflows/serving-deploy.yml"
 check_file "terraform/README.md"
 check_file "terraform/providers.tf"
 check_file "terraform/variables.tf"
+check_file "terraform/main.tf"
+check_file "terraform/secrets.tf"
 check_file "docker-compose.yml"
+check_file "apps/web-backend/Dockerfile"
+check_file "apps/web-frontend/Dockerfile"
 check_file "apps/training/README.md"
 check_file "apps/web-backend/pyproject.toml"
 check_file "apps/web-frontend/package.json"
 check_file "package.json"
 check_file "scripts/ci/airflow_smoketest.sh"
+check_file "scripts/ci/backend_smoketest.sh"
+check_file "scripts/ci/deploy_serving.sh"
+check_file "scripts/ci/frontend_smoketest.sh"
 check_file "scripts/ci/airflow_trigger_dag.sh"
 check_file "scripts/ci/verify_submission_ready.sh"
 check_file "reports/00_DATA_PIPELINE.md"

@@ -48,6 +48,11 @@ jobs:
           workload_identity_provider: ${{ secrets.WIF_PROVIDER_ID }}
           service_account: 'ml-pipeline-sa@${{ secrets.TF_VAR_PROJECT_ID }}.iam.gserviceaccount.com'
 
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.TF_VAR_PROJECT_ID }}
+
       - name: Set monitoring metadata
         id: run-meta
         run: |
@@ -69,12 +74,25 @@ jobs:
 
           echo "trigger_reason=${trigger_reason}" >> "$GITHUB_OUTPUT"
 
+      - name: Resolve backend URL
+        id: backend-url
+        run: |
+          backend_url="$(gcloud run services describe ticketforge-backend \
+            --project="${{ secrets.TF_VAR_PROJECT_ID }}" \
+            --region="${{ secrets.TF_VAR_REGION }}" \
+            --format='value(status.url)')"
+          echo "value=${backend_url}" >> "$GITHUB_OUTPUT"
+
       - name: Run drift monitoring
         env:
           GCS_BUCKET_NAME: gs://ticket-forge-training-artifacts-${{ secrets.TF_VAR_PROJECT_ID }}-prod
+          TICKETFORGE_GCP_PROJECT_ID: ${{ secrets.TF_VAR_PROJECT_ID }}
+          TICKETFORGE_GCP_REGION: ${{ secrets.TF_VAR_REGION }}
         run: |
           uv run python -m training.cmd.monitor_model \
             --runid "${{ steps.run-meta.outputs.run_id }}" \
+            --monitor-source serving \
+            --backend-url "${{ steps.backend-url.outputs.value }}" \
             --trigger "${{ github.event_name }}" \
             --trigger-reason "${{ steps.monitor-inputs.outputs.trigger_reason }}"
 
@@ -111,6 +129,7 @@ jobs:
           lines = [
             "## Model Monitoring Summary",
             "",
+            f"- Monitor source: {report.get('monitor_source')}",
             f"- Drift detected: {report.get('drift_detected')}",
             f"- Dataset version: {report.get('dataset_version')}",
             f"- Dataset URI: {report.get('dataset_uri')}",
@@ -170,13 +189,15 @@ jobs:
             trigger="${{ github.event_name }}",
             trigger_reason="${{ steps.monitor-inputs.outputs.trigger_reason }}",
             workflow_url="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
-            dataset_source="gcs",
+            dataset_source="serving-events",
             dataset_version=str(drift_report.get("dataset_version") or ""),
             dataset_uri=str(drift_report.get("dataset_uri") or ""),
             failure_reasons=failure_reasons,
             metadata={
+              "backend_url": "${{ steps.backend-url.outputs.value }}",
               "drift_detected": drift_report.get("drift_detected"),
               "drift_report_uri": drift_report.get("drift_report_uri"),
+              "monitor_source": drift_report.get("monitor_source"),
               "retrain_recommended": drift_report.get("retrain_recommended"),
               "retraining_trigger_outcome": "${{ steps.trigger-retrain.outcome }}",
             },

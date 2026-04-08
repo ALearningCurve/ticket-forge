@@ -210,6 +210,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Install notification dependencies
+        run: uv sync --all-packages
+
       - name: Download model artifacts
         if: needs.train-and-promote.outputs.executed == 'true'
         uses: actions/download-artifact@v4

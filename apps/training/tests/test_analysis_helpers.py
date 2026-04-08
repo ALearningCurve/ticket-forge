@@ -16,7 +16,7 @@ from training.analysis.run_bias_mitigation import (
   print_distribution,
   run_bias_mitigation_weights,
 )
-from training.analysis.run_data_profiling import load_jsonl
+from training.analysis.run_data_profiling import load_jsonl, run_data_profiling
 
 
 class TestRunAnomalyCheck:
@@ -232,5 +232,37 @@ class TestLoadJsonl:
       df = load_jsonl(temp_path)
       assert len(df) == 2
       assert list(df["x"]) == [1, 2]
+    finally:
+      temp_path.unlink(missing_ok=True)
+
+  def test_run_data_profiling_tracks_custom_profile_columns(self) -> None:
+    """run_data_profiling should preserve custom serving-monitor columns."""
+    with tempfile.NamedTemporaryFile(
+      mode="w", suffix=".jsonl", delete=False, encoding="utf-8"
+    ) as f:
+      f.write(
+        json.dumps(
+          {
+            "repo": "hashicorp/terraform",
+            "rail": "direct_api",
+            "latency_ms": 32.5,
+            "confidence": 0.82,
+          }
+        )
+        + "\n"
+      )
+      temp_path = Path(f.name)
+
+    try:
+      profile = run_data_profiling(
+        temp_path,
+        output_dir=temp_path.parent,
+        numeric_columns=["latency_ms", "confidence"],
+        categorical_columns=["repo", "rail"],
+      )
+      assert profile["profile_columns"] == {
+        "numeric": ["latency_ms", "confidence"],
+        "categorical": ["repo", "rail"],
+      }
     finally:
       temp_path.unlink(missing_ok=True)
