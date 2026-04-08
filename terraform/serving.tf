@@ -1,3 +1,8 @@
+data "google_secret_manager_secret" "web_backend_database_url" {
+  project   = var.project_id
+  secret_id = "ticketforge-api-database-url-${var.environment}"
+}
+
 resource "google_artifact_registry_repository" "web_backend" {
   location      = var.region
   repository_id = var.web_backend_artifact_registry_repository
@@ -26,8 +31,8 @@ resource "google_service_account" "web_frontend_runtime" {
   display_name = "TicketForge Frontend Runtime"
 }
 
-resource "google_secret_manager_secret_iam_member" "web_backend_db_password_access" {
-  secret_id = google_secret_manager_secret.ticketforge_db_password.id
+resource "google_secret_manager_secret_iam_member" "web_backend_database_url_access" {
+  secret_id = data.google_secret_manager_secret.web_backend_database_url.id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.web_backend_runtime.email}"
 }
@@ -73,23 +78,14 @@ resource "google_cloud_run_v2_service" "web_backend" {
       }
 
       env {
-        name  = "DATABASE_HOST"
-        value = google_sql_database_instance.mlflow.private_ip_address
-      }
+        name = "DATABASE_URL"
 
-      env {
-        name  = "DATABASE_PORT"
-        value = "5432"
-      }
-
-      env {
-        name  = "DATABASE_NAME"
-        value = google_sql_database.ticketforge.name
-      }
-
-      env {
-        name  = "DATABASE_USER"
-        value = var.ticketforge_db_user
+        value_source {
+          secret_key_ref {
+            secret  = data.google_secret_manager_secret.web_backend_database_url.secret_id
+            version = "latest"
+          }
+        }
       }
 
       env {
@@ -133,17 +129,6 @@ resource "google_cloud_run_v2_service" "web_backend" {
       }
 
       env {
-        name = "DATABASE_PASSWORD"
-
-        value_source {
-          secret_key_ref {
-            secret  = google_secret_manager_secret.ticketforge_db_password.secret_id
-            version = google_secret_manager_secret_version.ticketforge_db_password.version
-          }
-        }
-      }
-
-      env {
         name = "JWT_SECRET_KEY"
 
         value_source {
@@ -178,10 +163,9 @@ resource "google_cloud_run_v2_service" "web_backend" {
 
   depends_on = [
     google_artifact_registry_repository.web_backend,
-    google_secret_manager_secret_version.ticketforge_db_password,
     google_secret_manager_secret_version.web_backend_jwt_secret_key,
     google_secret_manager_secret_version.mlflow_admin_password,
-    google_secret_manager_secret_iam_member.web_backend_db_password_access,
+    google_secret_manager_secret_iam_member.web_backend_database_url_access,
     google_secret_manager_secret_iam_member.web_backend_jwt_secret_access,
     google_secret_manager_secret_iam_member.web_backend_mlflow_admin_password_access,
   ]
