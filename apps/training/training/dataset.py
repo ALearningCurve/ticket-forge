@@ -45,8 +45,8 @@ N_CLASSES = len(TIME_BUCKETS) - 1
 _DATETIME_FMT = "%Y-%m-%dT%H:%M:%SZ"
 _MAX_TTA_HOURS = 720.0  # cap time-to-assignment at 30 days
 _DATASET_FILE_CANDIDATES = (
+  "tickets_balanced.jsonl",
   "tickets_transformed_improved.jsonl",
-  # "tickets_balanced.jsonl",
   "tickets_transformed_improved.jsonl.gz",
 )
 
