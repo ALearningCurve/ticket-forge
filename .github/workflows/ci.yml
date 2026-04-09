@@ -235,67 +235,41 @@ jobs:
         run: |
           set -euo pipefail
 
-          backend_json="$(gcloud run services describe ticketforge-backend \
-            --project="${PROJECT_ID}" \
-            --region="${REGION}" \
-            --format=json 2>/dev/null || true)"
-          frontend_json="$(gcloud run services describe ticketforge-frontend \
-            --project="${PROJECT_ID}" \
-            --region="${REGION}" \
-            --format=json 2>/dev/null || true)"
+          backend_state="$(terraform -chdir=terraform state show -no-color 'google_cloud_run_v2_service.web_backend' 2>/dev/null || true)"
+          frontend_state="$(terraform -chdir=terraform state show -no-color 'google_cloud_run_v2_service.web_frontend' 2>/dev/null || true)"
           ticketforge_api_state="$(terraform -chdir=terraform state show -no-color 'google_cloud_run_v2_service.ticketforge_api[0]' 2>/dev/null || true)"
           ticketforge_inference_state="$(terraform -chdir=terraform state show -no-color 'google_cloud_run_v2_service.ticketforge_inference[0]' 2>/dev/null || true)"
           ticketforge_web_state="$(terraform -chdir=terraform state show -no-color 'google_cloud_run_v2_service.ticketforge_web[0]' 2>/dev/null || true)"
 
-          BACKEND_JSON="${backend_json}" \
-          FRONTEND_JSON="${frontend_json}" \
+          BACKEND_STATE="${backend_state}" \
+          FRONTEND_STATE="${frontend_state}" \
           TICKETFORGE_API_STATE="${ticketforge_api_state}" \
           TICKETFORGE_INFERENCE_STATE="${ticketforge_inference_state}" \
           TICKETFORGE_WEB_STATE="${ticketforge_web_state}" \
           python3 - <<'PY'
-          import json
           import os
           import re
           from pathlib import Path
 
           output_path = Path(os.environ["GITHUB_OUTPUT"])
 
-          def parse_service(raw: str) -> dict:
-              if not raw.strip():
-                  return {}
-              return json.loads(raw)
-
-          def image(service: dict) -> str:
-              containers = containers_for(service)
-              return containers[0].get("image", "") if containers else ""
-
-          def containers_for(service: dict) -> list[dict]:
-              # Cloud Run describe output differs between v1/v2 APIs.
-              spec_template = service.get("spec", {}).get("template", {})
-              if isinstance(spec_template, dict):
-                  containers = spec_template.get("containers", [])
-                  if isinstance(containers, list):
-                      return containers
-              template = service.get("template", {})
-              if isinstance(template, dict):
-                  containers = template.get("containers", [])
-                  if isinstance(containers, list):
-                      return containers
-              return []
-
-          def env_value(service: dict, name: str) -> str:
-              containers = containers_for(service)
-              envs = containers[0].get("env", []) if containers else []
-              for item in envs:
-                  if item.get("name") == name:
-                      return item.get("value", "")
-              return ""
-
-          backend = parse_service(os.environ.get("BACKEND_JSON", ""))
-          frontend = parse_service(os.environ.get("FRONTEND_JSON", ""))
           def image_from_state(raw: str) -> str:
               match = re.search(r'^\s*image\s*=\s*"([^"]+)"\s*$', raw, flags=re.MULTILINE)
               return match.group(1) if match else ""
+
+          def env_from_state(raw: str, name: str) -> str:
+              lines = raw.splitlines()
+              for idx, line in enumerate(lines):
+                  if re.match(r'^\s*name\s*=\s*"' + re.escape(name) + r'"\s*$', line):
+                      for probe in lines[idx + 1: idx + 8]:
+                          value_match = re.match(r'^\s*value\s*=\s*"([^"]*)"\s*$', probe)
+                          if value_match:
+                              return value_match.group(1)
+              return ""
+
+          backend_image = image_from_state(os.environ.get("BACKEND_STATE", ""))
+          frontend_image = image_from_state(os.environ.get("FRONTEND_STATE", ""))
+          frontend_api_url = env_from_state(os.environ.get("FRONTEND_STATE", ""), "NEXT_PUBLIC_API_URL")
 
           ticketforge_api_image = image_from_state(os.environ.get("TICKETFORGE_API_STATE", ""))
           ticketforge_inference_image = image_from_state(os.environ.get("TICKETFORGE_INFERENCE_STATE", ""))
@@ -310,11 +284,11 @@ jobs:
           )
 
           lines = [
-              f"backend_image={image(backend)}",
-              f"backend_cors_origins={env_value(backend, 'CORS_ORIGINS')}",
-              f"backend_serving_model_version={env_value(backend, 'SERVING_MODEL_VERSION')}",
-              f"frontend_image={image(frontend)}",
-              f"frontend_api_url={env_value(frontend, 'NEXT_PUBLIC_API_URL')}",
+              f"backend_image={backend_image}",
+              "backend_cors_origins=",
+              "backend_serving_model_version=",
+              f"frontend_image={frontend_image}",
+              f"frontend_api_url={frontend_api_url}",
               f"ticketforge_app_enabled={'true' if app_enabled else 'false'}",
               f"ticketforge_api_image={ticketforge_api_image}",
               f"ticketforge_inference_image={ticketforge_inference_image}",
