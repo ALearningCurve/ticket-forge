@@ -98,6 +98,10 @@ export interface TicketResponse {
   priority: string;
   type: string;
   labels: string[];
+  size_bucket: string | null;
+  size_source: string | null;
+  size_confidence: number | null;
+  size_updated_at: string | null;
   due_date: string | null;
   position: number;
   assignee: TicketAssigneeResponse | null;
@@ -167,6 +171,11 @@ export interface ResumeProfileUploadResponse
   action: string;
 }
 
+export interface TicketBatchSizingResponse {
+  updated_count: number;
+  tickets: TicketResponse[];
+}
+
 export interface SigninRequest {
   login: string;
   password: string;
@@ -198,22 +207,24 @@ export interface UpdateMemberRoleRequest {
 
 export interface TicketCreateRequest {
   title: string;
-  description?: string;
+  description?: string | null;
   column_id: string;
   priority?: string;
   type?: string;
   labels?: string[];
-  due_date?: string;
+  size_bucket?: string | null;
+  due_date?: string | null;
   assignee_id?: string | null;
 }
 
 export interface TicketUpdateRequest {
   title?: string;
-  description?: string;
+  description?: string | null;
   priority?: string;
   type?: string;
   labels?: string[];
-  due_date?: string;
+  size_bucket?: string | null;
+  due_date?: string | null;
   assignee_id?: string | null;
 }
 
@@ -443,6 +454,16 @@ export function getBoardTickets(token: string, slug: string) {
     method: "GET",
     token,
   });
+}
+
+export function classifyMissingTicketSizes(token: string, slug: string) {
+  return request<TicketBatchSizingResponse>(
+    `/api/v1/projects/${slug}/tickets/classify-missing`,
+    {
+      method: "POST",
+      token,
+    }
+  );
 }
 
 export function createTicket(

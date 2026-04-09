@@ -66,6 +66,14 @@ const typeOptions = [
   { value: "bug", label: "Bug", icon: AlertTriangle, color: "text-red-500" },
 ];
 
+const sizeOptions = [
+  { value: "auto", label: "Auto (AI estimate)" },
+  { value: "S", label: "S" },
+  { value: "M", label: "M" },
+  { value: "L", label: "L" },
+  { value: "XL", label: "XL" },
+];
+
 const COMMON_LABELS = [
   "frontend",
   "backend",
@@ -121,6 +129,11 @@ function TicketDetailEditor({
   const [description, setDescription] = useState(ticket.description || "");
   const [priority, setPriority] = useState(ticket.priority);
   const [type, setType] = useState(ticket.type);
+  const [sizeMode, setSizeMode] = useState(
+    ticket.size_source === "manual" && ticket.size_bucket
+      ? ticket.size_bucket
+      : "auto"
+  );
   const [assigneeId, setAssigneeId] = useState<string | null>(
     ticket.assignee?.id || null
   );
@@ -176,6 +189,7 @@ function TicketDetailEditor({
         description: description.trim() || undefined,
         priority,
         type,
+        size_bucket: sizeMode === "auto" ? null : sizeMode,
         assignee_id: assigneeId,
         due_date: dueDate || undefined,
         labels,
@@ -202,6 +216,7 @@ function TicketDetailEditor({
     description,
     priority,
     type,
+    sizeMode,
     assigneeId,
     dueDate,
     labels,
@@ -249,6 +264,16 @@ function TicketDetailEditor({
 
   const currentType = typeOptions.find((t) => t.value === type);
   const TypeIcon = currentType?.icon || CheckSquare;
+  const sizeMeta =
+    ticket.size_bucket === null
+      ? "No saved size yet. Save with Auto to let the model estimate it."
+      : ticket.size_source === "manual"
+        ? `Manual size override: ${ticket.size_bucket}`
+        : `AI estimate: ${ticket.size_bucket}${
+            ticket.size_confidence !== null
+              ? ` (${Math.round(ticket.size_confidence * 100)}% confidence)`
+              : ""
+          }`;
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
@@ -293,6 +318,34 @@ function TicketDetailEditor({
                 placeholder="Add a description..."
                 className="min-h-[120px] w-full resize-none rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-ring"
               />
+            </div>
+
+            {/* Ticket size */}
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground">
+                Ticket size
+              </Label>
+              <div className="space-y-2">
+                <Select value={sizeMode} onValueChange={setSizeMode}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="Choose ticket size" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sizeOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                <div className="flex items-center gap-2">
+                  {ticket.size_bucket && (
+                    <Badge variant="secondary">{ticket.size_bucket}</Badge>
+                  )}
+                  <p className="text-xs text-muted-foreground">{sizeMeta}</p>
+                </div>
+              </div>
             </div>
 
             {/* Labels */}
