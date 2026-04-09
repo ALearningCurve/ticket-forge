@@ -247,10 +247,22 @@ main() {
   primary_airflow_zone="${TF_VAR_airflow_zone:-${TF_VAR_zone:-${primary_airflow_region}-c}}"
 
   if [[ "${repo_ref}" =~ ^[0-9a-f]{40}$ ]]; then
-    if ! git ls-remote origin | awk '{print $1}' | grep -Fxq "${repo_ref}"; then
-      echo "ERROR: ${repo_ref} is not available on origin."
+    git fetch --quiet origin \
+      '+refs/heads/*:refs/remotes/origin/*' \
+      '+refs/tags/*:refs/tags/*'
+
+    if ! git cat-file -e "${repo_ref}^{commit}" 2>/dev/null; then
+      echo "ERROR: ${repo_ref} is not a valid commit in this repository."
       echo "Push this commit first, or set AIRFLOW_REPO_REF to a branch/tag/sha that exists on GitHub."
       exit 1
+    fi
+
+    if ! git branch -r --contains "${repo_ref}" | grep -Eq 'origin/'; then
+      if ! git tag --contains "${repo_ref}" | grep -q .; then
+        echo "ERROR: ${repo_ref} is not available on origin."
+        echo "Push this commit first, or set AIRFLOW_REPO_REF to a branch/tag/sha that exists on GitHub."
+        exit 1
+      fi
     fi
   fi
 
