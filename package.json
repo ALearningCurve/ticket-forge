@@ -2,7 +2,11 @@
   "name": "ticket-forge",
   "version": "1.0.0",
   "description": "AI Powered Ticket Management",
-  "scripts": {},
+  "scripts": {
+    "lint:web": "npm --workspace apps/web-frontend run lint",
+    "typecheck:web": "npm --workspace apps/web-frontend run typecheck",
+    "check:web": "npm run lint:web && npm run typecheck:web"
+  },
   "workspaces": [
     "apps/web-frontend"
   ],
