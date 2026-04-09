@@ -110,6 +110,52 @@ export interface BoardTicketsResponse {
   tickets: TicketResponse[];
 }
 
+export interface RecommendedEngineerResponse {
+  member_id: number;
+  user_id: string;
+  username: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  active_ticket_count: number;
+  capacity_score: number;
+  has_capacity: boolean;
+  semantic_similarity: number;
+  lexical_score: number;
+  recommendation_score: number;
+}
+
+export interface TicketEngineerRecommendationsResponse {
+  ticket_key: string;
+  recommendations: RecommendedEngineerResponse[];
+}
+
+export interface RecommendedTicketResponse {
+  ticket_key: string;
+  title: string;
+  description: string | null;
+  priority: string;
+  type: string;
+  labels: string[];
+  due_date: string | null;
+  semantic_similarity: number;
+  lexical_score: number;
+  recommendation_score: number;
+  assignee_id: string | null;
+  assignee_name: string | null;
+  column_name: string;
+}
+
+export interface EngineerTicketRecommendationsResponse {
+  user_id: string;
+  username: string;
+  first_name: string;
+  last_name: string;
+  active_ticket_count: number;
+  has_capacity: boolean;
+  recommendations: RecommendedTicketResponse[];
+}
+
 export interface ResumeProfileStatusResponse {
   has_resume: boolean;
   member_id: number | null;
@@ -445,4 +491,32 @@ export function deleteTicket(token: string, slug: string, ticketKey: string) {
     method: "DELETE",
     token,
   });
+}
+
+export function getTicketEngineerRecommendations(
+  token: string,
+  slug: string,
+  ticketKey: string
+) {
+  return request<TicketEngineerRecommendationsResponse>(
+    `/api/v1/projects/${slug}/tickets/${ticketKey}/recommendations/engineers`,
+    {
+      method: "GET",
+      token,
+    }
+  );
+}
+
+export function getEngineerTicketRecommendations(
+  token: string,
+  slug: string,
+  userId: string
+) {
+  return request<EngineerTicketRecommendationsResponse>(
+    `/api/v1/projects/${slug}/members/${userId}/recommendations/tickets`,
+    {
+      method: "GET",
+      token,
+    }
+  );
 }

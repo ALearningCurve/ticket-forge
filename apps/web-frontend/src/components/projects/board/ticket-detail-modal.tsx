@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import {
   AlertTriangle,
   Bookmark,
@@ -35,10 +35,12 @@ import {
 
 import { useAuth } from "@/lib/auth-context";
 import {
+  getTicketEngineerRecommendations,
   updateTicket,
   deleteTicket as apiDeleteTicket,
   type TicketResponse,
   type ProjectMember,
+  type RecommendedEngineerResponse,
 } from "@/lib/api";
 
 interface TicketDetailModalProps {
@@ -128,7 +130,38 @@ function TicketDetailEditor({
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showLabelInput, setShowLabelInput] = useState(false);
+  const [recommendations, setRecommendations] = useState<
+    RecommendedEngineerResponse[]
+  >([]);
+  const [recommendationsError, setRecommendationsError] = useState<
+    string | null
+  >(null);
+  const [isLoadingRecommendations, setIsLoadingRecommendations] =
+    useState(false);
   const titleRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    async function loadRecommendations() {
+      if (!open || !token) return;
+
+      setIsLoadingRecommendations(true);
+      setRecommendationsError(null);
+      const { data, error } = await getTicketEngineerRecommendations(
+        token,
+        projectSlug,
+        ticket.ticket_key
+      );
+      if (error) {
+        setRecommendations([]);
+        setRecommendationsError(error);
+      } else {
+        setRecommendations(data?.recommendations ?? []);
+      }
+      setIsLoadingRecommendations(false);
+    }
+
+    void loadRecommendations();
+  }, [open, projectSlug, ticket.ticket_key, token]);
 
   const handleSave = useCallback(async () => {
     if (!token || !ticket) return;
@@ -327,6 +360,82 @@ function TicketDetailEditor({
                     ))}
                 </div>
               )}
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground">
+                Recommended engineers
+              </Label>
+              <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
+                {isLoadingRecommendations ? (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Loader2 className="size-3.5 animate-spin" />
+                    Loading recommendations...
+                  </div>
+                ) : recommendationsError ? (
+                  <p className="text-xs text-muted-foreground">
+                    {recommendationsError}
+                  </p>
+                ) : recommendations.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    No engineer recommendations available yet.
+                  </p>
+                ) : (
+                  recommendations.map((recommendation) => (
+                    <div
+                      key={recommendation.user_id}
+                      className="rounded-md border bg-background p-3"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-medium">
+                            {recommendation.first_name}{" "}
+                            {recommendation.last_name}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            @{recommendation.username}
+                          </p>
+                        </div>
+                        <Badge
+                          variant={
+                            recommendation.has_capacity
+                              ? "default"
+                              : "secondary"
+                          }
+                          className="text-[10px]"
+                        >
+                          {recommendation.has_capacity
+                            ? "Has capacity"
+                            : "Busy"}
+                        </Badge>
+                      </div>
+                      <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
+                        <p>
+                          Match:{" "}
+                          {Math.round(
+                            recommendation.recommendation_score * 100
+                          )}
+                          %
+                        </p>
+                        <p>
+                          Active tickets: {recommendation.active_ticket_count}
+                        </p>
+                        <p>
+                          Semantic:{" "}
+                          {Math.round(
+                            recommendation.semantic_similarity * 100
+                          )}
+                          %
+                        </p>
+                        <p>
+                          Capacity:{" "}
+                          {Math.round(recommendation.capacity_score * 100)}%
+                        </p>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           </div>
 

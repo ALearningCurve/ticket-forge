@@ -18,6 +18,11 @@ from web_backend.schemas.tickets import (
     TicketMoveRequest,
     TicketUpdateRequest,
 )
+from web_backend.services.recommendations import (
+    apply_ticket_completion_profile_update,
+    is_completion_column_name,
+    sync_project_ticket_to_ml_tables,
+)
 
 
 # ------------------------------------------------------------------ #
@@ -123,7 +128,8 @@ async def create_ticket(
             ProjectBoardColumn.project_id == project.id,
         )
     )
-    if col_result.scalar_one_or_none() is None:
+    destination_column = col_result.scalar_one_or_none()
+    if destination_column is None:
         msg = "Invalid column for this project"
         raise ValueError(msg)
 
@@ -157,6 +163,9 @@ async def create_ticket(
         position=position,
     )
     db.add(ticket)
+    await db.commit()
+    await db.refresh(ticket)
+    await sync_project_ticket_to_ml_tables(db, project, ticket, destination_column)
     await db.commit()
 
     # Reload with relationships
@@ -290,6 +299,13 @@ async def update_ticket(
         setattr(ticket, field, value)
 
     await db.commit()
+    await db.refresh(ticket)
+    column_result = await db.execute(
+        select(ProjectBoardColumn).where(ProjectBoardColumn.id == ticket.column_id)
+    )
+    current_column = column_result.scalar_one()
+    await sync_project_ticket_to_ml_tables(db, project, ticket, current_column)
+    await db.commit()
     return await _get_ticket_loaded(db, ticket.id)
 
 
@@ -322,7 +338,8 @@ async def move_ticket(
             ProjectBoardColumn.project_id == project.id,
         )
     )
-    if col_result.scalar_one_or_none() is None:
+    destination_column = col_result.scalar_one_or_none()
+    if destination_column is None:
         msg = "Invalid column for this project"
         raise ValueError(msg)
 
@@ -339,6 +356,12 @@ async def move_ticket(
 
     old_column_id = ticket.column_id
     old_position = ticket.position
+    old_column_result = await db.execute(
+        select(ProjectBoardColumn).where(ProjectBoardColumn.id == old_column_id)
+    )
+    old_column = old_column_result.scalar_one()
+    was_complete = is_completion_column_name(old_column.name)
+    is_complete = is_completion_column_name(destination_column.name)
 
     # If moving within the same column
     if old_column_id == data.column_id:
@@ -393,6 +416,16 @@ async def move_ticket(
     ticket.position = data.position
 
     await db.commit()
+    await db.refresh(ticket)
+    await sync_project_ticket_to_ml_tables(db, project, ticket, destination_column)
+    await db.commit()
+    if not was_complete and is_complete:
+        await apply_ticket_completion_profile_update(
+            db,
+            project=project,
+            ticket=ticket,
+            column=destination_column,
+        )
     return await _get_ticket_loaded(db, ticket.id)
 
 
