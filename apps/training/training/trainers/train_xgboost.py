@@ -1,6 +1,7 @@
 import xgboost as xgb
 from shared.configuration import RANDOM_SEED
 from sklearn.model_selection import PredefinedSplit, RandomizedSearchCV
+from training.dataset import N_CLASSES
 from training.trainers.utils.harness import X_t, Y_t, load_fit_dump
 
 # %%
@@ -40,10 +41,10 @@ def fit_grid(
   ]
 
   model = xgb.XGBClassifier(
-    num_class=6,
+    num_class=N_CLASSES,
     objective="multi:softmax",
     random_state=RANDOM_SEED,
-    device="cpu",
+    device="gpu",
     tree_method="hist",
     max_bin=63,
     n_jobs=-1,
