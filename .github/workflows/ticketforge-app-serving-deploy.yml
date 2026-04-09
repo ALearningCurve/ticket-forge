@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ticketforge-app-serving-deploy-prod
+  group: ticketforge-terraform-apply-prod
   cancel-in-progress: false
 
 permissions:

@@ -11,6 +11,10 @@ on:
       - ".github/workflows/**"
   workflow_dispatch:
 
+concurrency:
+  group: ticketforge-terraform-apply-prod
+  cancel-in-progress: false
+
 permissions:
   actions: read
   contents: read

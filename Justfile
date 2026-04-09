@@ -188,6 +188,28 @@ gcp-airflow-deploy:
     #!/usr/bin/env bash
     set -euo pipefail
 
+    resolve_live_revision_name() {
+        local service_name="$1"
+        local service_json=""
+
+        if ! service_json="$(gcloud run services describe "${service_name}" --project="${TF_VAR_project_id}" --region="${TF_VAR_region}" --format=json 2>/dev/null)"; then
+            return 0
+        fi
+
+        printf '%s' "${service_json}" | jq -r '((.status.traffic // []) | map(select((.percent // 0) > 0))[0].revisionName) // .status.latestReadyRevisionName // empty'
+    }
+
+    resolve_revision_image() {
+        local revision_name="$1"
+        gcloud run revisions describe "${revision_name}" --project="${TF_VAR_project_id}" --region="${TF_VAR_region}" --format=json | jq -r '.spec.containers[0].image // empty'
+    }
+
+    resolve_revision_env() {
+        local revision_name="$1"
+        local env_name="$2"
+        gcloud run revisions describe "${revision_name}" --project="${TF_VAR_project_id}" --region="${TF_VAR_region}" --format=json | jq -r --arg env_name "${env_name}" '.spec.containers[0].env[]? | select(.name == $env_name) | .value // empty'
+    }
+
     : "${TF_VAR_project_id:?TF_VAR_project_id must be set in environment}"
     : "${TF_VAR_state_bucket:?TF_VAR_state_bucket must be set in environment}"
     : "${TF_VAR_region:?TF_VAR_region must be set in environment}"
@@ -221,6 +243,39 @@ gcp-airflow-deploy:
     repo_ref="${AIRFLOW_REPO_REF:-$(git rev-parse HEAD)}"
 
     zone="${TF_VAR_zone:-us-east1-c}"
+    backend_service_name="${TF_VAR_web_backend_service_name:-ticketforge-backend}"
+    frontend_service_name="${TF_VAR_web_frontend_service_name:-ticketforge-frontend}"
+    backend_live_revision="$(resolve_live_revision_name "${backend_service_name}")"
+    frontend_live_revision="$(resolve_live_revision_name "${frontend_service_name}")"
+
+    web_backend_image="${TF_VAR_web_backend_image:-}"
+    if [[ -z "${web_backend_image}" && -n "${backend_live_revision}" ]]; then
+        web_backend_image="$(resolve_revision_image "${backend_live_revision}")"
+    fi
+
+    web_backend_cors_origins="${TF_VAR_web_backend_cors_origins:-}"
+    if [[ -z "${web_backend_cors_origins}" && -n "${backend_live_revision}" ]]; then
+        web_backend_cors_origins="$(resolve_revision_env "${backend_live_revision}" "CORS_ORIGINS")"
+    fi
+
+    web_frontend_image="${TF_VAR_web_frontend_image:-}"
+    if [[ -z "${web_frontend_image}" && -n "${frontend_live_revision}" ]]; then
+        web_frontend_image="$(resolve_revision_image "${frontend_live_revision}")"
+    fi
+
+    web_frontend_api_url="${TF_VAR_web_frontend_api_url:-}"
+    if [[ -z "${web_frontend_api_url}" && -n "${frontend_live_revision}" ]]; then
+        web_frontend_api_url="$(resolve_revision_env "${frontend_live_revision}" "NEXT_PUBLIC_API_URL")"
+    fi
+
+    if [[ -z "${web_backend_image}" || -z "${web_backend_cors_origins}" || -z "${web_frontend_image}" || -z "${web_frontend_api_url}" ]]; then
+        echo "ERROR: Could not resolve live serving values required to protect backend/frontend during Airflow deploy."
+        echo "backend_image=${web_backend_image:-<missing>}"
+        echo "backend_cors=${web_backend_cors_origins:-<missing>}"
+        echo "frontend_image=${web_frontend_image:-<missing>}"
+        echo "frontend_api_url=${web_frontend_api_url:-<missing>}"
+        exit 1
+    fi
 
     # Fail fast when deploying with a detached SHA that is not reachable on origin.
     # git ls-remote only lists tip SHAs for refs, so use containment checks.
@@ -276,6 +331,10 @@ gcp-airflow-deploy:
       -var="region=${TF_VAR_region}" \
       -var="zone=${zone}" \
       -var="environment=prod" \
+      -var="web_backend_image=${web_backend_image}" \
+      -var="web_backend_cors_origins=${web_backend_cors_origins}" \
+      -var="web_frontend_image=${web_frontend_image}" \
+      -var="web_frontend_api_url=${web_frontend_api_url}" \
       -var="airflow_repo_ref=${repo_ref}"
 
 # opens proxy tunnel to GCP resources (e.g. Airflow webserver, Cloud SQL instances)
