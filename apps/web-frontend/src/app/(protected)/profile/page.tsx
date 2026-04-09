@@ -1,7 +1,15 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Mail, Upload, User as UserIcon } from "lucide-react";
+import {
+  ArrowLeft,
+  Loader2,
+  Mail,
+  Upload,
+  User as UserIcon,
+} from "lucide-react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -14,13 +22,39 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { useAuth } from "@/lib/auth-context";
+import {
+  getResumeProfileStatus,
+  type ResumeProfileStatusResponse,
+} from "@/lib/api";
 
 export default function ProfilePage() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
+  const [resumeStatus, setResumeStatus] =
+    useState<ResumeProfileStatusResponse | null>(null);
+  const [isResumeLoading, setIsResumeLoading] = useState(true);
 
   if (!user) return null;
 
   const initials = `${user.first_name[0]}${user.last_name[0]}`;
+  const hasResume = resumeStatus?.has_resume ?? false;
+
+  useEffect(() => {
+    async function loadResumeStatus() {
+      if (!token) {
+        setIsResumeLoading(false);
+        return;
+      }
+      const { data, error } = await getResumeProfileStatus(token);
+      if (error) {
+        toast.error(error);
+      } else if (data) {
+        setResumeStatus(data);
+      }
+      setIsResumeLoading(false);
+    }
+
+    void loadResumeStatus();
+  }, [token]);
 
   return (
     <div className="mx-auto max-w-2xl px-6 py-8">
@@ -105,14 +139,34 @@ export default function ProfilePage() {
         <CardContent>
           <div className="flex items-center justify-between rounded-md border border-dashed px-4 py-3">
             <div className="flex items-center gap-2">
-              <Badge variant="outline" className="text-xs">
-                No resume uploaded
-              </Badge>
+              {isResumeLoading ? (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Loader2 className="size-3.5 animate-spin" />
+                  Checking resume status...
+                </div>
+              ) : (
+                <Badge variant="outline" className="text-xs">
+                  {hasResume ? "Resume uploaded" : "No resume uploaded"}
+                </Badge>
+              )}
+              {hasResume && resumeStatus?.last_uploaded_at && (
+                <p className="text-xs text-muted-foreground">
+                  Updated{" "}
+                  {new Date(resumeStatus.last_uploaded_at).toLocaleDateString(
+                    "en-US",
+                    {
+                      month: "short",
+                      day: "numeric",
+                      year: "numeric",
+                    }
+                  )}
+                </p>
+              )}
             </div>
             <Link href="/profile/resume">
               <Button size="sm">
                 <Upload className="mr-1.5 size-3.5" />
-                Upload resume
+                {hasResume ? "Replace resume" : "Upload resume"}
               </Button>
             </Link>
           </div>
