@@ -351,16 +351,20 @@ jobs:
       - name: Terraform Plan Safety Gate
         if: steps.filter.outputs.terraform == 'true'
         working-directory: terraform
+        env:
+          TICKETFORGE_APP_ENABLED: ${{ steps.serving-current.outputs.ticketforge_app_enabled }}
         run: |
           terraform show -json tfplan > plan.json
 
           python3 - <<'PY'
           import json
+          import os
           import sys
           from pathlib import Path
 
           plan = json.loads(Path("plan.json").read_text(encoding="utf-8"))
           problems = []
+          ticketforge_app_enabled = os.environ.get("TICKETFORGE_APP_ENABLED", "false").lower() == "true"
 
           for resource_change in plan.get("resource_changes", []):
               address = resource_change.get("address", "")
@@ -372,6 +376,8 @@ jobs:
                   problems.append(f"{address}: destructive actions {actions}")
 
               if address == "google_cloud_run_v2_service.web_backend":
+                  if ticketforge_app_enabled:
+                      continue
                   containers = (
                       after.get("template", [{}])[0]
                       .get("containers", [{}])
@@ -383,6 +389,8 @@ jobs:
                       )
 
               if address == "google_cloud_run_v2_service.web_frontend":
+                  if ticketforge_app_enabled:
+                      continue
                   containers = (
                       after.get("template", [{}])[0]
                       .get("containers", [{}])
@@ -400,6 +408,39 @@ jobs:
                   if not envs.get("NEXT_PUBLIC_API_URL"):
                       problems.append(
                           f"{address}: NEXT_PUBLIC_API_URL would be empty"
+                      )
+
+              if address == "google_cloud_run_v2_service.ticketforge_api[0]":
+                  containers = (
+                      after.get("template", [{}])[0]
+                      .get("containers", [{}])
+                  )
+                  image = containers[0].get("image", "")
+                  if not image:
+                      problems.append(
+                          f"{address}: ticketforge api image would be empty"
+                      )
+
+              if address == "google_cloud_run_v2_service.ticketforge_inference[0]":
+                  containers = (
+                      after.get("template", [{}])[0]
+                      .get("containers", [{}])
+                  )
+                  image = containers[0].get("image", "")
+                  if not image:
+                      problems.append(
+                          f"{address}: ticketforge inference image would be empty"
+                      )
+
+              if address == "google_cloud_run_v2_service.ticketforge_web[0]":
+                  containers = (
+                      after.get("template", [{}])[0]
+                      .get("containers", [{}])
+                  )
+                  image = containers[0].get("image", "")
+                  if not image:
+                      problems.append(
+                          f"{address}: ticketforge web image would be empty"
                       )
 
           if problems:
