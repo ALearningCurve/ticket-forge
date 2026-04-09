@@ -44,6 +44,10 @@ resource "google_secret_manager_secret_iam_member" "web_backend_mlflow_admin_pas
   member    = "serviceAccount:${google_service_account.web_backend_runtime.email}"
 }
 
+locals {
+  effective_mlflow_tracking_uri = var.mlflow_tracking_uri_override != null ? var.mlflow_tracking_uri_override : google_cloud_run_v2_service.mlflow.uri
+}
+
 resource "google_cloud_run_v2_service" "web_backend" {
   name     = var.web_backend_service_name
   location = var.region
@@ -109,7 +113,7 @@ resource "google_cloud_run_v2_service" "web_backend" {
 
       env {
         name  = "MLFLOW_TRACKING_URI"
-        value = google_cloud_run_v2_service.mlflow.uri
+        value = local.effective_mlflow_tracking_uri
       }
 
       env {
