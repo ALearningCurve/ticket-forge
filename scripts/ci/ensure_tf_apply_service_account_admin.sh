@@ -18,10 +18,19 @@ done
 
 target='google_project_iam_member.tf_apply_permissions["roles/iam.serviceAccountAdmin"]'
 
+should_retry() {
+  local log_file="$1"
+
+  grep -Eqi \
+    "concurrent policy changes|Error acquiring the state lock|conditionNotMet|default\\.tflock" \
+    "${log_file}"
+}
+
 for attempt in 1 2 3; do
   log_file="$(mktemp)"
 
   if terraform -chdir=terraform apply -auto-approve \
+    -lock-timeout=180s \
     -target="${target}" \
     -var="project_id=${TF_VAR_project_id}" \
     -var="state_bucket=${TF_VAR_state_bucket}" \
@@ -33,7 +42,7 @@ for attempt in 1 2 3; do
     exit 0
   fi
 
-  if grep -qi "concurrent policy changes" "${log_file}" && (( attempt < 3 )); then
+  if should_retry "${log_file}" && (( attempt < 3 )); then
     sleep $((attempt * 5))
     rm -f "${log_file}"
     continue

@@ -39,7 +39,7 @@ on:
         type: string
 
 concurrency:
-  group: serving-deploy-prod
+  group: ticketforge-terraform-apply-prod
   cancel-in-progress: false
 
 permissions:
