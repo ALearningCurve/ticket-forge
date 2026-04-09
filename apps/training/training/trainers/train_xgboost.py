@@ -1,3 +1,4 @@
+import torch
 import xgboost as xgb
 from shared.configuration import RANDOM_SEED
 from sklearn.model_selection import PredefinedSplit, RandomizedSearchCV
@@ -44,7 +45,7 @@ def fit_grid(
     num_class=N_CLASSES,
     objective="multi:softmax",
     random_state=RANDOM_SEED,
-    device="gpu",
+    device="gpu" if torch.cuda.is_available() else "cpu",
     tree_method="hist",
     max_bin=63,
     n_jobs=-1,

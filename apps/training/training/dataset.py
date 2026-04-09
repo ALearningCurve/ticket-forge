@@ -255,7 +255,7 @@ def _is_not_abandoned_assignment(ticket: dict[str, Any]) -> bool:
   return not is_abandoned  # Return True if NOT abandoned
 
 
-def _load_repo_class_weight_alpha(default: float = 0.1) -> float:
+def _load_repo_class_weight_alpha(default: float = 0.3) -> float:
   """Load blend factor for repo-vs-class weighting.
 
   Args:
