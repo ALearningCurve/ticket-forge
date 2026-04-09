@@ -32,10 +32,6 @@ export default function ProfilePage() {
   const [resumeStatus, setResumeStatus] =
     useState<ResumeProfileStatusResponse | null>(null);
   const [isResumeLoading, setIsResumeLoading] = useState(true);
-
-  if (!user) return null;
-
-  const initials = `${user.first_name[0]}${user.last_name[0]}`;
   const hasResume = resumeStatus?.has_resume ?? false;
 
   useEffect(() => {
@@ -55,6 +51,10 @@ export default function ProfilePage() {
 
     void loadResumeStatus();
   }, [token]);
+
+  if (!user) return null;
+
+  const initials = `${user.first_name[0]}${user.last_name[0]}`;
 
   return (
     <div className="mx-auto max-w-2xl px-6 py-8">
