@@ -3,6 +3,21 @@ set -euo pipefail
 
 location_candidates=()
 
+terraform_import_if_present() {
+  local address="$1"
+  local import_id="$2"
+
+  terraform -chdir=terraform import \
+    -var="project_id=${TF_VAR_project_id}" \
+    -var="state_bucket=${TF_VAR_state_bucket}" \
+    -var="region=${TF_VAR_region}" \
+    -var="airflow_region=${import_region}" \
+    -var="zone=${import_zone}" \
+    -var="airflow_zone=${import_zone}" \
+    -var="environment=prod" \
+    "${address}" "${import_id}" >/dev/null 2>&1 || true
+}
+
 add_secret_version_if_changed() {
   local secret_id="$1"
   local secret_value="$2"
@@ -179,6 +194,64 @@ resolve_live_serving_values() {
   fi
 }
 
+resolve_live_app_serving_values() {
+  local api_service_name="${TF_VAR_ticketforge_api_service_name:-ticketforge-api}"
+  local inference_service_name="${TF_VAR_ticketforge_inference_service_name:-ticketforge-inference}"
+  local web_service_name="${TF_VAR_ticketforge_web_service_name:-ticketforge-web}"
+  local api_live_revision=""
+  local inference_live_revision=""
+  local web_live_revision=""
+  local live_service_count=0
+
+  ticketforge_app_enabled="false"
+  ticketforge_api_image="${TF_VAR_ticketforge_api_container_image:-}"
+  ticketforge_inference_image="${TF_VAR_ticketforge_inference_container_image:-}"
+  ticketforge_web_image="${TF_VAR_ticketforge_web_container_image:-}"
+
+  api_live_revision="$(resolve_live_revision_name "${api_service_name}")"
+  inference_live_revision="$(resolve_live_revision_name "${inference_service_name}")"
+  web_live_revision="$(resolve_live_revision_name "${web_service_name}")"
+
+  [[ -n "${api_live_revision}" ]] && live_service_count=$((live_service_count + 1))
+  [[ -n "${inference_live_revision}" ]] && live_service_count=$((live_service_count + 1))
+  [[ -n "${web_live_revision}" ]] && live_service_count=$((live_service_count + 1))
+
+  if (( live_service_count == 0 )); then
+    echo "No live TicketForge app-serving services detected; Airflow deploy will leave optional app-serving disabled."
+    return 0
+  fi
+
+  if [[ -z "${api_live_revision}" || -z "${inference_live_revision}" || -z "${web_live_revision}" ]]; then
+    echo "ERROR: Detected a partial TicketForge app-serving deployment."
+    echo "api_revision=${api_live_revision:-<missing>}"
+    echo "inference_revision=${inference_live_revision:-<missing>}"
+    echo "web_revision=${web_live_revision:-<missing>}"
+    echo "Refusing to run Airflow deploy until the optional app-serving stack is healthy again."
+    exit 1
+  fi
+
+  if [[ -z "${ticketforge_api_image}" ]]; then
+    ticketforge_api_image="$(resolve_revision_image "${api_live_revision}")"
+  fi
+  if [[ -z "${ticketforge_inference_image}" ]]; then
+    ticketforge_inference_image="$(resolve_revision_image "${inference_live_revision}")"
+  fi
+  if [[ -z "${ticketforge_web_image}" ]]; then
+    ticketforge_web_image="$(resolve_revision_image "${web_live_revision}")"
+  fi
+
+  if [[ -z "${ticketforge_api_image}" || -z "${ticketforge_inference_image}" || -z "${ticketforge_web_image}" ]]; then
+    echo "ERROR: Could not resolve live TicketForge app-serving image values required to preserve that stack during Airflow deploy."
+    echo "api_image=${ticketforge_api_image:-<missing>}"
+    echo "inference_image=${ticketforge_inference_image:-<missing>}"
+    echo "web_image=${ticketforge_web_image:-<missing>}"
+    exit 1
+  fi
+
+  ticketforge_app_enabled="true"
+  echo "Preserving live TicketForge app-serving stack during Airflow deploy."
+}
+
 run_secret_bootstrap_apply() {
   local target_region="$1"
   local target_zone="$2"
@@ -198,20 +271,31 @@ run_full_apply() {
   local target_region="$1"
   local target_zone="$2"
   local apply_log="$3"
+  local -a tf_args=(
+    -var="project_id=${TF_VAR_project_id}"
+    -var="state_bucket=${TF_VAR_state_bucket}"
+    -var="region=${TF_VAR_region}"
+    -var="airflow_region=${target_region}"
+    -var="zone=${target_zone}"
+    -var="airflow_zone=${target_zone}"
+    -var="environment=prod"
+    -var="web_backend_image=${web_backend_image}"
+    -var="web_backend_cors_origins=${web_backend_cors_origins}"
+    -var="web_frontend_image=${web_frontend_image}"
+    -var="web_frontend_api_url=${web_frontend_api_url}"
+    -var="airflow_repo_ref=${repo_ref}"
+  )
 
-  terraform -chdir=terraform apply -auto-approve \
-    -var="project_id=${TF_VAR_project_id}" \
-    -var="state_bucket=${TF_VAR_state_bucket}" \
-    -var="region=${TF_VAR_region}" \
-    -var="airflow_region=${target_region}" \
-    -var="zone=${target_zone}" \
-    -var="airflow_zone=${target_zone}" \
-    -var="environment=prod" \
-    -var="web_backend_image=${web_backend_image}" \
-    -var="web_backend_cors_origins=${web_backend_cors_origins}" \
-    -var="web_frontend_image=${web_frontend_image}" \
-    -var="web_frontend_api_url=${web_frontend_api_url}" \
-    -var="airflow_repo_ref=${repo_ref}" > >(tee "${apply_log}") 2>&1
+  if [[ "${ticketforge_app_enabled}" == "true" ]]; then
+    tf_args+=(
+      -var="enable_ticketforge_app_cloud_run=true"
+      -var="ticketforge_api_container_image=${ticketforge_api_image}"
+      -var="ticketforge_inference_container_image=${ticketforge_inference_image}"
+      -var="ticketforge_web_container_image=${ticketforge_web_image}"
+    )
+  fi
+
+  terraform -chdir=terraform apply -auto-approve "${tf_args[@]}" > >(tee "${apply_log}") 2>&1
 }
 
 main() {
@@ -275,18 +359,31 @@ main() {
   done
 
   resolve_live_serving_values
+  resolve_live_app_serving_values
 
   import_region="${primary_airflow_region}"
   import_zone="${primary_airflow_zone}"
 
   if gcloud secrets describe "${github_token_secret_id}" --project="${TF_VAR_project_id}" >/dev/null 2>&1; then
-    terraform -chdir=terraform import -var="project_id=${TF_VAR_project_id}" -var="state_bucket=${TF_VAR_state_bucket}" -var="region=${TF_VAR_region}" -var="airflow_region=${import_region}" -var="zone=${import_zone}" -var="airflow_zone=${import_zone}" -var="environment=prod" 'google_secret_manager_secret.airflow_runtime["github_token"]' "projects/${TF_VAR_project_id}/secrets/${github_token_secret_id}" >/dev/null 2>&1 || true
+    terraform_import_if_present 'google_secret_manager_secret.airflow_runtime["github_token"]' "projects/${TF_VAR_project_id}/secrets/${github_token_secret_id}"
   fi
   if gcloud secrets describe "${gmail_username_secret_id}" --project="${TF_VAR_project_id}" >/dev/null 2>&1; then
-    terraform -chdir=terraform import -var="project_id=${TF_VAR_project_id}" -var="state_bucket=${TF_VAR_state_bucket}" -var="region=${TF_VAR_region}" -var="airflow_region=${import_region}" -var="zone=${import_zone}" -var="airflow_zone=${import_zone}" -var="environment=prod" 'google_secret_manager_secret.airflow_runtime["gmail_app_username"]' "projects/${TF_VAR_project_id}/secrets/${gmail_username_secret_id}" >/dev/null 2>&1 || true
+    terraform_import_if_present 'google_secret_manager_secret.airflow_runtime["gmail_app_username"]' "projects/${TF_VAR_project_id}/secrets/${gmail_username_secret_id}"
   fi
   if gcloud secrets describe "${gmail_password_secret_id}" --project="${TF_VAR_project_id}" >/dev/null 2>&1; then
-    terraform -chdir=terraform import -var="project_id=${TF_VAR_project_id}" -var="state_bucket=${TF_VAR_state_bucket}" -var="region=${TF_VAR_region}" -var="airflow_region=${import_region}" -var="zone=${import_zone}" -var="airflow_zone=${import_zone}" -var="environment=prod" 'google_secret_manager_secret.airflow_runtime["gmail_app_password"]' "projects/${TF_VAR_project_id}/secrets/${gmail_password_secret_id}" >/dev/null 2>&1 || true
+    terraform_import_if_present 'google_secret_manager_secret.airflow_runtime["gmail_app_password"]' "projects/${TF_VAR_project_id}/secrets/${gmail_password_secret_id}"
+  fi
+  if gcloud iam workload-identity-pools describe github-actions-pool --project="${TF_VAR_project_id}" --location=global >/dev/null 2>&1; then
+    terraform_import_if_present "google_iam_workload_identity_pool.github_pool" "projects/${TF_VAR_project_id}/locations/global/workloadIdentityPools/github-actions-pool"
+  fi
+  if gcloud iam workload-identity-pools providers describe github-provider --project="${TF_VAR_project_id}" --location=global --workload-identity-pool=github-actions-pool >/dev/null 2>&1; then
+    terraform_import_if_present "google_iam_workload_identity_pool_provider.github_provider" "projects/${TF_VAR_project_id}/locations/global/workloadIdentityPools/github-actions-pool/providers/github-provider"
+  fi
+  if gcloud storage buckets describe "gs://${TF_VAR_state_bucket}" >/dev/null 2>&1; then
+    terraform_import_if_present "google_storage_bucket.state_bucket[0]" "${TF_VAR_state_bucket}"
+  fi
+  if gcloud storage buckets describe "gs://${TF_VAR_data_bucket:-ticketforge-dvc}" >/dev/null 2>&1; then
+    terraform_import_if_present "google_storage_bucket.data_bucket" "${TF_VAR_data_bucket:-ticketforge-dvc}"
   fi
 
   run_secret_bootstrap_apply "${import_region}" "${import_zone}"
@@ -309,9 +406,9 @@ main() {
     if run_full_apply "${current_region}" "${current_zone}" "${apply_log}"; then
       rm -f "${apply_log}"
       return 0
+    else
+      status=$?
     fi
-
-    status=$?
 
     if is_capacity_exhausted_log "${apply_log}" && (( candidate_index < candidate_count )); then
       echo "Capacity exhausted in ${current_region}/${current_zone}; trying next candidate"
