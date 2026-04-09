@@ -21,6 +21,22 @@ npm run start --workspace=web-frontend
 npm run lint --workspace=web-frontend
 ```
 
+## Linting and Type Checking
+
+Run these from the repository root:
+
+```bash
+npm run lint:web
+npm run typecheck:web
+```
+
+Run these from `apps/web-frontend`:
+
+```bash
+npm run lint
+npm run typecheck
+```
+
 ## API backend configuration
 
 The UI targets the FastAPI backend.
