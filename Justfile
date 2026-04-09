@@ -185,157 +185,7 @@ gcp-airflow-trigger url dag_id conf_json='{}' run_id='':
 # creates/updates Airflow deployment on GCP with Terraform
 [group('ops')]
 gcp-airflow-deploy:
-    #!/usr/bin/env bash
-    set -euo pipefail
-
-    resolve_live_revision_name() {
-        local service_name="$1"
-        local service_json=""
-
-        if ! service_json="$(gcloud run services describe "${service_name}" --project="${TF_VAR_project_id}" --region="${TF_VAR_region}" --format=json 2>/dev/null)"; then
-            return 0
-        fi
-
-        printf '%s' "${service_json}" | jq -r '((.status.traffic // []) | map(select((.percent // 0) > 0))[0].revisionName) // .status.latestReadyRevisionName // empty'
-    }
-
-    resolve_revision_image() {
-        local revision_name="$1"
-        gcloud run revisions describe "${revision_name}" --project="${TF_VAR_project_id}" --region="${TF_VAR_region}" --format=json | jq -r '.spec.containers[0].image // empty'
-    }
-
-    resolve_revision_env() {
-        local revision_name="$1"
-        local env_name="$2"
-        gcloud run revisions describe "${revision_name}" --project="${TF_VAR_project_id}" --region="${TF_VAR_region}" --format=json | jq -r --arg env_name "${env_name}" '.spec.containers[0].env[]? | select(.name == $env_name) | .value // empty'
-    }
-
-    : "${TF_VAR_project_id:?TF_VAR_project_id must be set in environment}"
-    : "${TF_VAR_state_bucket:?TF_VAR_state_bucket must be set in environment}"
-    : "${TF_VAR_region:?TF_VAR_region must be set in environment}"
-    github_token_value="${AIRFLOW_GITHUB_TOKEN:-${GITHUB_TOKEN:-}}"
-    : "${github_token_value:?AIRFLOW_GITHUB_TOKEN (or legacy GITHUB_TOKEN) must be set in environment}"
-    : "${GMAIL_APP_USERNAME:?GMAIL_APP_USERNAME must be set in environment}"
-    : "${GMAIL_APP_PASSWORD:?GMAIL_APP_PASSWORD must be set in environment}"
-
-    github_token_secret_id="${TF_VAR_airflow_github_token_secret_id:-airflow-github-token-prod}"
-    gmail_username_secret_id="${TF_VAR_airflow_gmail_app_username_secret_id:-airflow-gmail-app-username-prod}"
-    gmail_password_secret_id="${TF_VAR_airflow_gmail_app_password_secret_id:-airflow-gmail-app-password-prod}"
-
-    add_secret_version_if_changed() {
-        local secret_id="$1"
-        local secret_value="$2"
-
-        local desired_b64
-        desired_b64="$(printf '%s' "${secret_value}" | base64 -w0)"
-
-        local latest_b64=""
-        if latest_b64="$(gcloud secrets versions access latest --project="${TF_VAR_project_id}" --secret="${secret_id}" 2>/dev/null | base64 -w0)"; then
-            if [[ "${latest_b64}" == "${desired_b64}" ]]; then
-                echo "Secret ${secret_id} unchanged; skipping new secret version"
-                return 0
-            fi
-        fi
-
-        printf '%s' "${secret_value}" | gcloud secrets versions add "${secret_id}" --project="${TF_VAR_project_id}" --data-file=-
-    }
-
-    repo_ref="${AIRFLOW_REPO_REF:-$(git rev-parse HEAD)}"
-
-    zone="${TF_VAR_zone:-us-east1-c}"
-    backend_service_name="${TF_VAR_web_backend_service_name:-ticketforge-backend}"
-    frontend_service_name="${TF_VAR_web_frontend_service_name:-ticketforge-frontend}"
-    backend_live_revision="$(resolve_live_revision_name "${backend_service_name}")"
-    frontend_live_revision="$(resolve_live_revision_name "${frontend_service_name}")"
-
-    web_backend_image="${TF_VAR_web_backend_image:-}"
-    if [[ -z "${web_backend_image}" && -n "${backend_live_revision}" ]]; then
-        web_backend_image="$(resolve_revision_image "${backend_live_revision}")"
-    fi
-
-    web_backend_cors_origins="${TF_VAR_web_backend_cors_origins:-}"
-    if [[ -z "${web_backend_cors_origins}" && -n "${backend_live_revision}" ]]; then
-        web_backend_cors_origins="$(resolve_revision_env "${backend_live_revision}" "CORS_ORIGINS")"
-    fi
-
-    web_frontend_image="${TF_VAR_web_frontend_image:-}"
-    if [[ -z "${web_frontend_image}" && -n "${frontend_live_revision}" ]]; then
-        web_frontend_image="$(resolve_revision_image "${frontend_live_revision}")"
-    fi
-
-    web_frontend_api_url="${TF_VAR_web_frontend_api_url:-}"
-    if [[ -z "${web_frontend_api_url}" && -n "${frontend_live_revision}" ]]; then
-        web_frontend_api_url="$(resolve_revision_env "${frontend_live_revision}" "NEXT_PUBLIC_API_URL")"
-    fi
-
-    if [[ -z "${web_backend_image}" || -z "${web_backend_cors_origins}" || -z "${web_frontend_image}" || -z "${web_frontend_api_url}" ]]; then
-        echo "ERROR: Could not resolve live serving values required to protect backend/frontend during Airflow deploy."
-        echo "backend_image=${web_backend_image:-<missing>}"
-        echo "backend_cors=${web_backend_cors_origins:-<missing>}"
-        echo "frontend_image=${web_frontend_image:-<missing>}"
-        echo "frontend_api_url=${web_frontend_api_url:-<missing>}"
-        exit 1
-    fi
-
-    # Fail fast when deploying with a detached SHA that is not reachable on origin.
-    # git ls-remote only lists tip SHAs for refs, so use containment checks.
-    if [[ "${repo_ref}" =~ ^[0-9a-f]{40}$ ]]; then
-        git fetch --quiet origin \
-            '+refs/heads/*:refs/remotes/origin/*' \
-            '+refs/tags/*:refs/tags/*'
-
-        if ! git cat-file -e "${repo_ref}^{commit}" 2>/dev/null; then
-            echo "ERROR: ${repo_ref} is not a valid commit in this repository."
-            echo "Push this commit first, or set AIRFLOW_REPO_REF to a branch/tag/sha that exists on GitHub."
-            exit 1
-        fi
-
-        if ! git branch -r --contains "${repo_ref}" | grep -Eq 'origin/'; then
-            if ! git tag --contains "${repo_ref}" | grep -q .; then
-                echo "ERROR: ${repo_ref} is not available on origin."
-                echo "Push this commit first, or set AIRFLOW_REPO_REF to a branch/tag/sha that exists on GitHub."
-                exit 1
-            fi
-        fi
-    fi
-
-    echo "Deploying Airflow from repo ref ${repo_ref}"
-
-    # Import already-existing secrets so Terraform can manage them without 409 conflicts.
-    if gcloud secrets describe "${github_token_secret_id}" --project="${TF_VAR_project_id}" >/dev/null 2>&1; then
-        terraform -chdir=terraform import -var="project_id=${TF_VAR_project_id}" -var="state_bucket=${TF_VAR_state_bucket}" -var="region=${TF_VAR_region}" -var="zone=${zone}" -var="environment=prod" 'google_secret_manager_secret.airflow_runtime["github_token"]' "projects/${TF_VAR_project_id}/secrets/${github_token_secret_id}" >/dev/null 2>&1 || true
-    fi
-    if gcloud secrets describe "${gmail_username_secret_id}" --project="${TF_VAR_project_id}" >/dev/null 2>&1; then
-        terraform -chdir=terraform import -var="project_id=${TF_VAR_project_id}" -var="state_bucket=${TF_VAR_state_bucket}" -var="region=${TF_VAR_region}" -var="zone=${zone}" -var="environment=prod" 'google_secret_manager_secret.airflow_runtime["gmail_app_username"]' "projects/${TF_VAR_project_id}/secrets/${gmail_username_secret_id}" >/dev/null 2>&1 || true
-    fi
-    if gcloud secrets describe "${gmail_password_secret_id}" --project="${TF_VAR_project_id}" >/dev/null 2>&1; then
-        terraform -chdir=terraform import -var="project_id=${TF_VAR_project_id}" -var="state_bucket=${TF_VAR_state_bucket}" -var="region=${TF_VAR_region}" -var="zone=${zone}" -var="environment=prod" 'google_secret_manager_secret.airflow_runtime["gmail_app_password"]' "projects/${TF_VAR_project_id}/secrets/${gmail_password_secret_id}" >/dev/null 2>&1 || true
-    fi
-
-    # Ensure Terraform-managed runtime secrets exist before adding versions.
-    terraform -chdir=terraform apply -auto-approve \
-        -target="google_secret_manager_secret.airflow_runtime" \
-        -var="project_id=${TF_VAR_project_id}" \
-        -var="state_bucket=${TF_VAR_state_bucket}" \
-        -var="region=${TF_VAR_region}" \
-        -var="zone=${zone}" \
-        -var="environment=prod"
-
-    add_secret_version_if_changed "${github_token_secret_id}" "${github_token_value}"
-    add_secret_version_if_changed "${gmail_username_secret_id}" "${GMAIL_APP_USERNAME}"
-    add_secret_version_if_changed "${gmail_password_secret_id}" "${GMAIL_APP_PASSWORD}"
-
-    terraform -chdir=terraform apply -auto-approve \
-      -var="project_id=${TF_VAR_project_id}" \
-      -var="state_bucket=${TF_VAR_state_bucket}" \
-      -var="region=${TF_VAR_region}" \
-      -var="zone=${zone}" \
-      -var="environment=prod" \
-      -var="web_backend_image=${web_backend_image}" \
-      -var="web_backend_cors_origins=${web_backend_cors_origins}" \
-      -var="web_frontend_image=${web_frontend_image}" \
-      -var="web_frontend_api_url=${web_frontend_api_url}" \
-      -var="airflow_repo_ref=${repo_ref}"
+    bash scripts/ci/deploy_airflow_gcp.sh
 
 # opens proxy tunnel to GCP resources (e.g. Airflow webserver, Cloud SQL instances)
 [group('ops')]
@@ -344,11 +194,10 @@ gcp-proxy target local_port='18080':
         set -euo pipefail
 
         : "${TF_VAR_project_id:?TF_VAR_project_id must be set in environment}"
-        region="${TF_VAR_region:-us-east1}"
 
         case "{{ target }}" in
             airflow)
-                zone="${TF_VAR_zone:-us-east1-c}"
+                zone="${TF_VAR_airflow_zone:-${TF_VAR_zone:-us-east1-c}}"
                 instance="${AIRFLOW_VM_NAME:-airflow-vm-prod}"
                 echo "Opening Airflow IAP tunnel: 127.0.0.1:{{ local_port }} -> ${instance}:8080 (${zone})"
                 exec gcloud compute start-iap-tunnel "${instance}" 8080 \
@@ -356,7 +205,7 @@ gcp-proxy target local_port='18080':
                     --local-host-port="127.0.0.1:{{ local_port }}"
                 ;;
             cloud-sql|cloudsql|sql)
-                zone="${TF_VAR_zone:-us-east1-c}"
+                zone="${TF_VAR_airflow_zone:-${TF_VAR_zone:-us-east1-c}}"
                 instance="${AIRFLOW_VM_NAME:-airflow-vm-prod}"
                 cloud_sql_private_ip="$(terraform -chdir=terraform output -raw cloud_sql_private_ip 2>/dev/null || true)"
                 if [[ -z "${cloud_sql_private_ip}" ]]; then

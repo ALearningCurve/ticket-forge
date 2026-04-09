@@ -63,6 +63,16 @@ output "airflow_vm_internal_ip" {
   value       = google_compute_instance.airflow_vm.network_interface[0].network_ip
 }
 
+output "airflow_vm_region" {
+  description = "Region backing the Airflow VM subnet and runtime."
+  value       = local.effective_airflow_region
+}
+
+output "airflow_vm_zone" {
+  description = "Zone for the Airflow Compute Engine VM."
+  value       = local.effective_airflow_zone
+}
+
 output "airflow_webserver_url" {
   description = "Internal Airflow webserver URL. Access via: gcloud compute start-iap-tunnel <instance-name> 8080"
   value       = "http://${google_compute_instance.airflow_vm.network_interface[0].network_ip}:8080"
