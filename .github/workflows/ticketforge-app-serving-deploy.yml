@@ -66,6 +66,9 @@ jobs:
       - name: Terraform Init
         run: terraform -chdir=terraform init -backend-config="bucket=${TF_VAR_state_bucket}"
 
+      - name: Ensure tf-apply can create runtime service accounts
+        run: bash scripts/ci/ensure_tf_apply_service_account_admin.sh
+
       - name: Ensure app image repository exists
         run: |
           set -euo pipefail
