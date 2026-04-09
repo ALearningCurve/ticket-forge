@@ -200,19 +200,6 @@ jobs:
         with:
           project_id: ${{ env.TF_VAR_project_id }}
 
-      - name: Bootstrap required tf-apply IAM roles
-        run: |
-          set -euo pipefail
-
-          tf_apply_member="serviceAccount:tf-apply-sa@${TF_VAR_project_id}.iam.gserviceaccount.com"
-
-          for role in roles/iam.serviceAccountAdmin; do
-            gcloud projects add-iam-policy-binding "${TF_VAR_project_id}" \
-              --member="${tf_apply_member}" \
-              --role="${role}" \
-              --quiet
-          done
-
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
