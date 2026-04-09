@@ -675,12 +675,36 @@ async def apply_ticket_completion_profile_update(
         await db.commit()
         return
 
-    sql, params = updater.build_profile_update_query(
+    _, params = updater.build_profile_update_query(
         ticket_id=ticket.ticket_key,
         engineer_id=profile.member_id,
         keywords_text=keywords_text,
     )
-    await db.execute(text(sql), list(params))
+    alpha, new_signal, ticket_id, keyword_query_text, engineer_id = params
+    await db.execute(
+        text(
+            """
+            UPDATE users
+            SET
+              profile_vector =
+                (array_fill(CAST(:alpha AS real), ARRAY[384])::vector * profile_vector
+                 + array_fill(CAST(:new_signal AS real), ARRAY[384])::vector *
+                 (SELECT ticket_vector FROM tickets WHERE ticket_id = :ticket_id)),
+              skill_keywords =
+                skill_keywords || to_tsvector('english', :keyword_query_text),
+              tickets_closed_count = tickets_closed_count + 1,
+              updated_at = now()
+            WHERE member_id = :engineer_id
+            """
+        ),
+        {
+            "alpha": alpha,
+            "new_signal": new_signal,
+            "ticket_id": ticket_id,
+            "keyword_query_text": keyword_query_text,
+            "engineer_id": engineer_id,
+        },
+    )
     await db.execute(
         text(
             """
