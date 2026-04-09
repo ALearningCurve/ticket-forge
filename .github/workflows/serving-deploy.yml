@@ -316,23 +316,7 @@ jobs:
               -u "admin:${mlflow_admin_password}" \
               "${MLFLOW_TRACKING_URI}/api/2.0/mlflow/registered-models/get-latest-versions?name=ticket-forge-best" \
               || true)"
-            resolved_version="$(VERSIONS_JSON="${versions_json}" python3 - <<'PY'
-            import json
-            import os
-
-            raw = os.environ.get("VERSIONS_JSON", "").strip()
-            if not raw:
-                raise SystemExit(0)
-
-            payload = json.loads(raw)
-            latest = payload.get("model_versions") or payload.get("latest_versions") or []
-            for version in latest:
-                stage = (version.get("current_stage") or version.get("stage") or "").lower()
-                if stage == "production":
-                    print(version.get("version", ""))
-                    break
-            PY
-          )"
+            resolved_version="$(VERSIONS_JSON="${versions_json}" python3 -c "import json, os; raw = os.environ.get('VERSIONS_JSON', '').strip(); payload = json.loads(raw) if raw else {}; latest = payload.get('model_versions') or payload.get('latest_versions') or []; print(next((str(version.get('version', '')) for version in latest if (version.get('current_stage') or version.get('stage') or '').lower() == 'production'), ''))")"
           fi
 
           skip_backend="false"
