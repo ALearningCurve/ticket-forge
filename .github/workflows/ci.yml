@@ -353,6 +353,9 @@ jobs:
         working-directory: terraform
         env:
           TICKETFORGE_APP_ENABLED: ${{ steps.serving-current.outputs.ticketforge_app_enabled }}
+          BACKEND_IMAGE: ${{ steps.serving-current.outputs.backend_image }}
+          FRONTEND_IMAGE: ${{ steps.serving-current.outputs.frontend_image }}
+          FRONTEND_API_URL: ${{ steps.serving-current.outputs.frontend_api_url }}
         run: |
           terraform show -json tfplan > plan.json
 
@@ -371,6 +374,10 @@ jobs:
               for rc in resource_changes
           )
           effective_app_mode = ticketforge_app_enabled or has_ticketforge_app_resources
+          enforce_legacy_serving_checks = any(
+              bool(os.environ.get(name, "").strip())
+              for name in ("BACKEND_IMAGE", "FRONTEND_IMAGE", "FRONTEND_API_URL")
+          )
 
           for resource_change in resource_changes:
               address = resource_change.get("address", "")
@@ -382,7 +389,7 @@ jobs:
                   problems.append(f"{address}: destructive actions {actions}")
 
               if address == "google_cloud_run_v2_service.web_backend":
-                  if effective_app_mode:
+                  if effective_app_mode or not enforce_legacy_serving_checks:
                       continue
                   containers = (
                       after.get("template", [{}])[0]
@@ -395,7 +402,7 @@ jobs:
                       )
 
               if address == "google_cloud_run_v2_service.web_frontend":
-                  if effective_app_mode:
+                  if effective_app_mode or not enforce_legacy_serving_checks:
                       continue
                   containers = (
                       after.get("template", [{}])[0]
