@@ -80,6 +80,12 @@ variable "mlflow_image_tag" {
   }
 }
 
+variable "mlflow_tracking_uri_override" {
+  description = "Optional explicit MLflow tracking URI for workflows that must deploy backend resources without planning changes to the MLflow service."
+  type        = string
+  default     = null
+}
+
 variable "mlflow_db_tier" {
   description = "Cloud SQL machine tier for MLflow backend store."
   type        = string
