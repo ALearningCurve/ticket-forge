@@ -13,8 +13,10 @@ DAGS_URL="${AIRFLOW_URL%/}/api/v1/dags"
 AIRFLOW_SMOKETEST_USERNAME="${AIRFLOW_SMOKETEST_USERNAME:-}"
 AIRFLOW_SMOKETEST_PASSWORD="${AIRFLOW_SMOKETEST_PASSWORD:-}"
 
-AIRFLOW_IAP_INSTANCE="${AIRFLOW_IAP_INSTANCE:-airflow-vm-prod}"
-AIRFLOW_IAP_ZONE="${AIRFLOW_IAP_ZONE:-${TF_VAR_airflow_zone:-${TF_VAR_zone:-us-east1-c}}}"
+DEFAULT_AIRFLOW_IAP_INSTANCE="airflow-vm-prod"
+DEFAULT_AIRFLOW_IAP_ZONE="${TF_VAR_airflow_zone:-${TF_VAR_zone:-us-east1-c}}"
+AIRFLOW_IAP_INSTANCE="${AIRFLOW_IAP_INSTANCE:-}"
+AIRFLOW_IAP_ZONE="${AIRFLOW_IAP_ZONE:-}"
 AIRFLOW_IAP_LOCAL_PORT="${AIRFLOW_IAP_LOCAL_PORT:-18080}"
 
 AIRFLOW_SMOKETEST_MAX_ATTEMPTS="${AIRFLOW_SMOKETEST_MAX_ATTEMPTS:-24}"
@@ -32,6 +34,27 @@ cleanup() {
 }
 
 trap cleanup EXIT
+
+resolve_iap_target_from_terraform() {
+  local terraform_instance=""
+  local terraform_zone=""
+
+  if command -v terraform >/dev/null 2>&1 && [[ -d terraform ]]; then
+    terraform_instance="$(terraform -chdir=terraform output -raw airflow_vm_instance_name 2>/dev/null || true)"
+    terraform_zone="$(terraform -chdir=terraform output -raw airflow_vm_zone 2>/dev/null || true)"
+  fi
+
+  if [[ -n "${terraform_instance}" ]]; then
+    AIRFLOW_IAP_INSTANCE="${terraform_instance}"
+  fi
+
+  if [[ -n "${terraform_zone}" ]]; then
+    AIRFLOW_IAP_ZONE="${terraform_zone}"
+  fi
+
+  AIRFLOW_IAP_INSTANCE="${AIRFLOW_IAP_INSTANCE:-${DEFAULT_AIRFLOW_IAP_INSTANCE}}"
+  AIRFLOW_IAP_ZONE="${AIRFLOW_IAP_ZONE:-${DEFAULT_AIRFLOW_IAP_ZONE}}"
+}
 
 set_local_urls() {
   AIRFLOW_URL="http://127.0.0.1:${AIRFLOW_IAP_LOCAL_PORT}"
@@ -163,6 +186,7 @@ attempt=0
 max_attempts="$AIRFLOW_SMOKETEST_MAX_ATTEMPTS"
 sleep_seconds="$AIRFLOW_SMOKETEST_SLEEP_SECONDS"
 
+resolve_iap_target_from_terraform
 start_iap_tunnel_if_needed
 
 while (( attempt < max_attempts )); do

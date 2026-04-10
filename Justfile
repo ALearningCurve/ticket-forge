@@ -197,16 +197,20 @@ gcp-proxy target local_port='18080':
 
         case "{{ target }}" in
             airflow)
-                zone="${TF_VAR_airflow_zone:-${TF_VAR_zone:-us-east1-c}}"
-                instance="${AIRFLOW_VM_NAME:-airflow-vm-prod}"
+                zone="$(terraform -chdir=terraform output -raw airflow_vm_zone 2>/dev/null || true)"
+                instance="$(terraform -chdir=terraform output -raw airflow_vm_instance_name 2>/dev/null || true)"
+                zone="${zone:-${TF_VAR_airflow_zone:-${TF_VAR_zone:-us-east1-c}}}"
+                instance="${instance:-${AIRFLOW_VM_NAME:-airflow-vm-prod}}"
                 echo "Opening Airflow IAP tunnel: 127.0.0.1:{{ local_port }} -> ${instance}:8080 (${zone})"
                 exec gcloud compute start-iap-tunnel "${instance}" 8080 \
                     --zone="${zone}" \
                     --local-host-port="127.0.0.1:{{ local_port }}"
                 ;;
             cloud-sql|cloudsql|sql)
-                zone="${TF_VAR_airflow_zone:-${TF_VAR_zone:-us-east1-c}}"
-                instance="${AIRFLOW_VM_NAME:-airflow-vm-prod}"
+                zone="$(terraform -chdir=terraform output -raw airflow_vm_zone 2>/dev/null || true)"
+                instance="$(terraform -chdir=terraform output -raw airflow_vm_instance_name 2>/dev/null || true)"
+                zone="${zone:-${TF_VAR_airflow_zone:-${TF_VAR_zone:-us-east1-c}}}"
+                instance="${instance:-${AIRFLOW_VM_NAME:-airflow-vm-prod}}"
                 cloud_sql_private_ip="$(terraform -chdir=terraform output -raw cloud_sql_private_ip 2>/dev/null || true)"
                 if [[ -z "${cloud_sql_private_ip}" ]]; then
                     echo "Could not resolve cloud_sql_private_ip from Terraform outputs."

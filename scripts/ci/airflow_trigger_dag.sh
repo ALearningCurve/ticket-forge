@@ -14,8 +14,10 @@ RUN_ID="${4:-manual__$(date -u +%Y%m%dT%H%M%SZ)}"
 AIRFLOW_API_USERNAME="${AIRFLOW_API_USERNAME:-${AIRFLOW_SMOKETEST_USERNAME:-}}"
 AIRFLOW_API_PASSWORD="${AIRFLOW_API_PASSWORD:-${AIRFLOW_SMOKETEST_PASSWORD:-}}"
 
-AIRFLOW_IAP_INSTANCE="${AIRFLOW_IAP_INSTANCE:-airflow-vm-prod}"
-AIRFLOW_IAP_ZONE="${AIRFLOW_IAP_ZONE:-${TF_VAR_airflow_zone:-${TF_VAR_zone:-us-east1-c}}}"
+DEFAULT_AIRFLOW_IAP_INSTANCE="airflow-vm-prod"
+DEFAULT_AIRFLOW_IAP_ZONE="${TF_VAR_airflow_zone:-${TF_VAR_zone:-us-east1-c}}"
+AIRFLOW_IAP_INSTANCE="${AIRFLOW_IAP_INSTANCE:-}"
+AIRFLOW_IAP_ZONE="${AIRFLOW_IAP_ZONE:-}"
 AIRFLOW_IAP_LOCAL_PORT="${AIRFLOW_IAP_LOCAL_PORT:-18080}"
 
 tunnel_pid=""
@@ -27,6 +29,27 @@ cleanup() {
 }
 
 trap cleanup EXIT
+
+resolve_iap_target_from_terraform() {
+  local terraform_instance=""
+  local terraform_zone=""
+
+  if command -v terraform >/dev/null 2>&1 && [[ -d terraform ]]; then
+    terraform_instance="$(terraform -chdir=terraform output -raw airflow_vm_instance_name 2>/dev/null || true)"
+    terraform_zone="$(terraform -chdir=terraform output -raw airflow_vm_zone 2>/dev/null || true)"
+  fi
+
+  if [[ -n "${terraform_instance}" ]]; then
+    AIRFLOW_IAP_INSTANCE="${terraform_instance}"
+  fi
+
+  if [[ -n "${terraform_zone}" ]]; then
+    AIRFLOW_IAP_ZONE="${terraform_zone}"
+  fi
+
+  AIRFLOW_IAP_INSTANCE="${AIRFLOW_IAP_INSTANCE:-${DEFAULT_AIRFLOW_IAP_INSTANCE}}"
+  AIRFLOW_IAP_ZONE="${AIRFLOW_IAP_ZONE:-${DEFAULT_AIRFLOW_IAP_ZONE}}"
+}
 
 host_from_url() {
   local url="$1"
@@ -98,6 +121,7 @@ if ! echo "$CONF_JSON" | jq -e 'type == "object"' >/dev/null 2>&1; then
   exit 2
 fi
 
+resolve_iap_target_from_terraform
 start_iap_tunnel_if_needed
 
 TRIGGER_URL="${AIRFLOW_URL%/}/api/v1/dags/${DAG_ID}/dagRuns"
