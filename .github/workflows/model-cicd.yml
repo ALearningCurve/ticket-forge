@@ -94,11 +94,57 @@ jobs:
           echo "Timed out waiting for CI/CD test gate on ${SOURCE_SHA}" >&2
           exit 1
 
-  train-and-promote:
-    name: Train / Run & Promote Best Model
+  prepare-infra:
+    name: Train / Prepare Shared Infra Access
     needs: [wait-for-ci]
     if: >-
       (needs.wait-for-ci.result == 'success' || needs.wait-for-ci.result == 'skipped') &&
+      (
+        github.event_name == 'push' ||
+        github.event_name == 'schedule' ||
+        github.event_name == 'workflow_dispatch'
+      )
+    runs-on: ubuntu-latest
+    outputs:
+      tracking_uri: ${{ steps.mlflow-ready.outputs.tracking_uri }}
+    concurrency:
+      group: ticketforge-terraform-apply-prod
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER_ID }}
+          service_account: 'tf-apply-sa@${{ secrets.TF_VAR_PROJECT_ID }}.iam.gserviceaccount.com'
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.TF_VAR_project_id }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init
+        run: terraform -chdir=terraform init -backend-config="bucket=${TF_VAR_state_bucket}"
+
+      - name: Ensure tf-apply can create runtime service accounts
+        run: bash scripts/ci/ensure_tf_apply_service_account_admin.sh
+
+      - name: Ensure MLflow tracking service is ready
+        id: mlflow-ready
+        run: bash scripts/ci/ensure_mlflow_tracking_ready.sh
+
+  train-and-promote:
+    name: Train / Run & Promote Best Model
+    needs: [wait-for-ci, prepare-infra]
+    if: >-
+      (needs.wait-for-ci.result == 'success' || needs.wait-for-ci.result == 'skipped') &&
+      needs.prepare-infra.result == 'success' &&
       (
         github.event_name == 'push' ||
         github.event_name == 'schedule' ||
@@ -179,19 +225,6 @@ jobs:
         with:
           project_id: ${{ env.TF_VAR_project_id }}
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-
-      - name: Terraform Init
-        run: terraform -chdir=terraform init -backend-config="bucket=${TF_VAR_state_bucket}"
-
-      - name: Ensure tf-apply can create runtime service accounts
-        run: bash scripts/ci/ensure_tf_apply_service_account_admin.sh
-
-      - name: Ensure MLflow tracking service is ready
-        id: mlflow-ready
-        run: bash scripts/ci/ensure_mlflow_tracking_ready.sh
-
       - name: Resolve MLflow tracking credentials
         run: |
           set -euo pipefail
@@ -225,7 +258,7 @@ jobs:
             --promote "$PROMOTE"
         env:
           # Force training/promotion to use the shared remote MLflow service.
-          MLFLOW_TRACKING_URI: ${{ steps.mlflow-ready.outputs.tracking_uri }}
+          MLFLOW_TRACKING_URI: ${{ needs.prepare-infra.outputs.tracking_uri }}
           MLFLOW_TRACKING_URI_FROM_GCP: "false"
           MLFLOW_CLOUD_RUN_SERVICE: "mlflow-tracking"
           MLFLOW_GCP_REGION: ${{ env.TF_VAR_region }}
