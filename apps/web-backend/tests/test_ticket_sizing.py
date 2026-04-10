@@ -169,3 +169,45 @@ async def test_classify_missing_endpoint_backfills_unsized_tickets(client) -> No
     assert payload["updated_count"] == 1
     assert payload["tickets"][0]["size_bucket"] == "M"
     assert payload["tickets"][0]["size_source"] == "predicted"
+
+
+@pytest.mark.asyncio
+async def test_update_ticket_can_clear_optional_fields(client) -> None:
+    """Ticket updates should allow clearing nullable board fields."""
+    headers = await _auth_headers(client)
+    project = await _create_project(client, headers)
+    column_id = project["board_columns"][0]["id"]
+
+    with patch(
+        "web_backend.services.tickets.predict_ticket_size",
+        new=AsyncMock(
+            return_value=SimpleNamespace(predicted_bucket="M", confidence=0.7)
+        ),
+    ):
+        create_response = await client.post(
+            f"/api/v1/projects/{project['slug']}/tickets",
+            headers=headers,
+            json={
+                "title": "Ticket with optional fields",
+                "column_id": column_id,
+                "description": "Needs refinement",
+                "due_date": "2026-04-10",
+            },
+        )
+
+    assert create_response.status_code == 201
+    ticket_key = create_response.json()["ticket_key"]
+
+    update_response = await client.patch(
+        f"/api/v1/projects/{project['slug']}/tickets/{ticket_key}",
+        headers=headers,
+        json={
+            "description": None,
+            "due_date": None,
+        },
+    )
+
+    assert update_response.status_code == 200
+    payload = update_response.json()
+    assert payload["description"] is None
+    assert payload["due_date"] is None

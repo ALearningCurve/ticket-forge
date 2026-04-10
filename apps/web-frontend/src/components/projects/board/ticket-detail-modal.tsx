@@ -186,12 +186,12 @@ function TicketDetailEditor({
       ticket.ticket_key,
       {
         title: title.trim(),
-        description: description.trim() || undefined,
+        description: description.trim() || null,
         priority,
         type,
         size_bucket: sizeMode === "auto" ? null : sizeMode,
         assignee_id: assigneeId,
-        due_date: dueDate || undefined,
+        due_date: dueDate || null,
         labels,
       }
     );

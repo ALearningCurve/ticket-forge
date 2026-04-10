@@ -19,7 +19,7 @@ class TicketCreateRequest(BaseModel):
     column_id: uuid.UUID
     priority: str = Field(default="medium", pattern="^(low|medium|high|critical)$")
     type: str = Field(default="task", pattern="^(task|story|bug)$")
-    labels: list[str] = Field(default=[])
+    labels: list[str] = Field(default_factory=list)
     size_bucket: str | None = Field(None, pattern="^(S|M|L|XL)$")
     due_date: date | None = None
     assignee_id: uuid.UUID | None = None
