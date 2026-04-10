@@ -12,7 +12,6 @@ import {
   type BoardColumn as ApiBoardColumn,
   type ProjectMember,
   type TicketResponse,
-  classifyMissingTicketSizes,
   getBoardTickets,
   createTicket as apiCreateTicket,
   moveTicket as apiMoveTicket,
@@ -44,7 +43,7 @@ function getAvatarColor(index: number) {
 
 function apiTicketToCard(
   t: TicketResponse,
-  memberIndex: Map<string, number>
+  memberIndex: Map<string, number>,
 ): TicketData {
   return {
     id: t.id,
@@ -54,7 +53,6 @@ function apiTicketToCard(
     priority: t.priority as TicketData["priority"],
     size: (t.size || "M") as TicketData["size"],
     labels: t.labels || [],
-    sizeBucket: t.size_bucket || undefined,
     dueDate: t.due_date
       ? new Date(t.due_date + "T00:00:00").toLocaleDateString("en-US", {
           month: "short",
@@ -75,7 +73,7 @@ function apiTicketToCard(
 function buildColumns(
   boardColumns: ApiBoardColumn[],
   tickets: TicketResponse[],
-  memberIndex: Map<string, number>
+  memberIndex: Map<string, number>,
 ): ColumnData[] {
   const cols = boardColumns
     .sort((a, b) => a.position - b.position)
@@ -96,10 +94,10 @@ function buildColumns(
     const posMap = new Map(
       tickets
         .filter((t) => t.column_id === col.id)
-        .map((t) => [t.id, t.position])
+        .map((t) => [t.id, t.position]),
     );
     col.tickets.sort(
-      (a, b) => (posMap.get(a.id) ?? 0) - (posMap.get(b.id) ?? 0)
+      (a, b) => (posMap.get(a.id) ?? 0) - (posMap.get(b.id) ?? 0),
     );
   }
 
@@ -134,23 +132,6 @@ export function BoardView({
       if (data) {
         setRawTickets(data.tickets);
         setColumns(buildColumns(boardColumns, data.tickets, memberIndex));
-
-        if (data.tickets.some((ticket) => !ticket.size_bucket)) {
-          const sized = await classifyMissingTicketSizes(token, projectSlug);
-          if (sized.data) {
-            setRawTickets(sized.data.tickets);
-            setColumns(
-              buildColumns(boardColumns, sized.data.tickets, memberIndex)
-            );
-            if (sized.data.updated_count > 0) {
-              toast.success(
-                `AI sized ${sized.data.updated_count} ticket${
-                  sized.data.updated_count === 1 ? "" : "s"
-                }`
-              );
-            }
-          }
-        }
       }
       setIsLoading(false);
     }
@@ -159,7 +140,7 @@ export function BoardView({
   }, [token, projectSlug]);
 
   const selectedRawTicket = selectedTicketId
-    ? rawTickets.find((t) => t.id === selectedTicketId) ?? null
+    ? (rawTickets.find((t) => t.id === selectedTicketId) ?? null)
     : null;
 
   const handleTicketClick = useCallback((ticketId: string) => {
@@ -200,7 +181,7 @@ export function BoardView({
         {
           column_id: destination.droppableId,
           position: destination.index,
-        }
+        },
       );
 
       if (error) {
@@ -214,14 +195,18 @@ export function BoardView({
         setRawTickets((prev) =>
           prev.map((t) =>
             t.id === draggableId
-              ? { ...t, column_id: destination.droppableId, position: destination.index }
-              : t
-          )
+              ? {
+                  ...t,
+                  column_id: destination.droppableId,
+                  position: destination.index,
+                }
+              : t,
+          ),
         );
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [token, projectSlug, rawTickets]
+    [token, projectSlug, rawTickets],
   );
 
   const handleCreateTicket = useCallback(
@@ -240,32 +225,35 @@ export function BoardView({
         setColumns((prev) =>
           prev.map((col) =>
             col.id === columnId
-              ? { ...col, tickets: [...col.tickets, apiTicketToCard(data, memberIndex)] }
-              : col
-          )
+              ? {
+                  ...col,
+                  tickets: [...col.tickets, apiTicketToCard(data, memberIndex)],
+                }
+              : col,
+          ),
         );
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [token, projectSlug]
+    [token, projectSlug],
   );
 
   const handleTicketUpdated = useCallback(
     (updated: TicketResponse) => {
       setRawTickets((prev) =>
-        prev.map((t) => (t.id === updated.id ? updated : t))
+        prev.map((t) => (t.id === updated.id ? updated : t)),
       );
       setColumns((prev) =>
         prev.map((col) => ({
           ...col,
           tickets: col.tickets.map((t) =>
-            t.id === updated.id ? apiTicketToCard(updated, memberIndex) : t
+            t.id === updated.id ? apiTicketToCard(updated, memberIndex) : t,
           ),
-        }))
+        })),
       );
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
+    [],
   );
 
   const handleTicketDeleted = useCallback(
@@ -277,10 +265,10 @@ export function BoardView({
         prev.map((col) => ({
           ...col,
           tickets: col.tickets.filter((t) => t.id !== ticket.id),
-        }))
+        })),
       );
     },
-    [rawTickets]
+    [rawTickets],
   );
 
   if (isLoading) {
