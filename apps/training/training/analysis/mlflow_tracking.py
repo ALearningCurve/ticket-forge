@@ -91,22 +91,35 @@ def _register_from_candidates(
   best_model_name: str,
 ) -> bool:
   """Try registering from candidate run artifacts in order."""
+
+  def _candidate_model_uris(run_id: str) -> list[str]:
+    # Support both the new explicit name and older/default artifact naming.
+    return [
+      f"runs:/{run_id}/best_estimator",
+      f"runs:/{run_id}/model",
+    ]
+
   for candidate_run_id in candidate_run_ids:
     if not candidate_run_id:
       continue
-    model_uri = f"runs:/{candidate_run_id}/best_estimator"
-    try:
-      mlflow.register_model(model_uri=model_uri, name=_REGISTERED_MODEL_NAME)
-    except Exception:
+    for model_uri in _candidate_model_uris(candidate_run_id):
+      try:
+        mlflow.register_model(model_uri=model_uri, name=_REGISTERED_MODEL_NAME)
+      except Exception as exc:
+        logger.info(
+          "Could not register '%s' from %s (%s), trying next candidate URI",
+          best_model_name,
+          model_uri,
+          type(exc).__name__,
+        )
+        continue
+
       logger.info(
-        "Could not register '%s' from %s, trying next candidate",
+        "Registered '%s' from existing artifact %s",
         best_model_name,
         model_uri,
       )
-      continue
-
-    logger.info("Registered '%s' from existing artifact %s", best_model_name, model_uri)
-    return True
+      return True
   return False
 
 
@@ -260,7 +273,7 @@ def _log_model_run(
         grid = joblib.load(pkl_path)
         mlflow.sklearn.log_model(
           grid.best_estimator_,
-          artifact_path="best_estimator",
+          name="best_estimator",
           registered_model_name=None,
         )
         mlflow.log_params({k: str(v) for k, v in (grid.best_params_ or {}).items()})
@@ -386,7 +399,7 @@ def _register_model(
       mlflow.set_tag("promoted_model", best_model_name)
       mlflow.sklearn.log_model(
         model,
-        artifact_path="model",
+        name="model",
         registered_model_name=_REGISTERED_MODEL_NAME,
       )
       if candidate_metrics:
