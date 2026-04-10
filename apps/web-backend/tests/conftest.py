@@ -7,6 +7,8 @@ require a running Postgres instance.
 collect_ignore = [
   "test_airflow_service.py",
   "test_coldstart_router.py",
+  "test_ticket_sizing.py",
+  "test_recommendations.py",
 ]
 
 import asyncio
@@ -23,6 +25,7 @@ from sqlalchemy.ext.asyncio import (
 from web_backend.database import get_db
 from web_backend.main import app
 from web_backend.models.base import Base
+
 
 
 @pytest.fixture(scope="session")
