@@ -16,6 +16,19 @@ VALID_SIGNUP = {
 }
 
 
+@pytest.fixture(autouse=True)
+def _stub_recommendation_sync(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep sizing tests focused by bypassing recommendation sync side effects."""
+    monkeypatch.setattr(
+        "web_backend.services.tickets.sync_project_ticket_to_ml_tables",
+        AsyncMock(),
+    )
+    monkeypatch.setattr(
+        "web_backend.services.tickets.apply_ticket_completion_profile_update",
+        AsyncMock(),
+    )
+
+
 async def _auth_headers(client) -> dict[str, str]:
     """Create a user and return bearer auth headers for API calls."""
     response = await client.post("/api/v1/auth/signup", json=VALID_SIGNUP)
