@@ -44,6 +44,72 @@ _EXPERIMENT_NAME = "ticket-forge-training"
 _REGISTERED_MODEL_NAME = "ticket-forge-best"
 
 
+def _model_aliases(model_name: str) -> set[str]:
+  """Return equivalent model-name aliases used across training paths."""
+  aliases = {model_name}
+  if model_name == "random_forest":
+    aliases.add("forest")
+  elif model_name == "forest":
+    aliases.add("random_forest")
+  return aliases
+
+
+def _candidate_run_ids_for_model(runs: list[object], best_model_name: str) -> list[str]:
+  """Order candidate MLflow runs likely to contain the best-estimator artifact."""
+  aliases = _model_aliases(best_model_name)
+  scored_candidates: list[tuple[int, str]] = []
+  all_run_ids: list[str] = []
+
+  for run in runs:
+    run_info = getattr(run, "info", None)
+    run_data = getattr(run, "data", None)
+    run_tags = getattr(run_data, "tags", {}) if run_data is not None else {}
+    run_name = str(run_tags.get("mlflow.runName", ""))
+    run_id_value = getattr(run_info, "run_id", None)
+    if not run_id_value:
+      continue
+    all_run_ids.append(run_id_value)
+
+    score = 0
+    if str(run_tags.get("model", "")) in aliases:
+      score += 3
+    if str(run_tags.get("model_name", "")) in aliases:
+      score += 3
+    if run_name in {f"search_{alias}" for alias in aliases}:
+      score += 4
+    scored_candidates.append((score, run_id_value))
+
+  positive_scored = [(score, rid) for score, rid in scored_candidates if score > 0]
+  positive_scored.sort(key=lambda item: item[0], reverse=True)
+  if positive_scored:
+    return [run_id_value for _, run_id_value in positive_scored]
+  return all_run_ids
+
+
+def _register_from_candidates(
+  candidate_run_ids: list[str],
+  best_model_name: str,
+) -> bool:
+  """Try registering from candidate run artifacts in order."""
+  for candidate_run_id in candidate_run_ids:
+    if not candidate_run_id:
+      continue
+    model_uri = f"runs:/{candidate_run_id}/best_estimator"
+    try:
+      mlflow.register_model(model_uri=model_uri, name=_REGISTERED_MODEL_NAME)
+    except Exception:
+      logger.info(
+        "Could not register '%s' from %s, trying next candidate",
+        best_model_name,
+        model_uri,
+      )
+      continue
+
+    logger.info("Registered '%s' from existing artifact %s", best_model_name, model_uri)
+    return True
+  return False
+
+
 def _setup_experiment() -> str:
   """Ensure the MLflow experiment exists and return its ID.
 
@@ -351,17 +417,13 @@ def _register_logged_best_estimator(
     )
     return False
 
-  search_filter = (
-    f"tags.run_id = '{run_id}' and "
-    f"tags.model = '{best_model_name}' and "
-    f"attributes.run_name = 'search_{best_model_name}'"
-  )
+  search_filter = f"tags.run_id = '{run_id}'"
   try:
     runs = client.search_runs(
       experiment_ids=[experiment.experiment_id],
       filter_string=search_filter,
       order_by=["attributes.start_time DESC"],
-      max_results=1,
+      max_results=50,
     )
   except Exception:
     logger.warning(
@@ -380,32 +442,17 @@ def _register_logged_best_estimator(
     )
     return False
 
-  logged_run_id = getattr(getattr(runs[0], "info", None), "run_id", None)
-  if not logged_run_id:
-    logger.info(
-      (
-        "Logged model run missing run_id for '%s' (run_id=%s); "
-        "falling back to local upload"
-      ),
-      best_model_name,
-      run_id,
-    )
-    return False
+  candidate_run_ids = _candidate_run_ids_for_model(runs, best_model_name)
+  if _register_from_candidates(candidate_run_ids, best_model_name):
+    return True
 
-  model_uri = f"runs:/{logged_run_id}/best_estimator"
-  try:
-    mlflow.register_model(model_uri=model_uri, name=_REGISTERED_MODEL_NAME)
-  except Exception:
-    logger.warning(
-      "Could not register '%s' from %s; falling back to local upload",
-      best_model_name,
-      model_uri,
-      exc_info=True,
-    )
-    return False
-
-  logger.info("Registered '%s' from existing artifact %s", best_model_name, model_uri)
-  return True
+  logger.warning(
+    "No matching logged model artifact found for '%s' (run_id=%s); "
+    "falling back to local upload",
+    best_model_name,
+    run_id,
+  )
+  return False
 
 
 def _transition_to_production(client: MlflowClient, new_version: str) -> bool:
