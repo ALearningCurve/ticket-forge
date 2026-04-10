@@ -1,16 +1,11 @@
 """Project ticket ORM models."""
 
-# Pylint doesn't fully understand SQLAlchemy's `Mapped[...]` generic.
-# pylint: disable=unsubscriptable-object
-
 import uuid
-from datetime import date, datetime
+from datetime import date
 
 from sqlalchemy import (
     Date,
-    DateTime,
     Enum,
-    Float,
     ForeignKey,
     Integer,
     JSON,
@@ -42,7 +37,9 @@ class ProjectTicket(TimestampMixin, Base):
 
     __tablename__ = "project_tickets"
 
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, default=uuid.uuid4
+    )
     project_id: Mapped[uuid.UUID] = mapped_column(
         Uuid,
         ForeignKey("projects.id", ondelete="CASCADE"),
@@ -71,14 +68,7 @@ class ProjectTicket(TimestampMixin, Base):
     title: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     priority: Mapped[str] = mapped_column(
-        Enum(
-            "low",
-            "medium",
-            "high",
-            "critical",
-            name="ticket_priority",
-            create_type=False,
-        ),
+        Enum("low", "medium", "high", "critical", name="ticket_priority", create_type=False),
         nullable=False,
         default="medium",
     )
@@ -87,14 +77,12 @@ class ProjectTicket(TimestampMixin, Base):
         nullable=False,
         default="task",
     )
-    labels: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
-    size_bucket: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    size_source: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    size_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
-    size_updated_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True),
-        nullable=True,
+    size: Mapped[str] = mapped_column(
+        Enum("S", "M", "L", "XL", name="ticket_size", create_type=False),
+        nullable=False,
+        default="M",
     )
+    labels: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 

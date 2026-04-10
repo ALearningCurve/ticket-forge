@@ -12,7 +12,6 @@ import {
   type BoardColumn as ApiBoardColumn,
   type ProjectMember,
   type TicketResponse,
-  classifyMissingTicketSizes,
   getBoardTickets,
   createTicket as apiCreateTicket,
   moveTicket as apiMoveTicket,
@@ -23,6 +22,8 @@ interface BoardViewProps {
   projectSlug: string;
   boardColumns: ApiBoardColumn[];
   members: ProjectMember[];
+  sizePointsMap?: { S: number; M: number; L: number; XL: number };
+  weeklyPointsPerMember?: number;
 }
 
 const AVATAR_COLORS = [
@@ -42,7 +43,7 @@ function getAvatarColor(index: number) {
 
 function apiTicketToCard(
   t: TicketResponse,
-  memberIndex: Map<string, number>
+  memberIndex: Map<string, number>,
 ): TicketData {
   return {
     id: t.id,
@@ -50,8 +51,8 @@ function apiTicketToCard(
     title: t.title,
     type: t.type as TicketData["type"],
     priority: t.priority as TicketData["priority"],
+    size: (t.size || "M") as TicketData["size"],
     labels: t.labels || [],
-    sizeBucket: t.size_bucket || undefined,
     dueDate: t.due_date
       ? new Date(t.due_date + "T00:00:00").toLocaleDateString("en-US", {
           month: "short",
@@ -72,7 +73,7 @@ function apiTicketToCard(
 function buildColumns(
   boardColumns: ApiBoardColumn[],
   tickets: TicketResponse[],
-  memberIndex: Map<string, number>
+  memberIndex: Map<string, number>,
 ): ColumnData[] {
   const cols = boardColumns
     .sort((a, b) => a.position - b.position)
@@ -93,10 +94,10 @@ function buildColumns(
     const posMap = new Map(
       tickets
         .filter((t) => t.column_id === col.id)
-        .map((t) => [t.id, t.position])
+        .map((t) => [t.id, t.position]),
     );
     col.tickets.sort(
-      (a, b) => (posMap.get(a.id) ?? 0) - (posMap.get(b.id) ?? 0)
+      (a, b) => (posMap.get(a.id) ?? 0) - (posMap.get(b.id) ?? 0),
     );
   }
 
@@ -107,21 +108,18 @@ export function BoardView({
   projectSlug,
   boardColumns,
   members,
+  sizePointsMap,
+  weeklyPointsPerMember,
 }: BoardViewProps) {
   const { token } = useAuth();
   const [columns, setColumns] = useState<ColumnData[]>([]);
   const [rawTickets, setRawTickets] = useState<TicketResponse[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-
-  // Modal state
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
 
-  const memberIndex = new Map(
-    members.map((m, i) => [m.user_id, i])
-  );
+  const memberIndex = new Map(members.map((m, i) => [m.user_id, i]));
 
-  // Load tickets
   useEffect(() => {
     async function load() {
       if (!token) return;
@@ -134,23 +132,6 @@ export function BoardView({
       if (data) {
         setRawTickets(data.tickets);
         setColumns(buildColumns(boardColumns, data.tickets, memberIndex));
-
-        if (data.tickets.some((ticket) => !ticket.size_bucket)) {
-          const sized = await classifyMissingTicketSizes(token, projectSlug);
-          if (sized.data) {
-            setRawTickets(sized.data.tickets);
-            setColumns(
-              buildColumns(boardColumns, sized.data.tickets, memberIndex)
-            );
-            if (sized.data.updated_count > 0) {
-              toast.success(
-                `AI sized ${sized.data.updated_count} ticket${
-                  sized.data.updated_count === 1 ? "" : "s"
-                }`
-              );
-            }
-          }
-        }
       }
       setIsLoading(false);
     }
@@ -158,18 +139,15 @@ export function BoardView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, projectSlug]);
 
-  // Find the selected raw ticket for the modal
   const selectedRawTicket = selectedTicketId
-    ? rawTickets.find((t) => t.id === selectedTicketId) ?? null
+    ? (rawTickets.find((t) => t.id === selectedTicketId) ?? null)
     : null;
 
-  // ---- Open ticket modal ----
   const handleTicketClick = useCallback((ticketId: string) => {
     setSelectedTicketId(ticketId);
     setModalOpen(true);
   }, []);
 
-  // ---- Drag end ----
   const onDragEnd = useCallback(
     async (result: DropResult) => {
       const { source, destination, draggableId } = result;
@@ -180,7 +158,6 @@ export function BoardView({
       )
         return;
 
-      // Optimistic update
       setColumns((prev) => {
         const updated = prev.map((col) => ({
           ...col,
@@ -204,7 +181,7 @@ export function BoardView({
         {
           column_id: destination.droppableId,
           position: destination.index,
-        }
+        },
       );
 
       if (error) {
@@ -215,7 +192,6 @@ export function BoardView({
           setColumns(buildColumns(boardColumns, data.tickets, memberIndex));
         }
       } else {
-        // Update raw ticket's column_id
         setRawTickets((prev) =>
           prev.map((t) =>
             t.id === draggableId
@@ -224,16 +200,15 @@ export function BoardView({
                   column_id: destination.droppableId,
                   position: destination.index,
                 }
-              : t
-          )
+              : t,
+          ),
         );
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [token, projectSlug, rawTickets]
+    [token, projectSlug, rawTickets],
   );
 
-  // ---- Create ticket ----
   const handleCreateTicket = useCallback(
     async (columnId: string, title: string) => {
       if (!token) return;
@@ -252,42 +227,35 @@ export function BoardView({
             col.id === columnId
               ? {
                   ...col,
-                  tickets: [
-                    ...col.tickets,
-                    apiTicketToCard(data, memberIndex),
-                  ],
+                  tickets: [...col.tickets, apiTicketToCard(data, memberIndex)],
                 }
-              : col
-          )
+              : col,
+          ),
         );
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [token, projectSlug]
+    [token, projectSlug],
   );
 
-  // ---- Ticket updated from modal ----
   const handleTicketUpdated = useCallback(
     (updated: TicketResponse) => {
       setRawTickets((prev) =>
-        prev.map((t) => (t.id === updated.id ? updated : t))
+        prev.map((t) => (t.id === updated.id ? updated : t)),
       );
       setColumns((prev) =>
         prev.map((col) => ({
           ...col,
           tickets: col.tickets.map((t) =>
-            t.id === updated.id
-              ? apiTicketToCard(updated, memberIndex)
-              : t
+            t.id === updated.id ? apiTicketToCard(updated, memberIndex) : t,
           ),
-        }))
+        })),
       );
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
+    [],
   );
 
-  // ---- Ticket deleted from modal ----
   const handleTicketDeleted = useCallback(
     (ticketKey: string) => {
       const ticket = rawTickets.find((t) => t.ticket_key === ticketKey);
@@ -297,10 +265,10 @@ export function BoardView({
         prev.map((col) => ({
           ...col,
           tickets: col.tickets.filter((t) => t.id !== ticket.id),
-        }))
+        })),
       );
     },
-    [rawTickets]
+    [rawTickets],
   );
 
   if (isLoading) {
@@ -331,6 +299,8 @@ export function BoardView({
         ticket={selectedRawTicket}
         projectSlug={projectSlug}
         members={members}
+        sizePointsMap={sizePointsMap}
+        weeklyPointsPerMember={weeklyPointsPerMember}
         open={modalOpen}
         onClose={() => {
           setModalOpen(false);

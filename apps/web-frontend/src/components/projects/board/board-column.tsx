@@ -26,7 +26,7 @@ export function BoardColumn({
   onTicketClick,
 }: BoardColumnProps) {
   return (
-    <div className="flex w-[272px] shrink-0 flex-col">
+    <div className="flex h-full w-[272px] shrink-0 flex-col">
       {/* Column header */}
       <div className="mb-2 flex items-center gap-2 px-1">
         <h3 className="text-[11.5px] font-bold uppercase tracking-widest text-muted-foreground">
@@ -42,13 +42,13 @@ export function BoardColumn({
         )}
       </div>
 
-      {/* Droppable card area */}
+      {/* Droppable card area — scrollable */}
       <Droppable droppableId={column.id}>
         {(provided, snapshot) => (
           <div
             ref={provided.innerRef}
             {...provided.droppableProps}
-            className={`flex min-h-[120px] flex-1 flex-col gap-1.5 rounded-lg px-0.5 py-1 transition-colors ${
+            className={`flex min-h-[120px] flex-1 flex-col gap-1.5 overflow-y-auto rounded-lg px-0.5 py-1 transition-colors ${
               snapshot.isDraggingOver
                 ? "bg-primary/[0.04] ring-1 ring-primary/10"
                 : ""
@@ -75,8 +75,8 @@ export function BoardColumn({
         )}
       </Droppable>
 
-      {/* Create ticket */}
-      <div className="mt-1 px-0.5">
+      {/* Create ticket — always pinned to bottom */}
+      <div className="mt-1 shrink-0 px-0.5">
         <CreateTicketInline
           columnId={column.id}
           onCreateTicket={onCreateTicket}

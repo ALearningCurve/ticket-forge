@@ -15,8 +15,8 @@ export interface TicketData {
   title: string;
   type: "task" | "story" | "bug";
   priority: "low" | "medium" | "high" | "critical";
+  size: "S" | "M" | "L" | "XL";
   labels: string[];
-  sizeBucket?: string;
   assignee?: {
     initials: string;
     name: string;
@@ -35,6 +35,13 @@ const typeIcon: Record<string, { icon: typeof CheckSquare; color: string }> = {
   task: { icon: CheckSquare, color: "text-blue-500" },
   story: { icon: Bookmark, color: "text-green-500" },
   bug: { icon: AlertTriangle, color: "text-red-500" },
+};
+
+const sizeStyles: Record<string, string> = {
+  S: "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300",
+  M: "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
+  L: "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300",
+  XL: "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300",
 };
 
 const labelColors: Record<string, string> = {
@@ -98,24 +105,22 @@ export function BoardCard({ ticket, index, onClick }: BoardCardProps) {
             {ticket.title}
           </p>
 
-          {ticket.sizeBucket && (
-            <div className="mt-2 inline-flex items-center gap-1 rounded bg-primary/10 px-1.5 py-0.5">
-              <span className="text-[10px] font-semibold text-primary">
-                {ticket.sizeBucket}
-              </span>
-              <span className="text-[10px] text-muted-foreground">AI size</span>
-            </div>
-          )}
-
-          {/* Due date */}
-          {ticket.dueDate && (
-            <div className="mt-2 inline-flex items-center gap-1 rounded bg-muted/60 px-1.5 py-0.5">
-              <Calendar className="size-3 text-muted-foreground" />
-              <span className="text-[11px] text-muted-foreground">
-                {ticket.dueDate}
-              </span>
-            </div>
-          )}
+          {/* Due date + size */}
+          <div className="mt-2 flex items-center gap-1.5">
+            {ticket.dueDate && (
+              <div className="inline-flex items-center gap-1 rounded bg-muted/60 px-1.5 py-0.5">
+                <Calendar className="size-3 text-muted-foreground" />
+                <span className="text-[11px] text-muted-foreground">
+                  {ticket.dueDate}
+                </span>
+              </div>
+            )}
+            <span
+              className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold ${sizeStyles[ticket.size]}`}
+            >
+              {ticket.size}
+            </span>
+          </div>
 
           {/* Footer: type icon + key + assignee */}
           <div className="mt-2.5 flex items-center justify-between">

@@ -64,19 +64,22 @@ class MemberResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class SizePointsMap(BaseModel):
+    """Point values per ticket size."""
+
+    S: int = Field(default=1, ge=0, le=100)
+    M: int = Field(default=2, ge=0, le=100)
+    L: int = Field(default=3, ge=0, le=100)
+    XL: int = Field(default=5, ge=0, le=100)
+
+
 # ------------------------------------------------------------------ #
 #  Project creation (3-step wizard)
 # ------------------------------------------------------------------ #
 
 
 class ProjectCreateRequest(BaseModel):
-    """POST /projects — creates project with columns and initial members.
-
-    Maps to the 3-step wizard:
-      Step 1: name + description
-      Step 2: board_columns
-      Step 3: member_ids (users to invite)
-    """
+    """POST /projects — creates project with columns and initial members."""
 
     name: str = Field(
         ...,
@@ -102,7 +105,6 @@ class ProjectCreateRequest(BaseModel):
     @field_validator("name")
     @classmethod
     def check_name_not_blank(cls, v: str) -> str:
-        """Ensure name is not just whitespace."""
         if not v.strip():
             msg = "Project name cannot be blank"
             raise ValueError(msg)
@@ -113,7 +115,6 @@ class ProjectCreateRequest(BaseModel):
     def check_unique_column_names(
         cls, v: list[BoardColumnRequest]
     ) -> list[BoardColumnRequest]:
-        """Ensure no duplicate column names."""
         names = [c.name.strip().lower() for c in v]
         if len(names) != len(set(names)):
             msg = "Board column names must be unique"
@@ -134,6 +135,9 @@ class ProjectResponse(BaseModel):
     slug: str
     description: str | None
     created_by: uuid.UUID
+    default_ticket_size: str
+    weekly_points_per_member: int
+    size_points_map: dict[str, int]
     created_at: datetime
     updated_at: datetime
     board_columns: list[BoardColumnResponse] = []
@@ -162,10 +166,13 @@ class ProjectListItem(BaseModel):
 
 
 class ProjectUpdateRequest(BaseModel):
-    """PATCH /projects/:slug — update name/description."""
+    """PATCH /projects/:slug — update name/description/settings."""
 
     name: str | None = Field(None, min_length=1, max_length=MAX_PROJECT_NAME_LENGTH)
     description: str | None = Field(None, max_length=500)
+    default_ticket_size: str | None = Field(None, pattern="^(S|M|L|XL)$")
+    weekly_points_per_member: int | None = Field(None, ge=1, le=100)
+    size_points_map: SizePointsMap | None = None
 
     @field_validator("name")
     @classmethod
