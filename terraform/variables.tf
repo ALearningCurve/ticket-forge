@@ -9,6 +9,13 @@ variable "region" {
   default     = "us-east1"
 }
 
+variable "airflow_region" {
+  description = "Optional dedicated GCP region for Airflow runtime resources. Defaults to region when unset."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
 variable "state_bucket" {
   description = "Name for the tfstate bucket (must be globally unique)."
   type        = string
@@ -78,6 +85,12 @@ variable "mlflow_image_tag" {
     )
     error_message = "mlflow_image_tag may only contain letters, numbers, dot, underscore, and dash."
   }
+}
+
+variable "mlflow_tracking_uri_override" {
+  description = "Optional explicit MLflow tracking URI for workflows that must deploy backend resources without planning changes to the MLflow service."
+  type        = string
+  default     = null
 }
 
 variable "mlflow_db_tier" {
@@ -210,9 +223,16 @@ variable "environment" {
 }
 
 variable "zone" {
-  description = "Compute Engine zone for the Airflow VM."
+  description = "Default Compute Engine zone for the Airflow VM when airflow_zone is unset."
   type        = string
   default     = "us-east1-c"
+}
+
+variable "airflow_zone" {
+  description = "Optional dedicated Compute Engine zone for the Airflow VM. Defaults to zone when unset."
+  type        = string
+  default     = null
+  nullable    = true
 }
 
 variable "airflow_vm_machine_type" {

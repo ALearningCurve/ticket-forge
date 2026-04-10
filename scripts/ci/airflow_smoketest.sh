@@ -14,7 +14,7 @@ AIRFLOW_SMOKETEST_USERNAME="${AIRFLOW_SMOKETEST_USERNAME:-}"
 AIRFLOW_SMOKETEST_PASSWORD="${AIRFLOW_SMOKETEST_PASSWORD:-}"
 
 AIRFLOW_IAP_INSTANCE="${AIRFLOW_IAP_INSTANCE:-airflow-vm-prod}"
-AIRFLOW_IAP_ZONE="${AIRFLOW_IAP_ZONE:-us-east1-c}"
+AIRFLOW_IAP_ZONE="${AIRFLOW_IAP_ZONE:-${TF_VAR_airflow_zone:-${TF_VAR_zone:-us-east1-c}}}"
 AIRFLOW_IAP_LOCAL_PORT="${AIRFLOW_IAP_LOCAL_PORT:-18080}"
 
 AIRFLOW_SMOKETEST_MAX_ATTEMPTS="${AIRFLOW_SMOKETEST_MAX_ATTEMPTS:-24}"
@@ -172,12 +172,11 @@ while (( attempt < max_attempts )); do
   if curl --fail --silent --show-error "$HEALTH_URL" >/dev/null; then
     echo "Health endpoint is reachable"
 
-    auth_args=()
     if [[ -n "$AIRFLOW_SMOKETEST_USERNAME" ]] && [[ -n "$AIRFLOW_SMOKETEST_PASSWORD" ]]; then
-      auth_args=(--user "${AIRFLOW_SMOKETEST_USERNAME}:${AIRFLOW_SMOKETEST_PASSWORD}")
+      http_code="$(curl --silent --show-error --output /tmp/airflow_dags_response.json --write-out '%{http_code}' --user "${AIRFLOW_SMOKETEST_USERNAME}:${AIRFLOW_SMOKETEST_PASSWORD}" "$DAGS_URL" || true)"
+    else
+      http_code="$(curl --silent --show-error --output /tmp/airflow_dags_response.json --write-out '%{http_code}' "$DAGS_URL" || true)"
     fi
-
-    http_code="$(curl --silent --show-error --output /tmp/airflow_dags_response.json --write-out '%{http_code}' "${auth_args[@]}" "$DAGS_URL" || true)"
 
     if [[ "$http_code" == "200" ]] && grep -q '"dags"' /tmp/airflow_dags_response.json; then
       echo "DAG API reachable and payload looks valid"

@@ -94,6 +94,7 @@ locals {
     "roles/cloudsql.admin",                  # Manage Cloud SQL instances/databases/users
     "roles/secretmanager.admin",             # Manage Secret Manager secrets/versions/iam
     "roles/storage.admin",                   # Manage GCS Buckets
+    "roles/iam.serviceAccountAdmin",         # REQUIRED: To create/manage runtime service accounts during bootstrap
     "roles/iam.serviceAccountUser",          # REQUIRED: To attach Service Accounts to Compute/Cloud Run
     "roles/iam.securityReviewer",            # View IAM policies
     "roles/iam.workloadIdentityPoolAdmin",   # REQUIRED: To manage workload identity pools (includes iam.workloadIdentityPools.get)

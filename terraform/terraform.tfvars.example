@@ -1,6 +1,10 @@
 project_id  = "your-gcp-project-id"
 region      = "us-east1"
 zone        = "us-east1-c"
+# Optional Airflow-only override. Leave aligned to region/zone unless you need to
+# move only the Airflow VM and its dedicated network resources elsewhere.
+# airflow_region = "us-central1"
+# airflow_zone   = "us-central1-a"
 environment = "prod"
 shared_cloud_sql_instance_name = "mlflow-tracking-sql"
 

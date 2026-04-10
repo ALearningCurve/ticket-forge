@@ -31,6 +31,12 @@ permissions:
   contents: read
   id-token: write
 
+env:
+  TF_VAR_project_id: ${{ secrets.TF_VAR_PROJECT_ID || secrets.TF_VAR_project_id }}
+  TF_VAR_state_bucket: ${{ secrets.TF_VAR_STATE_BUCKET || secrets.TF_VAR_state_bucket }}
+  TF_VAR_region: ${{ secrets.TF_VAR_REGION || secrets.TF_VAR_region }}
+  TF_VAR_environment: prod
+
 jobs:
   wait-for-ci:
     name: Train / Wait For CI Gate
@@ -166,7 +172,40 @@ jobs:
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ secrets.WIF_PROVIDER_ID }}
-          service_account: 'ml-pipeline-sa@${{ secrets.TF_VAR_PROJECT_ID }}.iam.gserviceaccount.com'
+          service_account: 'tf-apply-sa@${{ secrets.TF_VAR_PROJECT_ID }}.iam.gserviceaccount.com'
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.TF_VAR_project_id }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init
+        run: terraform -chdir=terraform init -backend-config="bucket=${TF_VAR_state_bucket}"
+
+      - name: Ensure tf-apply can create runtime service accounts
+        run: bash scripts/ci/ensure_tf_apply_service_account_admin.sh
+
+      - name: Ensure MLflow tracking service is ready
+        id: mlflow-ready
+        run: bash scripts/ci/ensure_mlflow_tracking_ready.sh
+
+      - name: Resolve MLflow tracking credentials
+        run: |
+          set -euo pipefail
+
+          mlflow_admin_password="$(gcloud secrets versions access 1 \
+            --secret=mlflow-tracking-admin-password \
+            --project="${TF_VAR_project_id}")"
+
+          echo "MLFLOW_TRACKING_USERNAME=admin" >> "$GITHUB_ENV"
+          {
+            echo "MLFLOW_TRACKING_PASSWORD<<EOF"
+            echo "${mlflow_admin_password}"
+            echo "EOF"
+          } >> "$GITHUB_ENV"
 
       - name: Pull DVC-tracked training dataset
         if: steps.workflow-inputs.outputs.dataset_source == 'dvc'
@@ -185,15 +224,12 @@ jobs:
             --source-uri "${{ steps.workflow-inputs.outputs.dataset_source }}" \
             --promote "$PROMOTE"
         env:
-          # Enable automatic Cloud Run discovery (no secrets needed!)
-          MLFLOW_TRACKING_URI_FROM_GCP: "true"
+          # Force training/promotion to use the shared remote MLflow service.
+          MLFLOW_TRACKING_URI: ${{ steps.mlflow-ready.outputs.tracking_uri }}
+          MLFLOW_TRACKING_URI_FROM_GCP: "false"
           MLFLOW_CLOUD_RUN_SERVICE: "mlflow-tracking"
-          MLFLOW_GCP_REGION: ${{ secrets.TF_VAR_REGION }}
-          MLFLOW_GCP_PROJECT_ID: ${{ secrets.TF_VAR_PROJECT_ID }}
-
-          # Fallback: if Cloud Run discovery fails, use explicit secret
-          MLFLOW_TRACKING_USERNAME: ${{ secrets.MLFLOW_TRACKING_USERNAME }}
-          MLFLOW_TRACKING_PASSWORD: ${{ secrets.MLFLOW_TRACKING_PASSWORD }}
+          MLFLOW_GCP_REGION: ${{ env.TF_VAR_region }}
+          MLFLOW_GCP_PROJECT_ID: ${{ env.TF_VAR_project_id }}
 
           # Gate tuning (optional)
           MODEL_CICD_MIN_ACCURACY: "0.70"                    # Accuracy threshold
