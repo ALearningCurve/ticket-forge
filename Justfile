@@ -106,6 +106,15 @@ gcp-get-wif-provider:
 get-repo-id repo='alearningcurve/ticket-forge':
     @gh api -H "Accept: application/vnd.github+json" repos/{{ repo }} | jq .id
 
+# Build Cloud Run-oriented images locally (matches CI docker-build-apps job)
+[group('ops')]
+docker-build-apps:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    docker build -f docker/base.Dockerfile --target cloudrun-web-backend --build-arg APP_NAME=web-backend -t ticketforge-api:local .
+    docker build -f docker/inference.Dockerfile -t ticketforge-inference:local .
+    docker build -f docker/frontend.Dockerfile --build-arg NEXT_PUBLIC_API_URL=http://127.0.0.1:8000 -t ticketforge-web:local .
+
 [group('ops')]
 tf-build-push-mlflow-image repo='mlflow-repo' tag='v3.10.0':
     @: "${TF_VAR_project_id:?TF_VAR_project_id must be set in .env}"
@@ -176,83 +185,7 @@ gcp-airflow-trigger url dag_id conf_json='{}' run_id='':
 # creates/updates Airflow deployment on GCP with Terraform
 [group('ops')]
 gcp-airflow-deploy:
-    #!/usr/bin/env bash
-    set -euo pipefail
-
-    : "${TF_VAR_project_id:?TF_VAR_project_id must be set in environment}"
-    : "${TF_VAR_state_bucket:?TF_VAR_state_bucket must be set in environment}"
-    : "${TF_VAR_region:?TF_VAR_region must be set in environment}"
-    github_token_value="${AIRFLOW_GITHUB_TOKEN:-${GITHUB_TOKEN:-}}"
-    : "${github_token_value:?AIRFLOW_GITHUB_TOKEN (or legacy GITHUB_TOKEN) must be set in environment}"
-    : "${GMAIL_APP_USERNAME:?GMAIL_APP_USERNAME must be set in environment}"
-    : "${GMAIL_APP_PASSWORD:?GMAIL_APP_PASSWORD must be set in environment}"
-
-    github_token_secret_id="${TF_VAR_airflow_github_token_secret_id:-airflow-github-token-prod}"
-    gmail_username_secret_id="${TF_VAR_airflow_gmail_app_username_secret_id:-airflow-gmail-app-username-prod}"
-    gmail_password_secret_id="${TF_VAR_airflow_gmail_app_password_secret_id:-airflow-gmail-app-password-prod}"
-
-    add_secret_version_if_changed() {
-        local secret_id="$1"
-        local secret_value="$2"
-
-        local desired_b64
-        desired_b64="$(printf '%s' "${secret_value}" | base64 -w0)"
-
-        local latest_b64=""
-        if latest_b64="$(gcloud secrets versions access latest --project="${TF_VAR_project_id}" --secret="${secret_id}" 2>/dev/null | base64 -w0)"; then
-            if [[ "${latest_b64}" == "${desired_b64}" ]]; then
-                echo "Secret ${secret_id} unchanged; skipping new secret version"
-                return 0
-            fi
-        fi
-
-        printf '%s' "${secret_value}" | gcloud secrets versions add "${secret_id}" --project="${TF_VAR_project_id}" --data-file=-
-    }
-
-    repo_ref="${AIRFLOW_REPO_REF:-$(git rev-parse HEAD)}"
-
-    # Fail fast when deploying with a detached SHA that is not visible on origin.
-    if [[ "${repo_ref}" =~ ^[0-9a-f]{40}$ ]]; then
-        if ! git ls-remote origin | awk '{print $1}' | grep -Fxq "${repo_ref}"; then
-            echo "ERROR: ${repo_ref} is not available on origin."
-            echo "Push this commit first, or set AIRFLOW_REPO_REF to a branch/tag/sha that exists on GitHub."
-            exit 1
-        fi
-    fi
-
-    echo "Deploying Airflow from repo ref ${repo_ref}"
-
-    # Import already-existing secrets so Terraform can manage them without 409 conflicts.
-    if gcloud secrets describe "${github_token_secret_id}" --project="${TF_VAR_project_id}" >/dev/null 2>&1; then
-        terraform -chdir=terraform import -var="project_id=${TF_VAR_project_id}" -var="state_bucket=${TF_VAR_state_bucket}" -var="region=${TF_VAR_region}" -var="zone=us-east1-b" -var="environment=prod" 'google_secret_manager_secret.airflow_runtime["github_token"]' "projects/${TF_VAR_project_id}/secrets/${github_token_secret_id}" >/dev/null 2>&1 || true
-    fi
-    if gcloud secrets describe "${gmail_username_secret_id}" --project="${TF_VAR_project_id}" >/dev/null 2>&1; then
-        terraform -chdir=terraform import -var="project_id=${TF_VAR_project_id}" -var="state_bucket=${TF_VAR_state_bucket}" -var="region=${TF_VAR_region}" -var="zone=us-east1-b" -var="environment=prod" 'google_secret_manager_secret.airflow_runtime["gmail_app_username"]' "projects/${TF_VAR_project_id}/secrets/${gmail_username_secret_id}" >/dev/null 2>&1 || true
-    fi
-    if gcloud secrets describe "${gmail_password_secret_id}" --project="${TF_VAR_project_id}" >/dev/null 2>&1; then
-        terraform -chdir=terraform import -var="project_id=${TF_VAR_project_id}" -var="state_bucket=${TF_VAR_state_bucket}" -var="region=${TF_VAR_region}" -var="zone=us-east1-b" -var="environment=prod" 'google_secret_manager_secret.airflow_runtime["gmail_app_password"]' "projects/${TF_VAR_project_id}/secrets/${gmail_password_secret_id}" >/dev/null 2>&1 || true
-    fi
-
-    # Ensure Terraform-managed runtime secrets exist before adding versions.
-    terraform -chdir=terraform apply -auto-approve \
-        -target="google_secret_manager_secret.airflow_runtime" \
-        -var="project_id=${TF_VAR_project_id}" \
-        -var="state_bucket=${TF_VAR_state_bucket}" \
-        -var="region=${TF_VAR_region}" \
-        -var="zone=us-east1-b" \
-        -var="environment=prod"
-
-    add_secret_version_if_changed "${github_token_secret_id}" "${github_token_value}"
-    add_secret_version_if_changed "${gmail_username_secret_id}" "${GMAIL_APP_USERNAME}"
-    add_secret_version_if_changed "${gmail_password_secret_id}" "${GMAIL_APP_PASSWORD}"
-
-    terraform -chdir=terraform apply -auto-approve \
-      -var="project_id=${TF_VAR_project_id}" \
-      -var="state_bucket=${TF_VAR_state_bucket}" \
-      -var="region=${TF_VAR_region}" \
-      -var="zone=us-east1-b" \
-      -var="environment=prod" \
-      -var="airflow_repo_ref=${repo_ref}"
+    bash scripts/ci/deploy_airflow_gcp.sh
 
 # opens proxy tunnel to GCP resources (e.g. Airflow webserver, Cloud SQL instances)
 [group('ops')]
@@ -261,11 +194,10 @@ gcp-proxy target local_port='18080':
         set -euo pipefail
 
         : "${TF_VAR_project_id:?TF_VAR_project_id must be set in environment}"
-        region="${TF_VAR_region:-us-east1}"
 
         case "{{ target }}" in
             airflow)
-                zone="${TF_VAR_zone:-us-east1-b}"
+                zone="${TF_VAR_airflow_zone:-${TF_VAR_zone:-us-east1-c}}"
                 instance="${AIRFLOW_VM_NAME:-airflow-vm-prod}"
                 echo "Opening Airflow IAP tunnel: 127.0.0.1:{{ local_port }} -> ${instance}:8080 (${zone})"
                 exec gcloud compute start-iap-tunnel "${instance}" 8080 \
@@ -273,7 +205,7 @@ gcp-proxy target local_port='18080':
                     --local-host-port="127.0.0.1:{{ local_port }}"
                 ;;
             cloud-sql|cloudsql|sql)
-                zone="${TF_VAR_zone:-us-east1-b}"
+                zone="${TF_VAR_airflow_zone:-${TF_VAR_zone:-us-east1-c}}"
                 instance="${AIRFLOW_VM_NAME:-airflow-vm-prod}"
                 cloud_sql_private_ip="$(terraform -chdir=terraform output -raw cloud_sql_private_ip 2>/dev/null || true)"
                 if [[ -z "${cloud_sql_private_ip}" ]]; then

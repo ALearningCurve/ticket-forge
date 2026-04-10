@@ -1,5 +1,13 @@
 locals {
-  airflow_vm_name = "airflow-vm-${var.environment}"
+  airflow_vm_name                = "airflow-vm-${var.environment}"
+  effective_airflow_region       = coalesce(var.airflow_region, var.region)
+  effective_airflow_zone         = coalesce(var.airflow_zone, var.zone)
+  airflow_uses_dedicated_network = local.effective_airflow_region != var.region
+  airflow_vm_subnetwork_id       = local.airflow_uses_dedicated_network ? google_compute_subnetwork.airflow_vm_subnet[0].id : google_compute_subnetwork.airflow_subnet.id
+  airflow_internal_source_ranges = concat(
+    [google_compute_subnetwork.airflow_subnet.ip_cidr_range],
+    local.airflow_uses_dedicated_network ? [google_compute_subnetwork.airflow_vm_subnet[0].ip_cidr_range] : [],
+  )
   effective_training_bucket = coalesce(
     var.training_bucket_name,
     "ticket-forge-training-artifacts-${var.project_id}-${var.environment}",
@@ -56,7 +64,7 @@ resource "google_storage_bucket" "data_bucket" {
 resource "google_compute_instance" "airflow_vm" {
   name         = local.airflow_vm_name
   machine_type = var.airflow_vm_machine_type
-  zone         = var.zone
+  zone         = local.effective_airflow_zone
   tags         = ["airflow", "airflow-web"]
 
   boot_disk {
@@ -70,7 +78,7 @@ resource "google_compute_instance" "airflow_vm" {
   # VM is private; accessed only via IAP and Cloud NAT
   network_interface {
     network    = google_compute_network.airflow_vpc.id
-    subnetwork = google_compute_subnetwork.airflow_subnet.id
+    subnetwork = local.airflow_vm_subnetwork_id
   }
 
   service_account {

@@ -8,6 +8,7 @@ RESTful API backend that:
 - Serves predictions from trained ML models
 - Pins the deployed revision to an exact MLflow Production model version
 - Persists inference telemetry for monitoring and drift detection
+- Persists AI-estimated ticket size buckets on project board tickets
 - Handles ticket assignment recommendations
 - Provides health checks and status endpoints
 
@@ -34,6 +35,25 @@ Key production inference endpoints:
 - `GET /api/v1/inference/model`
 - `POST /api/v1/inference/ticket-size`
 - `GET /api/v1/inference/monitoring/export`
+
+Authenticated profile endpoints:
+
+- `GET /api/v1/profile/resume`
+- `POST /api/v1/profile/resume`
+
+Authenticated recommendation endpoints:
+
+- `GET /api/v1/projects/{slug}/tickets/{ticket_key}/recommendations/engineers`
+- `GET /api/v1/projects/{slug}/members/{user_id}/recommendations/tickets`
+
+Key project ticket sizing behavior:
+
+- `POST /api/v1/projects/{slug}/tickets`
+  - auto-predicts a ticket size when no manual bucket is provided
+- `PATCH /api/v1/projects/{slug}/tickets/{ticket_key}`
+  - preserves manual size overrides and re-runs prediction when tickets return to auto mode
+- `POST /api/v1/projects/{slug}/tickets/classify-missing`
+  - batch-classifies legacy unsized tickets for a project and persists the buckets
 
 ## Structure
 

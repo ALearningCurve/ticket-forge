@@ -1,9 +1,8 @@
 name: Model CI/CD
 
 on:
-  workflow_run:
-    workflows: ["CI/CD"]
-    types: [completed]
+  push:
+    branches: ["main"]
   schedule:
     # Run every Monday at 02:00 UTC
     - cron: "0 2 * * 1"
@@ -32,16 +31,126 @@ permissions:
   contents: read
   id-token: write
 
+env:
+  TF_VAR_project_id: ${{ secrets.TF_VAR_PROJECT_ID || secrets.TF_VAR_project_id }}
+  TF_VAR_state_bucket: ${{ secrets.TF_VAR_STATE_BUCKET || secrets.TF_VAR_state_bucket }}
+  TF_VAR_region: ${{ secrets.TF_VAR_REGION || secrets.TF_VAR_region }}
+  TF_VAR_environment: prod
+
 jobs:
+  wait-for-ci:
+    name: Train / Wait For CI Gate
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for CI/CD on this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          run_id=""
+          for _ in $(seq 1 30); do
+            runs_json="$(gh run list \
+              --repo "${{ github.repository }}" \
+              --workflow "CI/CD" \
+              --branch "main" \
+              --event "push" \
+              --limit 20 \
+              --json databaseId,headSha,status,conclusion)"
+            run_id="$(RUNS_JSON="${runs_json}" SOURCE_SHA="${SOURCE_SHA}" python3 -c 'import json, os; runs = json.loads(os.environ["RUNS_JSON"]); print(next((str(run.get("databaseId", "")) for run in runs if run.get("headSha") == os.environ["SOURCE_SHA"]), ""))')"
+            if [[ -n "${run_id}" ]]; then
+              break
+            fi
+            sleep 10
+          done
+
+          if [[ -z "${run_id}" ]]; then
+            echo "Could not find CI/CD workflow run for ${SOURCE_SHA}" >&2
+            exit 1
+          fi
+
+          for _ in $(seq 1 90); do
+            jobs_json="$(gh run view "${run_id}" --repo "${{ github.repository }}" --json jobs)"
+            gate_result="$(
+              JOBS_JSON="${jobs_json}" python3 -c 'import json, os; jobs = json.loads(os.environ["JOBS_JSON"]).get("jobs", []); gate = next((job for job in jobs if job.get("name") == "Check / Finished"), None); print("missing" if gate is None else "pending" if gate.get("status") != "completed" else (gate.get("conclusion") or "unknown"))'
+            )"
+
+            case "${gate_result}" in
+              success)
+                exit 0
+                ;;
+              pending|missing)
+                sleep 10
+                ;;
+              *)
+                echo "CI/CD test gate concluded with status ${gate_result}" >&2
+                exit 1
+                ;;
+            esac
+          done
+
+          echo "Timed out waiting for CI/CD test gate on ${SOURCE_SHA}" >&2
+          exit 1
+
+  prepare-infra:
+    name: Train / Prepare Shared Infra Access
+    needs: [wait-for-ci]
+    if: >-
+      always() &&
+      (needs.wait-for-ci.result == 'success' || needs.wait-for-ci.result == 'skipped') &&
+      (
+        github.event_name == 'push' ||
+        github.event_name == 'schedule' ||
+        github.event_name == 'workflow_dispatch'
+      )
+    runs-on: ubuntu-latest
+    outputs:
+      tracking_uri: ${{ steps.mlflow-ready.outputs.tracking_uri }}
+    concurrency:
+      group: ticketforge-terraform-apply-prod
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER_ID }}
+          service_account: 'tf-apply-sa@${{ secrets.TF_VAR_PROJECT_ID }}.iam.gserviceaccount.com'
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.TF_VAR_project_id }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init
+        run: terraform -chdir=terraform init -backend-config="bucket=${TF_VAR_state_bucket}"
+
+      - name: Ensure tf-apply can create runtime service accounts
+        run: bash scripts/ci/ensure_tf_apply_service_account_admin.sh
+
+      - name: Ensure MLflow tracking service is ready
+        id: mlflow-ready
+        run: bash scripts/ci/ensure_mlflow_tracking_ready.sh
+
   train-and-promote:
     name: Train / Run & Promote Best Model
+    needs: [wait-for-ci, prepare-infra]
     if: >-
-      github.event_name == 'schedule' ||
-      github.event_name == 'workflow_dispatch' ||
+      always() &&
+      (needs.wait-for-ci.result == 'success' || needs.wait-for-ci.result == 'skipped') &&
+      needs.prepare-infra.result == 'success' &&
       (
-        github.event_name == 'workflow_run' &&
-        github.event.workflow_run.conclusion == 'success' &&
-        github.event.workflow_run.head_branch == 'main'
+        github.event_name == 'push' ||
+        github.event_name == 'schedule' ||
+        github.event_name == 'workflow_dispatch'
       )
     runs-on: ubuntu-latest
     outputs:
@@ -111,7 +220,27 @@ jobs:
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ secrets.WIF_PROVIDER_ID }}
-          service_account: 'ml-pipeline-sa@${{ secrets.TF_VAR_PROJECT_ID }}.iam.gserviceaccount.com'
+          service_account: 'tf-apply-sa@${{ secrets.TF_VAR_PROJECT_ID }}.iam.gserviceaccount.com'
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.TF_VAR_project_id }}
+
+      - name: Resolve MLflow tracking credentials
+        run: |
+          set -euo pipefail
+
+          mlflow_admin_password="$(gcloud secrets versions access 1 \
+            --secret=mlflow-tracking-admin-password \
+            --project="${TF_VAR_project_id}")"
+
+          echo "MLFLOW_TRACKING_USERNAME=admin" >> "$GITHUB_ENV"
+          {
+            echo "MLFLOW_TRACKING_PASSWORD<<EOF"
+            echo "${mlflow_admin_password}"
+            echo "EOF"
+          } >> "$GITHUB_ENV"
 
       - name: Pull DVC-tracked training dataset
         if: steps.workflow-inputs.outputs.dataset_source == 'dvc'
@@ -130,15 +259,12 @@ jobs:
             --source-uri "${{ steps.workflow-inputs.outputs.dataset_source }}" \
             --promote "$PROMOTE"
         env:
-          # Enable automatic Cloud Run discovery (no secrets needed!)
-          MLFLOW_TRACKING_URI_FROM_GCP: "true"
+          # Force training/promotion to use the shared remote MLflow service.
+          MLFLOW_TRACKING_URI: ${{ needs.prepare-infra.outputs.tracking_uri }}
+          MLFLOW_TRACKING_URI_FROM_GCP: "false"
           MLFLOW_CLOUD_RUN_SERVICE: "mlflow-tracking"
-          MLFLOW_GCP_REGION: ${{ secrets.TF_VAR_REGION }}
-          MLFLOW_GCP_PROJECT_ID: ${{ secrets.TF_VAR_PROJECT_ID }}
-
-          # Fallback: if Cloud Run discovery fails, use explicit secret
-          MLFLOW_TRACKING_USERNAME: ${{ secrets.MLFLOW_TRACKING_USERNAME }}
-          MLFLOW_TRACKING_PASSWORD: ${{ secrets.MLFLOW_TRACKING_PASSWORD }}
+          MLFLOW_GCP_REGION: ${{ env.TF_VAR_region }}
+          MLFLOW_GCP_PROJECT_ID: ${{ env.TF_VAR_project_id }}
 
           # Gate tuning (optional)
           MODEL_CICD_MIN_ACCURACY: "0.70"                    # Accuracy threshold

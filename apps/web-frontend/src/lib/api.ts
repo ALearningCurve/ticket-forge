@@ -16,6 +16,7 @@ export interface UserResponse {
   first_name: string;
   last_name: string;
   email: string;
+  member_id?: number | null;
   created_at: string;
 }
 
@@ -101,6 +102,10 @@ export interface TicketResponse {
   type: string;
   size: "S" | "M" | "L" | "XL";
   labels: string[];
+  size_bucket: string | null;
+  size_source: string | null;
+  size_confidence: number | null;
+  size_updated_at: string | null;
   due_date: string | null;
   position: number;
   assignee: TicketAssigneeResponse | null;
@@ -110,6 +115,68 @@ export interface TicketResponse {
 }
 
 export interface BoardTicketsResponse {
+  tickets: TicketResponse[];
+}
+
+export interface RecommendedEngineerResponse {
+  member_id: number;
+  user_id: string;
+  username: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  active_ticket_count: number;
+  capacity_score: number;
+  has_capacity: boolean;
+  semantic_similarity: number;
+  lexical_score: number;
+  recommendation_score: number;
+}
+
+export interface TicketEngineerRecommendationsResponse {
+  ticket_key: string;
+  recommendations: RecommendedEngineerResponse[];
+}
+
+export interface RecommendedTicketResponse {
+  ticket_key: string;
+  title: string;
+  description: string | null;
+  priority: string;
+  type: string;
+  labels: string[];
+  due_date: string | null;
+  semantic_similarity: number;
+  lexical_score: number;
+  recommendation_score: number;
+  assignee_id: string | null;
+  assignee_name: string | null;
+  column_name: string;
+}
+
+export interface EngineerTicketRecommendationsResponse {
+  user_id: string;
+  username: string;
+  first_name: string;
+  last_name: string;
+  active_ticket_count: number;
+  has_capacity: boolean;
+  recommendations: RecommendedTicketResponse[];
+}
+
+export interface ResumeProfileStatusResponse {
+  has_resume: boolean;
+  member_id: number | null;
+  last_uploaded_at: string | null;
+}
+
+export interface ResumeProfileUploadResponse
+  extends ResumeProfileStatusResponse {
+  action: string;
+}
+
+export interface TicketBatchSizingResponse {
+  updated_count: number;
   tickets: TicketResponse[];
 }
 
@@ -144,24 +211,26 @@ export interface UpdateMemberRoleRequest {
 
 export interface TicketCreateRequest {
   title: string;
-  description?: string;
+  description?: string | null;
   column_id: string;
   priority?: string;
   type?: string;
   size?: string;
   labels?: string[];
-  due_date?: string;
+  size_bucket?: string | null;
+  due_date?: string | null;
   assignee_id?: string | null;
 }
 
 export interface TicketUpdateRequest {
   title?: string;
-  description?: string;
+  description?: string | null;
   priority?: string;
   type?: string;
   size?: string;
   labels?: string[];
-  due_date?: string;
+  size_bucket?: string | null;
+  due_date?: string | null;
   assignee_id?: string | null;
 }
 
@@ -260,6 +329,45 @@ export function getCurrentUser(token: string) {
   });
 }
 
+export function getResumeProfileStatus(token: string) {
+  return request<ResumeProfileStatusResponse>("/api/v1/profile/resume", {
+    method: "GET",
+    token,
+  });
+}
+
+export async function uploadResume(token: string, file: File) {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}/api/v1/profile/resume`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      credentials: "include",
+      body: formData,
+    });
+  } catch (error) {
+    return {
+      data: null,
+      error: error instanceof Error ? error.message : "Request failed",
+    } satisfies ApiResult<ResumeProfileUploadResponse>;
+  }
+
+  if (!response.ok) {
+    return {
+      data: null,
+      error: await parseError(response),
+    } satisfies ApiResult<ResumeProfileUploadResponse>;
+  }
+
+  return {
+    data: (await response.json()) as ResumeProfileUploadResponse,
+    error: null,
+  } satisfies ApiResult<ResumeProfileUploadResponse>;
+}
+
 export function logout(token: string) {
   return request<{ message: string }>("/api/v1/auth/logout", {
     method: "POST",
@@ -354,6 +462,16 @@ export function getBoardTickets(token: string, slug: string) {
   });
 }
 
+export function classifyMissingTicketSizes(token: string, slug: string) {
+  return request<TicketBatchSizingResponse>(
+    `/api/v1/projects/${slug}/tickets/classify-missing`,
+    {
+      method: "POST",
+      token,
+    }
+  );
+}
+
 export function createTicket(
   token: string,
   slug: string,
@@ -400,4 +518,32 @@ export function deleteTicket(token: string, slug: string, ticketKey: string) {
     method: "DELETE",
     token,
   });
+}
+
+export function getTicketEngineerRecommendations(
+  token: string,
+  slug: string,
+  ticketKey: string
+) {
+  return request<TicketEngineerRecommendationsResponse>(
+    `/api/v1/projects/${slug}/tickets/${ticketKey}/recommendations/engineers`,
+    {
+      method: "GET",
+      token,
+    }
+  );
+}
+
+export function getEngineerTicketRecommendations(
+  token: string,
+  slug: string,
+  userId: string
+) {
+  return request<EngineerTicketRecommendationsResponse>(
+    `/api/v1/projects/${slug}/members/${userId}/recommendations/tickets`,
+    {
+      method: "GET",
+      token,
+    }
+  );
 }

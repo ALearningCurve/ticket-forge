@@ -7,6 +7,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     Enum,
+    Float,
     ForeignKey,
     Integer,
     JSON,
@@ -85,6 +86,13 @@ class ProjectTicket(TimestampMixin, Base):
         default="M",
     )
     labels: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    size_bucket: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    size_source: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    size_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    size_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
     due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
