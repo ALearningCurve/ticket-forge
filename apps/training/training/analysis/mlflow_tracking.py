@@ -107,10 +107,11 @@ def _register_from_candidates(
         mlflow.register_model(model_uri=model_uri, name=_REGISTERED_MODEL_NAME)
       except Exception as exc:
         logger.info(
-          "Could not register '%s' from %s (%s), trying next candidate URI",
+          "Could not register '%s' from %s (%s: %s), trying next candidate URI",
           best_model_name,
           model_uri,
           type(exc).__name__,
+          exc,
         )
         continue
 
@@ -120,6 +121,90 @@ def _register_from_candidates(
         model_uri,
       )
       return True
+  return False
+
+
+def _register_from_logged_model_ids(
+  client: MlflowClient,
+  experiment_id: str,
+  candidate_run_ids: list[str],
+  best_model_name: str,
+) -> bool:
+  """Try registering from MLflow logged-model IDs tied to candidate runs."""
+  if not candidate_run_ids:
+    return False
+
+  search_logged_models = getattr(client, "search_logged_models", None)
+  if search_logged_models is None:
+    return False
+
+  try:
+    logged_models = search_logged_models(
+      experiment_ids=[experiment_id],
+      max_results=500,
+    )
+  except Exception:
+    logger.info(
+      "Could not search logged models for '%s' candidates",
+      best_model_name,
+      exc_info=True,
+    )
+    return False
+
+  run_rank = {run_id: idx for idx, run_id in enumerate(candidate_run_ids)}
+
+  def _name_rank(name: str) -> int:
+    if name == "best_estimator":
+      return 0
+    if name == "model":
+      return 1
+    return 2
+
+  candidates: list[tuple[int, int, str, str, str]] = []
+  for logged_model in logged_models:
+    source_run_id = str(getattr(logged_model, "source_run_id", "") or "")
+    model_id = str(getattr(logged_model, "model_id", "") or "")
+    name = str(getattr(logged_model, "name", "") or "")
+
+    if not source_run_id or source_run_id not in run_rank:
+      continue
+    if not model_id:
+      continue
+
+    candidates.append(
+      (
+        run_rank[source_run_id],
+        _name_rank(name),
+        model_id,
+        source_run_id,
+        name,
+      )
+    )
+
+  candidates.sort(key=lambda item: (item[0], item[1]))
+  for _, _, model_id, source_run_id, name in candidates:
+    model_uri = f"models:/{model_id}"
+    try:
+      mlflow.register_model(model_uri=model_uri, name=_REGISTERED_MODEL_NAME)
+    except Exception as exc:
+      logger.info(
+        "Could not register '%s' from %s (%s: %s), trying next logged model",
+        best_model_name,
+        model_uri,
+        type(exc).__name__,
+        exc,
+      )
+      continue
+
+    logger.info(
+      "Registered '%s' from logged model id %s (run=%s, name=%s)",
+      best_model_name,
+      model_id,
+      source_run_id,
+      name or "unknown",
+    )
+    return True
+
   return False
 
 
@@ -458,9 +543,16 @@ def _register_logged_best_estimator(
   candidate_run_ids = _candidate_run_ids_for_model(runs, best_model_name)
   if _register_from_candidates(candidate_run_ids, best_model_name):
     return True
+  if _register_from_logged_model_ids(
+    client,
+    experiment.experiment_id,
+    candidate_run_ids,
+    best_model_name,
+  ):
+    return True
 
   logger.warning(
-    "No matching logged model artifact found for '%s' (run_id=%s); "
+    "No matching logged model artifact or logged model id found for '%s' (run_id=%s); "
     "falling back to local upload",
     best_model_name,
     run_id,
