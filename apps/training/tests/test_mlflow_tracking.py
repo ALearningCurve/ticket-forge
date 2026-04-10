@@ -376,6 +376,64 @@ class TestRegisterLoggedBestEstimator:
       ),
     ]
 
+  def test_registers_from_logged_model_id_when_runs_uri_paths_fail(self) -> None:
+    from training.analysis.mlflow_tracking import _register_logged_best_estimator
+
+    run = MagicMock()
+    run.info.run_id = "run-rf"
+    run.data.tags = {
+      "model": "random_forest",
+      "mlflow.runName": "search_random_forest",
+    }
+    logged_model = MagicMock()
+    logged_model.source_run_id = "run-rf"
+    logged_model.model_id = "m-abc123"
+    logged_model.name = "best_estimator"
+
+    client = MagicMock()
+    client.search_runs.return_value = [run]
+    client.search_logged_models.return_value = [logged_model]
+
+    exp_lookup = "training.analysis.mlflow_tracking.mlflow.get_experiment_by_name"
+    register_path = "training.analysis.mlflow_tracking.mlflow.register_model"
+
+    with (
+      patch(exp_lookup) as get_exp,
+      patch(register_path) as register_model,
+    ):
+      get_exp.return_value = MagicMock(experiment_id="1")
+      register_model.side_effect = [
+        Exception("missing best_estimator"),
+        Exception("missing model"),
+        None,
+      ]
+      ok = _register_logged_best_estimator(client, "pipeline-3", "random_forest")
+
+    assert ok is True
+    assert register_model.call_args_list == [
+      (
+        (),
+        {
+          "model_uri": "runs:/run-rf/best_estimator",
+          "name": "ticket-forge-best",
+        },
+      ),
+      (
+        (),
+        {
+          "model_uri": "runs:/run-rf/model",
+          "name": "ticket-forge-best",
+        },
+      ),
+      (
+        (),
+        {
+          "model_uri": "models:/m-abc123",
+          "name": "ticket-forge-best",
+        },
+      ),
+    ]
+
   def test_does_not_register_different_model_when_best_candidate_fails(self) -> None:
     from training.analysis.mlflow_tracking import _register_logged_best_estimator
 
@@ -398,11 +456,12 @@ class TestRegisterLoggedBestEstimator:
       patch(register_path) as register_model,
     ):
       get_exp.return_value = MagicMock(experiment_id="1")
+      client.search_logged_models.return_value = []
       register_model.side_effect = [
         Exception("missing best_estimator"),
         Exception("missing fallback model path"),
       ]
-      ok = _register_logged_best_estimator(client, "pipeline-3", "random_forest")
+      ok = _register_logged_best_estimator(client, "pipeline-4", "random_forest")
 
     assert ok is False
     assert register_model.call_args_list == [
