@@ -244,13 +244,18 @@ jobs:
               --zone="${instance_zone}" \
               --tunnel-through-iap \
               --quiet \
-              --command='cd /opt/ticket-forge && git rev-parse HEAD' 2>/dev/null || true)"
+              --command='cd /opt/ticket-forge && git rev-parse HEAD' 2>/dev/null | tail -n1 | tr -d '\r' || true)"
+            if [[ ! "${runtime_sha}" =~ ^[0-9a-f]{40}$ ]]; then
+              runtime_sha=""
+            fi
           fi
 
-          echo "instance_name=${instance_name}" >> "$GITHUB_OUTPUT"
-          echo "instance_id=${instance_id}" >> "$GITHUB_OUTPUT"
-          echo "airflow_url=${airflow_url}" >> "$GITHUB_OUTPUT"
-          echo "runtime_sha=${runtime_sha}" >> "$GITHUB_OUTPUT"
+          {
+            echo "instance_name=${instance_name}"
+            echo "instance_id=${instance_id}"
+            echo "airflow_url=${airflow_url}"
+            echo "runtime_sha=${runtime_sha}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Write deployment report
         if: always()
