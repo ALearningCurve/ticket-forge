@@ -248,8 +248,11 @@ async def update_project(
     user_id: uuid.UUID,
     name: str | None = None,
     description: str | None = None,
+    default_ticket_size: str | None = None,
+    weekly_points_per_member: int | None = None,
+    size_points_map: dict | None = None,
 ) -> Project:
-    """Update project name/description. Requires owner or admin.
+    """Update project settings. Requires owner or admin.
 
     Raises:
         ValueError: If not found, not a member, or insufficient role.
@@ -265,6 +268,12 @@ async def update_project(
         project.slug = await _unique_slug(db, _slugify(name))
     if description is not None:
         project.description = description
+    if default_ticket_size is not None:
+        project.default_ticket_size = default_ticket_size
+    if weekly_points_per_member is not None:
+        project.weekly_points_per_member = weekly_points_per_member
+    if size_points_map is not None:
+        project.size_points_map = size_points_map
 
     await db.commit()
     await db.refresh(project)
