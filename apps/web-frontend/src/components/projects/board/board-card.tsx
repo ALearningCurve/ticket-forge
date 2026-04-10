@@ -16,6 +16,7 @@ export interface TicketData {
   type: "task" | "story" | "bug";
   priority: "low" | "medium" | "high" | "critical";
   labels: string[];
+  sizeBucket?: string;
   assignee?: {
     initials: string;
     name: string;
@@ -96,6 +97,15 @@ export function BoardCard({ ticket, index, onClick }: BoardCardProps) {
           <p className="text-[13px] font-medium leading-snug text-foreground">
             {ticket.title}
           </p>
+
+          {ticket.sizeBucket && (
+            <div className="mt-2 inline-flex items-center gap-1 rounded bg-primary/10 px-1.5 py-0.5">
+              <span className="text-[10px] font-semibold text-primary">
+                {ticket.sizeBucket}
+              </span>
+              <span className="text-[10px] text-muted-foreground">AI size</span>
+            </div>
+          )}
 
           {/* Due date */}
           {ticket.dueDate && (
