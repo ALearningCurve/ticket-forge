@@ -332,6 +332,82 @@ def _register_model(
   return True
 
 
+def _register_logged_best_estimator(
+  client: MlflowClient,
+  run_id: str,
+  best_model_name: str,
+) -> bool:
+  """Register using an already-logged run artifact to avoid re-uploading.
+
+  This path avoids large single-request uploads through the tracking endpoint
+  (which can hit HTTP 413 on Cloud Run) by creating the model version from the
+  existing ``runs:/.../best_estimator`` artifact.
+  """
+  experiment = mlflow.get_experiment_by_name(_EXPERIMENT_NAME)
+  if experiment is None:
+    logger.info(
+      "MLflow experiment '%s' not found; falling back to local upload",
+      _EXPERIMENT_NAME,
+    )
+    return False
+
+  search_filter = (
+    f"tags.run_id = '{run_id}' and "
+    f"tags.model = '{best_model_name}' and "
+    f"attributes.run_name = 'search_{best_model_name}'"
+  )
+  try:
+    runs = client.search_runs(
+      experiment_ids=[experiment.experiment_id],
+      filter_string=search_filter,
+      order_by=["attributes.start_time DESC"],
+      max_results=1,
+    )
+  except Exception:
+    logger.warning(
+      "Could not search MLflow runs for existing logged model '%s' (run_id=%s)",
+      best_model_name,
+      run_id,
+      exc_info=True,
+    )
+    return False
+
+  if not runs:
+    logger.info(
+      "No logged model run found for '%s' (run_id=%s); falling back to local upload",
+      best_model_name,
+      run_id,
+    )
+    return False
+
+  logged_run_id = getattr(getattr(runs[0], "info", None), "run_id", None)
+  if not logged_run_id:
+    logger.info(
+      (
+        "Logged model run missing run_id for '%s' (run_id=%s); "
+        "falling back to local upload"
+      ),
+      best_model_name,
+      run_id,
+    )
+    return False
+
+  model_uri = f"runs:/{logged_run_id}/best_estimator"
+  try:
+    mlflow.register_model(model_uri=model_uri, name=_REGISTERED_MODEL_NAME)
+  except Exception:
+    logger.warning(
+      "Could not register '%s' from %s; falling back to local upload",
+      best_model_name,
+      model_uri,
+      exc_info=True,
+    )
+    return False
+
+  logger.info("Registered '%s' from existing artifact %s", best_model_name, model_uri)
+  return True
+
+
 def _transition_to_production(client: MlflowClient, new_version: str) -> bool:
   """Archive old Production versions and promote new_version to Production.
 
@@ -387,6 +463,7 @@ def _load_and_register(
   best_model_name: str,
   run_id: str,
   candidate_metrics: dict[str, float],
+  client: MlflowClient,
 ) -> bool:
   """Load the best model pickle and register it in the MLflow Model Registry.
 
@@ -399,6 +476,7 @@ def _load_and_register(
       best_model_name:  Model name used to locate ``{model}.pkl``.
       run_id:           Training run identifier (logged as an MLflow tag).
       candidate_metrics: Candidate eval metrics logged during registration.
+      client:           MLflow tracking client.
 
   Returns:
       True if loading and registration both succeeded, False otherwise.
@@ -407,6 +485,12 @@ def _load_and_register(
   if not pkl_path.exists():
     logger.warning("Model pickle not found at %s — cannot promote", pkl_path)
     return False
+
+  # Prefer model registration from an already-logged artifact to avoid
+  # large request uploads that can fail behind Cloud Run limits.
+  if _register_logged_best_estimator(client, run_id, best_model_name):
+    return True
+
   try:
     grid = joblib.load(pkl_path)
     model = grid.best_estimator_
@@ -567,7 +651,13 @@ def promote_best_model(run_id: str) -> str | None:
           guard_result.get("fail_reasons", []),
         )
       else:
-        loaded = _load_and_register(run_dir, best_model_name, run_id, candidate_metrics)
+        loaded = _load_and_register(
+          run_dir,
+          best_model_name,
+          run_id,
+          candidate_metrics,
+          client,
+        )
         if loaded:
           new_version = _get_new_version(client, best_model_name)
           if new_version is not None and _transition_to_production(client, new_version):

@@ -304,6 +304,78 @@ class TestLogRunToMlflow:
 
 
 # ---------------------------------------------------------------------------
+# _load_and_register
+# ---------------------------------------------------------------------------
+
+
+class TestLoadAndRegister:
+  def test_prefers_existing_logged_artifact_registration(self, tmp_path: Path) -> None:
+    from training.analysis.mlflow_tracking import _load_and_register
+
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    _make_grid_pickle(run_dir, "forest")
+
+    with (
+      patch(
+        "training.analysis.mlflow_tracking._register_logged_best_estimator",
+        return_value=True,
+      ) as mock_logged_register,
+      patch("training.analysis.mlflow_tracking._register_model") as mock_register_model,
+    ):
+      result = _load_and_register(
+        run_dir=run_dir,
+        best_model_name="forest",
+        run_id="run-1",
+        candidate_metrics={},
+        client=MagicMock(),
+      )
+
+    assert result is True
+    mock_logged_register.assert_called_once()
+    mock_register_model.assert_not_called()
+
+  def test_falls_back_to_local_upload_when_logged_artifact_missing(
+    self, tmp_path: Path
+  ) -> None:
+    from training.analysis.mlflow_tracking import _load_and_register
+
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    _make_grid_pickle(run_dir, "forest")
+
+    fake_grid = MagicMock()
+    fake_grid.best_estimator_ = object()
+
+    with (
+      patch(
+        "training.analysis.mlflow_tracking._register_logged_best_estimator",
+        return_value=False,
+      ),
+      patch("training.analysis.mlflow_tracking.joblib.load", return_value=fake_grid),
+      patch(
+        "training.analysis.mlflow_tracking._register_model",
+        return_value=True,
+      ) as mock_register_model,
+    ):
+      result = _load_and_register(
+        run_dir=run_dir,
+        best_model_name="forest",
+        run_id="run-2",
+        candidate_metrics={"accuracy": 0.8},
+        client=MagicMock(),
+      )
+
+    assert result is True
+    mock_register_model.assert_called_once_with(
+      fake_grid.best_estimator_,
+      "forest",
+      "run-2",
+      {"accuracy": 0.8},
+    )
+
+
+# ---------------------------------------------------------------------------
 # promote_best_model
 # ---------------------------------------------------------------------------
 
