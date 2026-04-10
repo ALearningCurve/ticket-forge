@@ -35,6 +35,11 @@ Key production inference endpoints:
 - `POST /api/v1/inference/ticket-size`
 - `GET /api/v1/inference/monitoring/export`
 
+Authenticated profile endpoints:
+
+- `GET /api/v1/profile/resume`
+- `POST /api/v1/profile/resume`
+
 ## Structure
 
 ```

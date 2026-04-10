@@ -94,6 +94,7 @@ class UserResponse(BaseModel):
     first_name: str
     last_name: str
     email: str
+    member_id: int | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

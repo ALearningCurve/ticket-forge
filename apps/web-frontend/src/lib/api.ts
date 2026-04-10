@@ -16,6 +16,7 @@ export interface UserResponse {
   first_name: string;
   last_name: string;
   email: string;
+  member_id?: number | null;
   created_at: string;
 }
 
@@ -107,6 +108,17 @@ export interface TicketResponse {
 
 export interface BoardTicketsResponse {
   tickets: TicketResponse[];
+}
+
+export interface ResumeProfileStatusResponse {
+  has_resume: boolean;
+  member_id: number | null;
+  last_uploaded_at: string | null;
+}
+
+export interface ResumeProfileUploadResponse
+  extends ResumeProfileStatusResponse {
+  action: string;
 }
 
 export interface SigninRequest {
@@ -252,6 +264,45 @@ export function getCurrentUser(token: string) {
     method: "GET",
     token,
   });
+}
+
+export function getResumeProfileStatus(token: string) {
+  return request<ResumeProfileStatusResponse>("/api/v1/profile/resume", {
+    method: "GET",
+    token,
+  });
+}
+
+export async function uploadResume(token: string, file: File) {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}/api/v1/profile/resume`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      credentials: "include",
+      body: formData,
+    });
+  } catch (error) {
+    return {
+      data: null,
+      error: error instanceof Error ? error.message : "Request failed",
+    } satisfies ApiResult<ResumeProfileUploadResponse>;
+  }
+
+  if (!response.ok) {
+    return {
+      data: null,
+      error: await parseError(response),
+    } satisfies ApiResult<ResumeProfileUploadResponse>;
+  }
+
+  return {
+    data: (await response.json()) as ResumeProfileUploadResponse,
+    error: null,
+  } satisfies ApiResult<ResumeProfileUploadResponse>;
 }
 
 export function logout(token: string) {
