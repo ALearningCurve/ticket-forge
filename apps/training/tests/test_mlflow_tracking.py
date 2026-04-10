@@ -304,6 +304,68 @@ class TestLogRunToMlflow:
 
 
 # ---------------------------------------------------------------------------
+# _register_logged_best_estimator
+# ---------------------------------------------------------------------------
+
+
+class TestRegisterLoggedBestEstimator:
+  def test_supports_random_forest_alias_to_forest(self) -> None:
+    from training.analysis.mlflow_tracking import _register_logged_best_estimator
+
+    run = MagicMock()
+    run.info.run_id = "run-forest"
+    run.data.tags = {"model_name": "forest", "mlflow.runName": "search_forest"}
+    client = MagicMock()
+    client.search_runs.return_value = [run]
+    exp_lookup = "training.analysis.mlflow_tracking.mlflow.get_experiment_by_name"
+    register_path = "training.analysis.mlflow_tracking.mlflow.register_model"
+
+    with (
+      patch(exp_lookup) as get_exp,
+      patch(register_path) as register_model,
+    ):
+      get_exp.return_value = MagicMock(experiment_id="1")
+      ok = _register_logged_best_estimator(client, "pipeline-1", "random_forest")
+
+    assert ok is True
+    register_model.assert_called_once_with(
+      model_uri="runs:/run-forest/best_estimator",
+      name="ticket-forge-best",
+    )
+
+  def test_does_not_register_different_model_when_best_candidate_fails(self) -> None:
+    from training.analysis.mlflow_tracking import _register_logged_best_estimator
+
+    bad = MagicMock()
+    bad.info.run_id = "run-xgb"
+    bad.data.tags = {"model": "xgboost", "mlflow.runName": "search_xgboost"}
+    good = MagicMock()
+    good.info.run_id = "run-rf"
+    good.data.tags = {
+      "model": "random_forest",
+      "mlflow.runName": "search_random_forest",
+    }
+    client = MagicMock()
+    client.search_runs.return_value = [bad, good]
+    exp_lookup = "training.analysis.mlflow_tracking.mlflow.get_experiment_by_name"
+    register_path = "training.analysis.mlflow_tracking.mlflow.register_model"
+
+    with (
+      patch(exp_lookup) as get_exp,
+      patch(register_path) as register_model,
+    ):
+      get_exp.return_value = MagicMock(experiment_id="1")
+      register_model.side_effect = [Exception("missing best_estimator"), None]
+      ok = _register_logged_best_estimator(client, "pipeline-2", "random_forest")
+
+    assert ok is False
+    register_model.assert_called_once_with(
+      model_uri="runs:/run-rf/best_estimator",
+      name="ticket-forge-best",
+    )
+
+
+# ---------------------------------------------------------------------------
 # _load_and_register
 # ---------------------------------------------------------------------------
 
