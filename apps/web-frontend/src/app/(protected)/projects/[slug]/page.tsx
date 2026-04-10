@@ -15,8 +15,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { BoardView } from "@/components/projects/board/board-view";
+import { MemberRecommendationModal } from "@/components/projects/member-recommendation-modal";
 import { useAuth } from "@/lib/auth-context";
-import { getProject, type ProjectResponse } from "@/lib/api";
+import { getProject, type ProjectMember, type ProjectResponse } from "@/lib/api";
 
 export default function ProjectDetailPage() {
   const params = useParams();
@@ -26,6 +27,7 @@ export default function ProjectDetailPage() {
 
   const [project, setProject] = useState<ProjectResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [selectedMember, setSelectedMember] = useState<ProjectMember | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -92,20 +94,22 @@ export default function ProjectDetailPage() {
             />
           </div>
 
-          <div className="flex -space-x-1.5">
-            {project.members.slice(0, 4).map((member, idx) => (
-              <button
-                key={member.id}
-                className="flex size-7 items-center justify-center rounded-full border-2 border-background text-[10px] font-semibold text-white transition-transform hover:z-10 hover:scale-110"
-                style={{
-                  backgroundColor: memberColors[idx % memberColors.length],
-                }}
-                title={`${member.first_name} ${member.last_name}`}
-              >
-                {member.first_name[0]}
-                {member.last_name[0]}
-              </button>
-            ))}
+              <div className="flex -space-x-1.5">
+                {project.members.slice(0, 4).map((member, idx) => (
+                  <button
+                    key={member.id}
+                    type="button"
+                    className="flex size-7 items-center justify-center rounded-full border-2 border-background text-[10px] font-semibold text-white transition-transform hover:z-10 hover:scale-110"
+                    style={{
+                      backgroundColor: memberColors[idx % memberColors.length],
+                    }}
+                    title={`${member.first_name} ${member.last_name}`}
+                    onClick={() => setSelectedMember(member)}
+                  >
+                    {member.first_name[0]}
+                    {member.last_name[0]}
+                  </button>
+                ))}
             {project.members.length > 4 && (
               <div className="flex size-7 items-center justify-center rounded-full border-2 border-background bg-muted text-[10px] font-medium text-muted-foreground">
                 +{project.members.length - 4}
@@ -141,6 +145,13 @@ export default function ProjectDetailPage() {
           members={project.members}
         />
       </div>
+
+      <MemberRecommendationModal
+        member={selectedMember}
+        projectSlug={slug}
+        open={selectedMember !== null}
+        onClose={() => setSelectedMember(null)}
+      />
     </div>
   );
 }

@@ -40,6 +40,11 @@ Authenticated profile endpoints:
 - `GET /api/v1/profile/resume`
 - `POST /api/v1/profile/resume`
 
+Authenticated recommendation endpoints:
+
+- `GET /api/v1/projects/{slug}/tickets/{ticket_key}/recommendations/engineers`
+- `GET /api/v1/projects/{slug}/members/{user_id}/recommendations/tickets`
+
 ## Structure
 
 ```
