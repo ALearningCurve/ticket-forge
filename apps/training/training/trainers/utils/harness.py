@@ -116,8 +116,9 @@ def get_test_accuracy(
     low_confidence_rate: float = 0.0
     if hasattr(grid, "predict_proba"):
       proba = grid.predict_proba(x)
-      confidence_scores = proba.max(axis=1).tolist()
-      low_confidence_rate = float((proba.max(axis=1) < 0.5).mean())
+      max_proba = proba.max(axis=1)
+      confidence_scores = max_proba.tolist()
+      low_confidence_rate = float((max_proba < 0.5).mean())
 
     return {
       "accuracy": accuracy_score(y, y_pred),

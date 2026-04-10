@@ -1,4 +1,4 @@
-"""Tests for bias evaluation in training harness."""
+"""Tests for bias evaluation and confidence metrics in the training harness."""
 
 from pathlib import Path
 from unittest.mock import MagicMock, patch
