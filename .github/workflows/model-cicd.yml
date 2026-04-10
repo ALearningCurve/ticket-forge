@@ -98,6 +98,7 @@ jobs:
     name: Train / Prepare Shared Infra Access
     needs: [wait-for-ci]
     if: >-
+      always() &&
       (needs.wait-for-ci.result == 'success' || needs.wait-for-ci.result == 'skipped') &&
       (
         github.event_name == 'push' ||
@@ -143,6 +144,7 @@ jobs:
     name: Train / Run & Promote Best Model
     needs: [wait-for-ci, prepare-infra]
     if: >-
+      always() &&
       (needs.wait-for-ci.result == 'success' || needs.wait-for-ci.result == 'skipped') &&
       needs.prepare-infra.result == 'success' &&
       (
