@@ -8,7 +8,10 @@ fi
 
 AIRFLOW_URL="$1"
 DAG_ID="$2"
-CONF_JSON="${3:-{}}"
+CONF_JSON="${3:-}"
+if [[ -z "${CONF_JSON}" ]]; then
+  CONF_JSON='{}'
+fi
 RUN_ID="${4:-manual__$(date -u +%Y%m%dT%H%M%SZ)}"
 
 AIRFLOW_API_USERNAME="${AIRFLOW_API_USERNAME:-${AIRFLOW_SMOKETEST_USERNAME:-}}"
