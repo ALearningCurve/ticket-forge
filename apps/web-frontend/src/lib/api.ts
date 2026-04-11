@@ -100,7 +100,7 @@ export interface TicketResponse {
   description: string | null;
   priority: string;
   type: string;
-  size: "S" | "M" | "L" | "XL";
+  size?: "S" | "M" | "L" | "XL";
   labels: string[];
   size_bucket: string | null;
   size_source: string | null;

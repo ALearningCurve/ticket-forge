@@ -12,6 +12,7 @@ import {
   type BoardColumn as ApiBoardColumn,
   type ProjectMember,
   type TicketResponse,
+  classifyMissingTicketSizes,
   getBoardTickets,
   createTicket as apiCreateTicket,
   moveTicket as apiMoveTicket,
@@ -51,7 +52,7 @@ function apiTicketToCard(
     title: t.title,
     type: t.type as TicketData["type"],
     priority: t.priority as TicketData["priority"],
-    size: (t.size || "M") as TicketData["size"],
+    size: (t.size_bucket || t.size || "M") as TicketData["size"],
     labels: t.labels || [],
     dueDate: t.due_date
       ? new Date(t.due_date + "T00:00:00").toLocaleDateString("en-US", {
@@ -132,6 +133,21 @@ export function BoardView({
       if (data) {
         setRawTickets(data.tickets);
         setColumns(buildColumns(boardColumns, data.tickets, memberIndex));
+
+        if (data.tickets.some((ticket) => !ticket.size_bucket)) {
+          const sized = await classifyMissingTicketSizes(token, projectSlug);
+          if (sized.data) {
+            setRawTickets(sized.data.tickets);
+            setColumns(buildColumns(boardColumns, sized.data.tickets, memberIndex));
+            if (sized.data.updated_count > 0) {
+              toast.success(
+                `AI sized ${sized.data.updated_count} ticket${
+                  sized.data.updated_count === 1 ? "" : "s"
+                }`,
+              );
+            }
+          }
+        }
       }
       setIsLoading(false);
     }
@@ -296,6 +312,11 @@ export function BoardView({
       </DragDropContext>
 
       <TicketDetailModal
+        key={
+          selectedRawTicket
+            ? `${selectedRawTicket.ticket_key}:${modalOpen ? "open" : "closed"}`
+            : "ticket-modal"
+        }
         ticket={selectedRawTicket}
         projectSlug={projectSlug}
         members={members}
