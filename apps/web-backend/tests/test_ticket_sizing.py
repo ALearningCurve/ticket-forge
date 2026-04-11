@@ -111,6 +111,29 @@ async def test_manual_ticket_size_skips_reprediction_on_update(client) -> None:
 
 
 @pytest.mark.asyncio
+async def test_legacy_size_field_maps_to_manual_size_bucket(client) -> None:
+    """Legacy `size` payloads should still persist a manual size bucket."""
+    headers = await _auth_headers(client)
+    project = await _create_project(client, headers)
+    column_id = project["board_columns"][0]["id"]
+
+    create_response = await client.post(
+        f"/api/v1/projects/{project['slug']}/tickets",
+        headers=headers,
+        json={
+            "title": "Legacy size ticket",
+            "column_id": column_id,
+            "size": "L",
+        },
+    )
+
+    assert create_response.status_code == 201
+    payload = create_response.json()
+    assert payload["size_bucket"] == "L"
+    assert payload["size_source"] == "manual"
+
+
+@pytest.mark.asyncio
 async def test_clearing_manual_size_recomputes_prediction(client) -> None:
     """Switching back to auto mode should recompute and persist an AI size."""
     headers = await _auth_headers(client)
@@ -145,6 +168,45 @@ async def test_clearing_manual_size_recomputes_prediction(client) -> None:
     assert payload["size_bucket"] == "XL"
     assert payload["size_source"] == "predicted"
     assert payload["size_confidence"] == 0.66
+
+
+@pytest.mark.asyncio
+async def test_legacy_size_update_sets_manual_size_bucket(client) -> None:
+    """Legacy `size` updates should map to manual size and skip prediction."""
+    headers = await _auth_headers(client)
+    project = await _create_project(client, headers)
+    column_id = project["board_columns"][0]["id"]
+
+    with patch(
+        "web_backend.services.tickets.predict_ticket_size",
+        new=AsyncMock(
+            return_value=SimpleNamespace(predicted_bucket="M", confidence=0.77)
+        ),
+    ):
+        create_response = await client.post(
+            f"/api/v1/projects/{project['slug']}/tickets",
+            headers=headers,
+            json={"title": "Legacy update size ticket", "column_id": column_id},
+        )
+
+    assert create_response.status_code == 201
+    ticket_key = create_response.json()["ticket_key"]
+
+    with patch(
+        "web_backend.services.tickets.predict_ticket_size",
+        new=AsyncMock(),
+    ) as mock_predict:
+        response = await client.patch(
+            f"/api/v1/projects/{project['slug']}/tickets/{ticket_key}",
+            headers=headers,
+            json={"size": "XL"},
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["size_bucket"] == "XL"
+    assert payload["size_source"] == "manual"
+    mock_predict.assert_not_called()
 
 
 @pytest.mark.asyncio

@@ -70,6 +70,7 @@ const typeOptions = [
 ];
 
 const sizeOptions = [
+  { value: "auto", label: "Auto (AI estimate)", short: "AI" },
   { value: "S", label: "Small", short: "S" },
   { value: "M", label: "Medium", short: "M" },
   { value: "L", label: "Large", short: "L" },
@@ -133,12 +134,19 @@ export function TicketDetailModal({
   onUpdated,
   onDeleted,
 }: TicketDetailModalProps) {
+  type SizeValue = "S" | "M" | "L" | "XL";
+  type SizeMode = SizeValue | "auto";
+
   const { token } = useAuth();
   const [title, setTitle] = useState(ticket?.title || "");
   const [description, setDescription] = useState(ticket?.description || "");
   const [priority, setPriority] = useState(ticket?.priority || "medium");
   const [type, setType] = useState(ticket?.type || "task");
-  const [size, setSize] = useState(ticket?.size || "M");
+  const [sizeMode, setSizeMode] = useState<SizeMode>(
+    ticket?.size_source === "manual" && ticket?.size_bucket
+      ? (ticket.size_bucket as SizeValue)
+      : "auto",
+  );
   const [assigneeId, setAssigneeId] = useState<string | null>(
     ticket?.assignee?.id || null
   );
@@ -162,7 +170,7 @@ export function TicketDetailModal({
         description: description.trim() || undefined,
         priority,
         type,
-        size,
+        size_bucket: sizeMode === "auto" ? null : sizeMode,
         assignee_id: assigneeId,
         due_date: dueDate || undefined,
         labels,
@@ -181,7 +189,7 @@ export function TicketDetailModal({
     }
   }, [
     token, ticket, projectSlug, title, description,
-    priority, type, size, assigneeId, dueDate, labels,
+    priority, type, sizeMode, assigneeId, dueDate, labels,
     onUpdated, onClose,
   ]);
 
@@ -220,7 +228,11 @@ export function TicketDetailModal({
   const currentType = typeOptions.find((t) => t.value === type);
   const TypeIcon = currentType?.icon || CheckSquare;
   const currentPriority = priorityOptions.find((p) => p.value === priority);
-  const pointsCost = sizePointsMap[size as keyof typeof sizePointsMap] || 0;
+  const selectedOrPredictedSize = (
+    sizeMode === "auto" ? (ticket.size_bucket || ticket.size || "M") : sizeMode
+  ) as SizeValue;
+  const pointsCost =
+    sizePointsMap[selectedOrPredictedSize as keyof typeof sizePointsMap] || 0;
   const dueInfo = dueDate ? getDaysUntilDue(dueDate) : null;
 
   // Simulated AI recommended member
@@ -228,11 +240,11 @@ export function TicketDetailModal({
 
   return (
     <Dialog key={ticket.id} open={open} onOpenChange={(v) => !v && onClose()}>
-      {/* Container setup: 
+      {/* Container setup:
         Flex column so Header/Footer stick, with max-height to fit screen.
       */}
       <DialogContent className="flex max-h-[90vh] w-[94vw] flex-col overflow-hidden p-0 sm:w-[55vw] sm:!max-w-[900px]">
-        
+
         {/* ========== HEADER ========== */}
         <DialogHeader className="shrink-0 border-b bg-background px-5 py-3.5 shadow-sm z-10">
           <div className="flex items-center justify-between">
@@ -274,11 +286,11 @@ export function TicketDetailModal({
 
         {/* ========== SCROLLABLE BODY ========== */}
         <div className="flex flex-1 flex-col overflow-hidden md:flex-row">
-          
+
           {/* LEFT SIDE: Main content */}
           <div className="flex-1 overflow-y-auto px-6 py-5">
             <div className="space-y-6">
-              
+
               {/* Title */}
               <div>
                 <Input
@@ -443,7 +455,7 @@ export function TicketDetailModal({
 
           {/* RIGHT SIDEBAR: Metadata */}
           <div className="w-full shrink-0 border-t md:border-l md:border-t-0 bg-muted/10 p-5 md:w-[260px] md:overflow-y-auto flex flex-col gap-5">
-            
+
             <div className="grid grid-cols-2 gap-4 md:grid-cols-1 md:gap-5">
               {/* Priority */}
               <div className="space-y-1.5">
@@ -473,10 +485,8 @@ export function TicketDetailModal({
                   Size
                 </Label>
                 <Select
-                  value={size}
-                  onValueChange={(value) =>
-                    setSize(value as "S" | "M" | "L" | "XL")
-                  }
+                  value={sizeMode}
+                  onValueChange={(value) => setSizeMode(value as SizeMode)}
                 >
                   <SelectTrigger className="h-9 text-sm bg-background">
                     <SelectValue />
@@ -485,13 +495,26 @@ export function TicketDetailModal({
                     {sizeOptions.map((opt) => (
                       <SelectItem key={opt.value} value={opt.value}>
                         <div className="flex items-center gap-2">
-                          <span className={cn("flex size-5 items-center justify-center rounded text-[10px] font-bold", sizeColors[opt.value])}>
-                            {opt.short}
-                          </span>
+                          {opt.value === "auto" ? (
+                            <span className="flex size-5 items-center justify-center rounded bg-muted text-[10px] font-bold text-muted-foreground">
+                              {opt.short}
+                            </span>
+                          ) : (
+                            <span
+                              className={cn(
+                                "flex size-5 items-center justify-center rounded text-[10px] font-bold",
+                                sizeColors[opt.value],
+                              )}
+                            >
+                              {opt.short}
+                            </span>
+                          )}
                           <span>{opt.label}</span>
-                          <span className="ml-auto text-[10px] text-muted-foreground">
-                            ({sizePointsMap[opt.value as keyof typeof sizePointsMap]}pt)
-                          </span>
+                          {opt.value !== "auto" && (
+                            <span className="ml-auto text-[10px] text-muted-foreground">
+                              ({sizePointsMap[opt.value as keyof typeof sizePointsMap]}pt)
+                            </span>
+                          )}
                         </div>
                       </SelectItem>
                     ))}
@@ -565,8 +588,15 @@ export function TicketDetailModal({
                 </span>
                 <span className="text-muted-foreground">Status</span>
                 <span className="text-right">
-                  <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-bold", sizeColors[size])}>
-                    {size}
+                  <span
+                    className={cn(
+                      "rounded px-1.5 py-0.5 text-[10px] font-bold",
+                      sizeColors[selectedOrPredictedSize],
+                    )}
+                  >
+                    {sizeMode === "auto"
+                      ? `AI ${selectedOrPredictedSize}`
+                      : selectedOrPredictedSize}
                   </span>
                 </span>
                 <span className="text-muted-foreground">Level</span>
