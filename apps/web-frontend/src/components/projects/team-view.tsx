@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, Sparkles, ArrowRight, User } from "lucide-react";
+import { Loader2, Sparkles, ArrowRight, User, Search } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Card,
   CardContent,
@@ -35,7 +36,6 @@ interface TeamViewProps {
   weeklyPointsPerMember: number;
 }
 
-// Replace these with your own hex codes if you have a specific palette!
 const AVATAR_COLORS = [
   "#6366f1",
   "#8b5cf6",
@@ -98,6 +98,8 @@ export function TeamView({
   members,
   tickets,
   projectSlug,
+  sizePointsMap: _sizePointsMap,
+  weeklyPointsPerMember: _weeklyPointsPerMember,
 }: TeamViewProps) {
   const { token } = useAuth();
   const [selectedMember, setSelectedMember] = useState<ProjectMember | null>(null);
@@ -106,6 +108,19 @@ export function TeamView({
   const [recLoading, setRecLoading] = useState(false);
   const [recError, setRecError] = useState<string | null>(null);
   const [viewTicketKey, setViewTicketKey] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const filteredMembers = searchQuery
+    ? members.filter((m) => {
+        const q = searchQuery.toLowerCase();
+        return (
+          m.first_name.toLowerCase().includes(q) ||
+          m.last_name.toLowerCase().includes(q) ||
+          m.username.toLowerCase().includes(q) ||
+          m.email.toLowerCase().includes(q)
+        );
+      })
+    : members;
 
   useEffect(() => {
     async function fetchRecs() {
@@ -141,114 +156,165 @@ export function TeamView({
     <>
       {/* ========== TEAM GRID ========== */}
       <div className="p-6">
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {members.map((member, idx) => {
-            const assigned = getAssignedTickets(tickets, member.user_id);
-            const active = getActiveTickets(tickets, member.user_id);
-            const availability = getAvailabilityLabel(tickets, member.user_id);
-            const memberColor = AVATAR_COLORS[idx % AVATAR_COLORS.length];
-
-            return (
-              <Card
-                key={member.id}
-                className="group relative flex flex-col cursor-pointer overflow-hidden border-border/50 bg-card transition-all duration-300 hover:-translate-y-[2px] hover:border-primary/30 hover:shadow-lg dark:hover:shadow-none dark:hover:bg-accent/5"
-                onClick={() => handleMemberClick(member, idx)}
-              >
-                {/* Sleek Top Status Bar mapped to Member Color */}
-                <div 
-                  className="absolute inset-x-0 top-0 h-[3px] transition-opacity opacity-80 group-hover:opacity-100" 
-                  style={{ backgroundColor: memberColor }}
-                />
-
-                <CardHeader className="p-5 pb-4">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-center gap-3.5">
-                      <div className="relative shrink-0">
-                        <div
-                          className="flex size-10 items-center justify-center rounded-full text-sm font-bold text-white shadow-sm ring-1 ring-black/10"
-                          style={{ backgroundColor: memberColor }}
-                        >
-                          {member.first_name[0]}{member.last_name[0]}
-                        </div>
-                        {/* Status dot remains tied to availability */}
-                        <span className={cn("absolute -bottom-0.5 -right-0.5 size-3.5 rounded-full border-2 border-card", availability.colorClass)} />
-                      </div>
-                      <div className="flex flex-col space-y-0.5">
-                        <CardTitle className="text-sm font-bold tracking-tight text-foreground leading-none">
-                          {member.first_name} {member.last_name}
-                        </CardTitle>
-                        <p className="text-xs font-medium text-muted-foreground capitalize">
-                          {member.role}
-                        </p>
-                      </div>
-                    </div>
-                    <Badge variant={availability.variant} className="shrink-0 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5">
-                      {availability.label}
-                    </Badge>
-                  </div>
-                </CardHeader>
-
-                <CardContent className="flex-1 p-5 pt-0 flex flex-col">
-                  {/* Workload Mini-Dashboard */}
-                  <div className="mb-4 flex items-center justify-between rounded-lg border border-border/40 bg-muted/30 px-4 py-2.5">
-                    <div className="flex flex-col items-start">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70">Active</span>
-                      <span className="text-sm font-black text-foreground/90 leading-none mt-1">{active.length}</span>
-                    </div>
-                    <div className="h-6 w-px bg-border/50" />
-                    <div className="flex flex-col items-end">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70">Total</span>
-                      <span className="text-sm font-black text-foreground/90 leading-none mt-1">{assigned.length}</span>
-                    </div>
-                  </div>
-
-                  {/* Tickets List */}
-                  <div className="mt-auto">
-                    {assigned.length > 0 ? (
-                      <div className="space-y-2">
-                        {assigned.slice(0, 3).map((ticket) => {
-                          const isOverdue = ticket.due_date && new Date(ticket.due_date + "T00:00:00") < new Date(new Date().toISOString().split("T")[0] + "T00:00:00");
-                          
-                          return (
-                            <div key={ticket.id} className="flex items-center gap-2.5 rounded-md border border-border/40 bg-background px-2.5 py-2 shadow-sm transition-colors group-hover:border-border/80">
-                              <span className="shrink-0 text-[10px] font-mono font-bold text-muted-foreground/80">
-                                {ticket.ticket_key}
-                              </span>
-                              <span className="truncate text-xs font-medium text-foreground/90">
-                                {ticket.title}
-                              </span>
-                              {isOverdue && (
-                                <span className="ml-auto shrink-0 rounded bg-red-500/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-red-600 dark:text-red-400">
-                                  Late
-                                </span>
-                              )}
-                            </div>
-                          );
-                        })}
-                        {assigned.length > 3 && (
-                          <p className="text-[10px] font-bold text-muted-foreground/50 pt-1.5 text-center uppercase tracking-wider">
-                            +{assigned.length - 3} more tickets
-                          </p>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="flex h-[116px] flex-col items-center justify-center rounded-lg border border-dashed border-border/60 bg-muted/10">
-                        <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/50">Queue Empty</span>
-                      </div>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
+        {/* Search & Count */}
+        <div className="mb-5 flex items-center justify-between gap-4">
+          <div className="relative w-64">
+            <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Search team members..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="h-8 pl-8 text-[13px]"
+            />
+          </div>
+          <span className="text-xs text-muted-foreground">
+            {filteredMembers.length} of {members.length} members
+          </span>
         </div>
+
+        {filteredMembers.length === 0 ? (
+          <div className="flex flex-col items-center justify-center rounded-xl border border-dashed py-16 text-center">
+            <User className="mb-3 size-8 text-muted-foreground/30" />
+            <p className="text-sm font-medium text-muted-foreground">
+              No members match &ldquo;{searchQuery}&rdquo;
+            </p>
+          </div>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+            {filteredMembers.map((member, idx) => {
+              const assigned = getAssignedTickets(tickets, member.user_id);
+              const active = getActiveTickets(tickets, member.user_id);
+              const availability = getAvailabilityLabel(tickets, member.user_id);
+              const memberColor = AVATAR_COLORS[idx % AVATAR_COLORS.length];
+
+              return (
+                <Card
+                  key={member.id}
+                  className="group relative flex cursor-pointer flex-col overflow-hidden border-border/60 bg-card transition-all duration-200 hover:-translate-y-[1px] hover:border-primary/30 hover:shadow-md"
+                  onClick={() => handleMemberClick(member, idx)}
+                >
+                  {/* Sleek Top Line */}
+                  <div
+                    className="absolute inset-x-0 top-0 h-[2px] opacity-80 transition-opacity group-hover:opacity-100"
+                    style={{ backgroundColor: memberColor }}
+                  />
+
+                  <div className="flex flex-col gap-3 p-4">
+                    {/* Header Row */}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2.5">
+                        <div className="relative shrink-0">
+                          <div
+                            className="flex size-8 items-center justify-center rounded-full text-xs font-bold text-white shadow-sm ring-1 ring-black/10"
+                            style={{ backgroundColor: memberColor }}
+                          >
+                            {member.first_name[0]}
+                            {member.last_name[0]}
+                          </div>
+                          <span
+                            className={cn(
+                              "absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full border-2 border-card",
+                              availability.colorClass,
+                            )}
+                          />
+                        </div>
+                        <div className="flex flex-col">
+                          <span className="text-[13px] font-semibold leading-tight tracking-tight text-foreground">
+                            {member.first_name} {member.last_name}
+                          </span>
+                          <span className="text-[11px] font-medium capitalize text-muted-foreground">
+                            {member.role}
+                          </span>
+                        </div>
+                      </div>
+                      <Badge
+                        variant={availability.variant}
+                        className="h-4 shrink-0 px-1.5 py-0 text-[9px] font-bold uppercase tracking-wider"
+                      >
+                        {availability.label}
+                      </Badge>
+                    </div>
+
+                    {/* Compact Stats Row */}
+                    <div className="mt-0.5 flex items-center gap-4 text-[11px] font-medium text-muted-foreground">
+                      <div className="flex items-center gap-1.5">
+                        <span className="size-1.5 rounded-full bg-primary/60" />
+                        <span className="font-bold text-foreground/90">
+                          {active.length}
+                        </span>{" "}
+                        Active
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="size-1.5 rounded-full bg-muted-foreground/30" />
+                        <span className="font-bold text-foreground/90">
+                          {assigned.length}
+                        </span>{" "}
+                        Total
+                      </div>
+                    </div>
+
+                    {/* Subtle Separator */}
+                    <div className="my-0.5 h-px w-full bg-border/40" />
+
+                    {/* Compact Tickets List or AI Teaser */}
+                    <div className="flex-1">
+                      {assigned.length > 0 ? (
+                        <div className="space-y-1">
+                          {assigned.slice(0, 3).map((ticket) => {
+                            const isOverdue =
+                              ticket.due_date &&
+                              new Date(ticket.due_date + "T00:00:00") <
+                                new Date(
+                                  new Date().toISOString().split("T")[0] +
+                                    "T00:00:00",
+                                );
+                            return (
+                              <div
+                                key={ticket.id}
+                                className="flex items-center gap-2 rounded px-1.5 py-1 transition-colors hover:bg-muted/50"
+                              >
+                                <span className="shrink-0 text-[9px] font-mono font-medium text-muted-foreground/60">
+                                  {ticket.ticket_key}
+                                </span>
+                                <span className="truncate text-[11px] font-medium text-foreground/80">
+                                  {ticket.title}
+                                </span>
+                                {isOverdue && (
+                                  <span
+                                    className="ml-auto size-1.5 shrink-0 rounded-full bg-red-500 shadow-sm"
+                                    title="Overdue ticket"
+                                  />
+                                )}
+                              </div>
+                            );
+                          })}
+                          {assigned.length > 3 && (
+                            <div className="pl-1.5 pt-1.5 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/50">
+                              +{assigned.length - 3} more
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 rounded-md border border-dashed border-primary/20 bg-primary/5 px-2.5 py-2.5">
+                          <Sparkles className="size-3.5 shrink-0 text-primary/60" />
+                          <span className="text-[10px] font-medium text-primary/70">
+                            Click to see AI recommendations
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* ========== MEMBER DETAIL MODAL ========== */}
       <Dialog open={!!selectedMember} onOpenChange={(v) => !v && setSelectedMember(null)}>
         {selectedMember && (
           <DialogContent className="flex max-h-[90vh] w-[96vw] flex-col overflow-hidden p-0 sm:w-[85vw] sm:!max-w-[1100px]">
-            
             {/* Header - Fixed */}
             <DialogHeader className="shrink-0 border-b bg-background px-6 py-4 shadow-sm z-10">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -292,7 +358,7 @@ export function TeamView({
 
             {/* Body - Flex layout for independent scrolling columns */}
             <div className="flex flex-1 flex-col overflow-hidden lg:flex-row bg-background">
-              
+
               {/* Left Column: Current Tickets */}
               <div className="flex w-full shrink-0 flex-col border-b bg-muted/10 lg:w-[340px] lg:border-b-0 lg:border-r">
                 <div className="p-5 border-b border-border/50 bg-muted/5">
@@ -300,13 +366,15 @@ export function TeamView({
                     Assigned Workload ({getAssignedTickets(tickets, selectedMember.user_id).length})
                   </h3>
                 </div>
-                
+
                 <div className="flex-1 overflow-y-auto p-5">
                   {getAssignedTickets(tickets, selectedMember.user_id).length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-40 text-center text-muted-foreground border border-dashed rounded-lg bg-background/50">
                       <User className="size-8 mb-2 opacity-20" />
                       <p className="text-sm font-medium">No active tickets</p>
-                      <p className="text-xs opacity-70">This member's queue is clear.</p>
+                      <p className="text-xs opacity-70">
+                        This member&apos;s queue is clear.
+                      </p>
                     </div>
                   ) : (
                     <div className="space-y-2.5">
