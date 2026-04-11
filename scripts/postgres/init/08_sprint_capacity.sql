@@ -1,6 +1,10 @@
 -- Sprint capacity settings for TicketForge.
 -- Runs after 07_ticket_size.sql.
--- Adds weekly point budget and size-to-point mapping to projects.
+-- Adds default ticket size, weekly point budget, and size-to-point mapping to projects.
+
+-- Default ticket size for new tickets
+ALTER TABLE projects
+    ADD COLUMN IF NOT EXISTS default_ticket_size VARCHAR(5) DEFAULT 'M';
 
 -- Weekly point budget per member
 ALTER TABLE projects
