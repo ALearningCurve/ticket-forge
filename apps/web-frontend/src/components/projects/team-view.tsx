@@ -480,14 +480,13 @@ export function TeamView({
 
       {/* Ticket Detail Modal — opened from recommendation arrow */}
       <TicketDetailModal
+        key={viewTicketKey || "team-ticket-modal"}
         ticket={viewTicketKey ? tickets.find((t) => t.ticket_key === viewTicketKey) ?? null : null}
         projectSlug={projectSlug}
         members={members}
         open={!!viewTicketKey}
         onClose={() => setViewTicketKey(null)}
-        onUpdated={() => {
-          setViewTicketKey(null);
-        }}
+        onUpdated={() => setViewTicketKey(null)}
         onDeleted={() => setViewTicketKey(null)}
       />
     </>
