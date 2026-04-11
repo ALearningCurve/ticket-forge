@@ -9,6 +9,7 @@ import uuid
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from sqlalchemy.sql.functions import count
 
 from web_backend.constants.projects import (
     DEFAULT_BOARD_COLUMNS,
@@ -174,6 +175,16 @@ async def list_user_projects(
     user_id: uuid.UUID,
 ) -> list[ProjectListItem]:
     """Return all projects the user is a member of."""
+    # Subquery to count ALL members per project
+    member_count_subq = (
+        select(
+            ProjectMember.project_id,
+            count(ProjectMember.id).label("member_count"),
+        )
+        .group_by(ProjectMember.project_id)
+        .subquery()
+    )
+
     result = await db.execute(
         select(
             Project.id,
@@ -182,11 +193,10 @@ async def list_user_projects(
             Project.description,
             ProjectMember.role,
             Project.created_at,
-            func.count(ProjectMember.id)
-            .over(partition_by=Project.id)
-            .label("member_count"),
+            func.coalesce(member_count_subq.c.member_count, 0).label("member_count"),
         )
         .join(ProjectMember, ProjectMember.project_id == Project.id)
+        .outerjoin(member_count_subq, member_count_subq.c.project_id == Project.id)
         .where(ProjectMember.user_id == user_id)
         .order_by(Project.created_at.desc())
     )
