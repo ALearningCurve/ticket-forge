@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import {
   AlertTriangle,
   Bookmark,
@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -37,10 +38,12 @@ import {
 
 import { useAuth } from "@/lib/auth-context";
 import {
+  getTicketEngineerRecommendations,
   updateTicket,
   deleteTicket as apiDeleteTicket,
   type TicketResponse,
   type ProjectMember,
+  type RecommendedEngineerResponse,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -57,16 +60,54 @@ interface TicketDetailModalProps {
 }
 
 const priorityOptions = [
-  { value: "critical", label: "Critical", color: "bg-red-500", ring: "ring-red-500/20" },
-  { value: "high", label: "High", color: "bg-orange-500", ring: "ring-orange-500/20" },
-  { value: "medium", label: "Medium", color: "bg-yellow-500", ring: "ring-yellow-500/20" },
-  { value: "low", label: "Low", color: "bg-blue-400", ring: "ring-blue-400/20" },
+  {
+    value: "critical",
+    label: "Critical",
+    color: "bg-red-500",
+    ring: "ring-red-500/20",
+  },
+  {
+    value: "high",
+    label: "High",
+    color: "bg-orange-500",
+    ring: "ring-orange-500/20",
+  },
+  {
+    value: "medium",
+    label: "Medium",
+    color: "bg-yellow-500",
+    ring: "ring-yellow-500/20",
+  },
+  {
+    value: "low",
+    label: "Low",
+    color: "bg-blue-400",
+    ring: "ring-blue-400/20",
+  },
 ];
 
 const typeOptions = [
-  { value: "task", label: "Task", icon: CheckSquare, color: "text-blue-500", bg: "bg-blue-50 dark:bg-blue-950/30" },
-  { value: "story", label: "Story", icon: Bookmark, color: "text-green-500", bg: "bg-green-50 dark:bg-green-950/30" },
-  { value: "bug", label: "Bug", icon: AlertTriangle, color: "text-red-500", bg: "bg-red-50 dark:bg-red-950/30" },
+  {
+    value: "task",
+    label: "Task",
+    icon: CheckSquare,
+    color: "text-blue-500",
+    bg: "bg-blue-50 dark:bg-blue-950/30",
+  },
+  {
+    value: "story",
+    label: "Story",
+    icon: Bookmark,
+    color: "text-green-500",
+    bg: "bg-green-50 dark:bg-green-950/30",
+  },
+  {
+    value: "bug",
+    label: "Bug",
+    icon: AlertTriangle,
+    color: "text-red-500",
+    bg: "bg-red-50 dark:bg-red-950/30",
+  },
 ];
 
 const sizeOptions = [
@@ -96,30 +137,48 @@ const COMMON_LABELS = [
 ];
 
 const labelColors: Record<string, string> = {
-  frontend: "bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300 border-purple-200 dark:border-purple-800",
-  backend: "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border-blue-200 dark:border-blue-800",
-  design: "bg-pink-100 text-pink-700 dark:bg-pink-950 dark:text-pink-300 border-pink-200 dark:border-pink-800",
+  frontend:
+    "bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300 border-purple-200 dark:border-purple-800",
+  backend:
+    "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border-blue-200 dark:border-blue-800",
+  design:
+    "bg-pink-100 text-pink-700 dark:bg-pink-950 dark:text-pink-300 border-pink-200 dark:border-pink-800",
   docs: "bg-teal-100 text-teal-700 dark:bg-teal-950 dark:text-teal-300 border-teal-200 dark:border-teal-800",
-  infrastructure: "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300 border-amber-200 dark:border-amber-800",
-  testing: "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300 border-green-200 dark:border-green-800",
-  security: "bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300 border-orange-200 dark:border-orange-800",
-  performance: "bg-cyan-100 text-cyan-700 dark:bg-cyan-950 dark:text-cyan-300 border-cyan-200 dark:border-cyan-800",
+  infrastructure:
+    "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300 border-amber-200 dark:border-amber-800",
+  testing:
+    "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300 border-green-200 dark:border-green-800",
+  security:
+    "bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300 border-orange-200 dark:border-orange-800",
+  performance:
+    "bg-cyan-100 text-cyan-700 dark:bg-cyan-950 dark:text-cyan-300 border-cyan-200 dark:border-cyan-800",
 };
 
 function getLabelColor(label: string) {
-  return labelColors[label.toLowerCase()] || "bg-muted text-muted-foreground border-border";
+  return (
+    labelColors[label.toLowerCase()] ||
+    "bg-muted text-muted-foreground border-border"
+  );
 }
 
-function getDaysUntilDue(dateStr: string): { text: string; urgent: boolean; overdue: boolean } {
+function getDaysUntilDue(dateStr: string): {
+  text: string;
+  urgent: boolean;
+  overdue: boolean;
+} {
   const due = new Date(dateStr + "T00:00:00");
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const diff = Math.ceil((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  const diff = Math.ceil(
+    (due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24),
+  );
 
-  if (diff < 0) return { text: `${Math.abs(diff)}d overdue`, urgent: true, overdue: true };
+  if (diff < 0)
+    return { text: `${Math.abs(diff)}d overdue`, urgent: true, overdue: true };
   if (diff === 0) return { text: "Due today", urgent: true, overdue: false };
   if (diff === 1) return { text: "Due tomorrow", urgent: true, overdue: false };
-  if (diff <= 3) return { text: `${diff} days left`, urgent: true, overdue: false };
+  if (diff <= 3)
+    return { text: `${diff} days left`, urgent: true, overdue: false };
   return { text: `${diff} days left`, urgent: false, overdue: false };
 }
 
@@ -148,7 +207,7 @@ export function TicketDetailModal({
       : "auto",
   );
   const [assigneeId, setAssigneeId] = useState<string | null>(
-    ticket?.assignee?.id || null
+    ticket?.assignee?.id || null,
   );
   const [dueDate, setDueDate] = useState(ticket?.due_date || "");
   const [labels, setLabels] = useState<string[]>(ticket?.labels || []);
@@ -156,6 +215,34 @@ export function TicketDetailModal({
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showLabelInput, setShowLabelInput] = useState(false);
+
+  // Real API recommendations
+  const [recommendations, setRecommendations] = useState<
+    RecommendedEngineerResponse[]
+  >([]);
+  const [recError, setRecError] = useState<string | null>(null);
+  const [recLoading, setRecLoading] = useState(false);
+
+  useEffect(() => {
+    async function loadRecommendations() {
+      if (!open || !token || !ticket) return;
+      setRecLoading(true);
+      setRecError(null);
+      const { data, error } = await getTicketEngineerRecommendations(
+        token,
+        projectSlug,
+        ticket.ticket_key,
+      );
+      if (error) {
+        setRecommendations([]);
+        setRecError(error);
+      } else {
+        setRecommendations(data?.recommendations ?? []);
+      }
+      setRecLoading(false);
+    }
+    void loadRecommendations();
+  }, [open, projectSlug, ticket?.ticket_key, token]);
 
   const handleSave = useCallback(async () => {
     if (!token || !ticket) return;
@@ -174,7 +261,7 @@ export function TicketDetailModal({
         assignee_id: assigneeId,
         due_date: dueDate || undefined,
         labels,
-      }
+      },
     );
 
     setIsSaving(false);
@@ -188,18 +275,34 @@ export function TicketDetailModal({
       onClose();
     }
   }, [
-    token, ticket, projectSlug, title, description,
-    priority, type, sizeMode, assigneeId, dueDate, labels,
-    onUpdated, onClose,
+    token,
+    ticket,
+    projectSlug,
+    title,
+    description,
+    priority,
+    type,
+    sizeMode,
+    assigneeId,
+    dueDate,
+    labels,
+    onUpdated,
+    onClose,
   ]);
 
   const handleDelete = useCallback(async () => {
     if (!token || !ticket) return;
-    const confirmed = window.confirm(`Delete ${ticket.ticket_key}? This cannot be undone.`);
+    const confirmed = window.confirm(
+      `Delete ${ticket.ticket_key}? This cannot be undone.`,
+    );
     if (!confirmed) return;
 
     setIsDeleting(true);
-    const { error } = await apiDeleteTicket(token, projectSlug, ticket.ticket_key);
+    const { error } = await apiDeleteTicket(
+      token,
+      projectSlug,
+      ticket.ticket_key,
+    );
     setIsDeleting(false);
     if (error) {
       toast.error(error);
@@ -229,29 +332,32 @@ export function TicketDetailModal({
   const TypeIcon = currentType?.icon || CheckSquare;
   const currentPriority = priorityOptions.find((p) => p.value === priority);
   const selectedOrPredictedSize = (
-    sizeMode === "auto" ? (ticket.size_bucket || ticket.size || "M") : sizeMode
+    sizeMode === "auto" ? ticket.size_bucket || ticket.size || "M" : sizeMode
   ) as SizeValue;
   const pointsCost =
     sizePointsMap[selectedOrPredictedSize as keyof typeof sizePointsMap] || 0;
   const dueInfo = dueDate ? getDaysUntilDue(dueDate) : null;
 
-  // Simulated AI recommended member
-  const recommendedMember = members.find((m) => m.user_id !== assigneeId);
+  // Top recommendation for the suggested assignee slot
+  const topRec = recommendations.length > 0 ? recommendations[0] : null;
 
   return (
     <Dialog key={ticket.id} open={open} onOpenChange={(v) => !v && onClose()}>
-      {/* Container setup:
-        Flex column so Header/Footer stick, with max-height to fit screen.
-      */}
       <DialogContent className="flex max-h-[90vh] w-[94vw] flex-col overflow-hidden p-0 sm:w-[55vw] sm:!max-w-[900px]">
-
         {/* ========== HEADER ========== */}
         <DialogHeader className="shrink-0 border-b bg-background px-5 py-3.5 shadow-sm z-10">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className={cn("flex items-center gap-1.5 rounded-md px-2 py-1", currentType?.bg)}>
+              <div
+                className={cn(
+                  "flex items-center gap-1.5 rounded-md px-2 py-1",
+                  currentType?.bg,
+                )}
+              >
                 <TypeIcon className={cn("size-4", currentType?.color)} />
-                <span className="text-xs font-semibold">{currentType?.label}</span>
+                <span className="text-xs font-semibold">
+                  {currentType?.label}
+                </span>
               </div>
               <span className="text-sm font-mono font-medium text-muted-foreground/80">
                 {ticket.ticket_key}
@@ -272,7 +378,7 @@ export function TicketDetailModal({
                       ? "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-400"
                       : dueInfo.urgent
                         ? "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-400"
-                        : "bg-muted/60 text-muted-foreground"
+                        : "bg-muted/60 text-muted-foreground",
                   )}
                 >
                   <Clock className="size-3.5" />
@@ -281,16 +387,16 @@ export function TicketDetailModal({
               )}
             </div>
           </div>
-          <DialogTitle className="sr-only">Edit {ticket.ticket_key}</DialogTitle>
+          <DialogTitle className="sr-only">
+            Edit {ticket.ticket_key}
+          </DialogTitle>
         </DialogHeader>
 
         {/* ========== SCROLLABLE BODY ========== */}
         <div className="flex flex-1 flex-col overflow-hidden md:flex-row">
-
           {/* LEFT SIDE: Main content */}
           <div className="flex-1 overflow-y-auto px-6 py-5">
             <div className="space-y-6">
-
               {/* Title */}
               <div>
                 <Input
@@ -303,7 +409,9 @@ export function TicketDetailModal({
 
               {/* Description */}
               <div className="space-y-2">
-                <Label className="text-xs font-semibold text-muted-foreground">Description</Label>
+                <Label className="text-xs font-semibold text-muted-foreground">
+                  Description
+                </Label>
                 <textarea
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
@@ -314,7 +422,9 @@ export function TicketDetailModal({
 
               {/* Assignee Split */}
               <div className="space-y-2">
-                <Label className="text-xs font-semibold text-muted-foreground">Assignee</Label>
+                <Label className="text-xs font-semibold text-muted-foreground">
+                  Assignee
+                </Label>
                 <div className="grid gap-4 sm:grid-cols-2 items-start">
                   {/* Manual Assignment */}
                   <div className="space-y-2">
@@ -323,7 +433,9 @@ export function TicketDetailModal({
                     </p>
                     <Select
                       value={assigneeId || "unassigned"}
-                      onValueChange={(v) => setAssigneeId(v === "unassigned" ? null : v)}
+                      onValueChange={(v) =>
+                        setAssigneeId(v === "unassigned" ? null : v)
+                      }
                     >
                       <SelectTrigger className="w-full h-10">
                         <SelectValue placeholder="Unassigned" />
@@ -338,12 +450,18 @@ export function TicketDetailModal({
                           </div>
                         </SelectItem>
                         {members.map((member) => (
-                          <SelectItem key={member.user_id} value={member.user_id}>
+                          <SelectItem
+                            key={member.user_id}
+                            value={member.user_id}
+                          >
                             <div className="flex items-center gap-2.5">
                               <div className="flex size-5 items-center justify-center rounded-full bg-primary text-[9px] font-bold text-primary-foreground">
-                                {member.first_name[0]}{member.last_name[0]}
+                                {member.first_name[0]}
+                                {member.last_name[0]}
                               </div>
-                              <span>{member.first_name} {member.last_name}</span>
+                              <span>
+                                {member.first_name} {member.last_name}
+                              </span>
                             </div>
                           </SelectItem>
                         ))}
@@ -351,7 +469,7 @@ export function TicketDetailModal({
                     </Select>
                   </div>
 
-                  {/* AI Recommendation */}
+                  {/* AI Recommendation — top pick */}
                   <div className="space-y-2">
                     <div className="flex items-center gap-1">
                       <Sparkles className="size-3.5 text-primary" />
@@ -359,22 +477,30 @@ export function TicketDetailModal({
                         Suggested Assignee
                       </p>
                     </div>
-                    {recommendedMember ? (
+                    {recLoading ? (
+                      <div className="flex h-10 items-center justify-center gap-2 rounded-lg border border-dashed text-xs text-muted-foreground">
+                        <Loader2 className="size-3 animate-spin" />
+                        Loading...
+                      </div>
+                    ) : topRec ? (
                       <button
                         type="button"
-                        onClick={() => setAssigneeId(recommendedMember.user_id)}
+                        onClick={() => setAssigneeId(topRec.user_id)}
                         className="group flex w-full items-center gap-3 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-left transition-all hover:border-primary/40 hover:bg-primary/10 h-10"
                       >
-                        <div className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground relative">
-                          {recommendedMember.first_name[0]}{recommendedMember.last_name[0]}
+                        <div className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">
+                          {topRec.first_name[0]}
+                          {topRec.last_name[0]}
                         </div>
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-medium leading-none">
-                            {recommendedMember.first_name} {recommendedMember.last_name}
+                            {topRec.first_name} {topRec.last_name}
                           </p>
                         </div>
                         <div className="flex items-center gap-1 text-primary">
-                          <span className="text-xs font-bold">92%</span>
+                          <span className="text-xs font-bold">
+                            {Math.round(topRec.recommendation_score * 100)}%
+                          </span>
                         </div>
                       </button>
                     ) : (
@@ -388,14 +514,16 @@ export function TicketDetailModal({
 
               {/* Labels */}
               <div className="space-y-3">
-                <Label className="text-xs font-semibold text-muted-foreground">Labels</Label>
+                <Label className="text-xs font-semibold text-muted-foreground">
+                  Labels
+                </Label>
                 <div className="flex flex-wrap items-center gap-2">
                   {labels.map((label) => (
                     <span
                       key={label}
                       className={cn(
                         "inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-medium",
-                        getLabelColor(label)
+                        getLabelColor(label),
                       )}
                     >
                       {label}
@@ -415,7 +543,10 @@ export function TicketDetailModal({
                       onChange={(e) => setNewLabel(e.target.value)}
                       onKeyDown={(e) => {
                         if (e.key === "Enter") addLabel(newLabel);
-                        if (e.key === "Escape") { setShowLabelInput(false); setNewLabel(""); }
+                        if (e.key === "Escape") {
+                          setShowLabelInput(false);
+                          setNewLabel("");
+                        }
                       }}
                       placeholder="Type & enter"
                       className="h-7 w-32 text-xs"
@@ -434,28 +565,94 @@ export function TicketDetailModal({
 
                 {showLabelInput && (
                   <div className="flex flex-wrap gap-1.5 pt-1">
-                    {COMMON_LABELS.filter((l) => !labels.includes(l)).slice(0, 6).map((label) => (
+                    {COMMON_LABELS.filter((l) => !labels.includes(l))
+                      .slice(0, 6)
+                      .map((label) => (
+                        <button
+                          key={label}
+                          onClick={() => addLabel(label)}
+                          className={cn(
+                            "rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors hover:opacity-80",
+                            getLabelColor(label),
+                          )}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Recommended Engineers — full list */}
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="size-3.5 text-primary" />
+                  <Label className="text-xs font-semibold text-primary">
+                    Recommended engineers
+                  </Label>
+                </div>
+
+                {recLoading ? (
+                  <div className="flex items-center gap-2 rounded-lg border bg-muted/20 p-4 text-xs text-muted-foreground">
+                    <Loader2 className="size-3.5 animate-spin" />
+                    Loading recommendations...
+                  </div>
+                ) : recError ? (
+                  <p className="rounded-lg border bg-muted/20 p-4 text-xs text-muted-foreground">
+                    {recError}
+                  </p>
+                ) : recommendations.length === 0 ? (
+                  <p className="rounded-lg border bg-muted/20 p-4 text-xs text-muted-foreground">
+                    No engineer recommendations available yet.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {recommendations.map((rec) => (
                       <button
-                        key={label}
-                        onClick={() => addLabel(label)}
-                        className={cn(
-                          "rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors hover:opacity-80",
-                          getLabelColor(label)
-                        )}
+                        key={rec.user_id}
+                        type="button"
+                        onClick={() => setAssigneeId(rec.user_id)}
+                        className="w-full rounded-md border bg-background p-3 text-left transition-colors hover:bg-muted/50"
                       >
-                        {label}
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-medium">
+                              {rec.first_name} {rec.last_name}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              @{rec.username}
+                            </p>
+                          </div>
+                          <Badge
+                            variant={rec.has_capacity ? "default" : "secondary"}
+                            className="text-[10px]"
+                          >
+                            {rec.has_capacity ? "Has capacity" : "Busy"}
+                          </Badge>
+                        </div>
+                        <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
+                          <p>
+                            Match: {Math.round(rec.recommendation_score * 100)}%
+                          </p>
+                          <p>Active tickets: {rec.active_ticket_count}</p>
+                          <p>
+                            Semantic:{" "}
+                            {Math.round(rec.semantic_similarity * 100)}%
+                          </p>
+                          <p>
+                            Capacity: {Math.round(rec.capacity_score * 100)}%
+                          </p>
+                        </div>
                       </button>
                     ))}
                   </div>
                 )}
               </div>
-
             </div>
           </div>
 
           {/* RIGHT SIDEBAR: Metadata */}
           <div className="w-full shrink-0 border-t md:border-l md:border-t-0 bg-muted/10 p-5 md:w-[260px] md:overflow-y-auto flex flex-col gap-5">
-
             <div className="grid grid-cols-2 gap-4 md:grid-cols-1 md:gap-5">
               {/* Priority */}
               <div className="space-y-1.5">
@@ -470,7 +667,9 @@ export function TicketDetailModal({
                     {priorityOptions.map((opt) => (
                       <SelectItem key={opt.value} value={opt.value}>
                         <div className="flex items-center gap-2">
-                          <span className={cn("size-2.5 rounded-full", opt.color)} />
+                          <span
+                            className={cn("size-2.5 rounded-full", opt.color)}
+                          />
                           <span>{opt.label}</span>
                         </div>
                       </SelectItem>
@@ -512,7 +711,13 @@ export function TicketDetailModal({
                           <span>{opt.label}</span>
                           {opt.value !== "auto" && (
                             <span className="ml-auto text-[10px] text-muted-foreground">
-                              ({sizePointsMap[opt.value as keyof typeof sizePointsMap]}pt)
+                              (
+                              {
+                                sizePointsMap[
+                                  opt.value as keyof typeof sizePointsMap
+                                ]
+                              }
+                              pt)
                             </span>
                           )}
                         </div>
@@ -601,7 +806,12 @@ export function TicketDetailModal({
                 </span>
                 <span className="text-muted-foreground">Level</span>
                 <span className="flex items-center justify-end gap-1.5">
-                  <span className={cn("size-2 rounded-full", currentPriority?.color)} />
+                  <span
+                    className={cn(
+                      "size-2 rounded-full",
+                      currentPriority?.color,
+                    )}
+                  />
                   <span className="capitalize font-medium">{priority}</span>
                 </span>
               </div>
@@ -612,7 +822,9 @@ export function TicketDetailModal({
                 <span>Created</span>
                 <span className="font-medium text-foreground/80">
                   {new Date(ticket.created_at).toLocaleDateString("en-US", {
-                    month: "short", day: "numeric", year: "numeric",
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
                   })}
                 </span>
               </div>
@@ -620,7 +832,9 @@ export function TicketDetailModal({
                 <span>Updated</span>
                 <span className="font-medium text-foreground/80">
                   {new Date(ticket.updated_at).toLocaleDateString("en-US", {
-                    month: "short", day: "numeric", year: "numeric",
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
                   })}
                 </span>
               </div>
