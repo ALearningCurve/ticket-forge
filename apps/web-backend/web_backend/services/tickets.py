@@ -4,6 +4,7 @@ Handles ticket creation, updates, sizing, moves (drag-and-drop),
 and deletion. Routes call these — no direct DB queries in routes.
 """
 
+import logging
 import uuid
 from datetime import UTC, datetime
 
@@ -14,25 +15,69 @@ from sqlalchemy.orm import selectinload
 from web_backend.models.project import Project, ProjectBoardColumn, ProjectMember
 from web_backend.models.ticket import ProjectTicket, ProjectTicketCounter
 from web_backend.models.user import AuthUser
-from web_backend.schemas.inference import TicketSizePredictionRequest
 from web_backend.schemas.tickets import (
     TicketCreateRequest,
     TicketMoveRequest,
     TicketUpdateRequest,
 )
-from web_backend.services.recommendations import (
-    apply_ticket_completion_profile_update,
-    is_completion_column_name,
-    sync_project_ticket_to_ml_tables,
-)
-from web_backend.services.inference import predict_ticket_size
-from shared.logging import get_logger
 
-logger = get_logger(__name__)
+# ML-dependent imports — optional for local dev without ml-core
+try:
+    from web_backend.schemas.inference import TicketSizePredictionRequest
+    from web_backend.services.recommendations import (
+        apply_ticket_completion_profile_update,
+        is_completion_column_name,
+        sync_project_ticket_to_ml_tables,
+    )
+    from web_backend.services.inference import predict_ticket_size
+    from shared.logging import get_logger
+
+    logger = get_logger(__name__)
+    _HAS_ML = True
+except ImportError:
+    logger = logging.getLogger(__name__)
+    _HAS_ML = False
 
 MANUAL_SIZE_SOURCE = "manual"
 PREDICTED_SIZE_SOURCE = "predicted"
 SIZE_RECOMPUTE_FIELDS = {"title", "description", "labels", "type"}
+
+
+# ------------------------------------------------------------------ #
+#  ML wrappers — no-op when ml-core is not installed
+# ------------------------------------------------------------------ #
+
+
+async def _sync_to_ml(
+    db: AsyncSession,
+    project: Project,
+    ticket: ProjectTicket,
+    column: ProjectBoardColumn,
+) -> None:
+    """Sync ticket to ML tables if ml-core is available."""
+    if _HAS_ML:
+        await sync_project_ticket_to_ml_tables(db, project, ticket, column)
+
+
+async def _apply_completion_update(
+    db: AsyncSession,
+    *,
+    project: Project,
+    ticket: ProjectTicket,
+    column: ProjectBoardColumn,
+) -> None:
+    """Apply experience decay update if ml-core is available."""
+    if _HAS_ML:
+        await apply_ticket_completion_profile_update(
+            db, project=project, ticket=ticket, column=column
+        )
+
+
+def _is_completion_column(name: str) -> bool:
+    """Check if column name indicates completion."""
+    if _HAS_ML:
+        return is_completion_column_name(name)
+    return name.lower() in {"done", "closed", "completed"}
 
 
 # ------------------------------------------------------------------ #
@@ -75,7 +120,6 @@ async def _generate_ticket_key(
     project_slug: str,
 ) -> str:
     """Generate the next ticket key like TF-1, TF-2, etc."""
-    # Get or create counter
     result = await db.execute(
         select(ProjectTicketCounter).where(
             ProjectTicketCounter.project_id == project_id
@@ -91,7 +135,6 @@ async def _generate_ticket_key(
     counter_row.counter += 1
     next_num = counter_row.counter
 
-    # Build prefix from slug (e.g. "my-project" → "MY" or "testing" → "TEST")
     parts = project_slug.upper().split("-")
     prefix = parts[0][:5] if parts else "TF"
 
@@ -113,13 +156,7 @@ async def _get_next_position(
 
 
 def _assign_manual_size(ticket: ProjectTicket, size_bucket: str | None) -> None:
-    """Persist a user-provided size override on a ticket.
-
-    Args:
-        ticket: Ticket being modified.
-        size_bucket: Explicit size bucket. ``None`` clears any stored size so the
-            backend can fall back to prediction.
-    """
+    """Persist a user-provided size override on a ticket."""
     if size_bucket is None:
         ticket.size_bucket = None
         ticket.size_source = None
@@ -138,17 +175,8 @@ def _build_ticket_prediction_request(
     ticket: ProjectTicket,
     *,
     rail: str,
-) -> TicketSizePredictionRequest:
-    """Convert a project ticket into the serving payload shape.
-
-    Args:
-        project: Project that owns the ticket.
-        ticket: Ticket to classify.
-        rail: Logical serving rail label for inference telemetry.
-
-    Returns:
-        TicketSizePredictionRequest for the production classifier.
-    """
+) -> "TicketSizePredictionRequest":
+    """Convert a project ticket into the serving payload shape."""
     assigned_at = ticket.updated_at if ticket.assignee_id is not None else None
     return TicketSizePredictionRequest(
         title=ticket.title,
@@ -171,17 +199,10 @@ async def _predict_and_persist_ticket_size(
     ticket: ProjectTicket,
     rail: str,
 ) -> bool:
-    """Infer and store a ticket size without breaking the main request path.
+    """Infer and store a ticket size. No-op if ml-core unavailable."""
+    if not _HAS_ML:
+        return False
 
-    Args:
-        db: Active async database session.
-        project: Project that owns the ticket.
-        ticket: Ticket to classify.
-        rail: Serving telemetry rail label.
-
-    Returns:
-        ``True`` when a prediction was stored, otherwise ``False``.
-    """
     project_slug = project.slug
     ticket_key = ticket.ticket_key
 
@@ -229,15 +250,10 @@ async def create_ticket(
     data: TicketCreateRequest,
     user: AuthUser,
 ) -> ProjectTicket:
-    """Create a ticket in a project.
-
-    Raises:
-        ValueError: If project not found, not a member, or invalid column/assignee.
-    """
+    """Create a ticket in a project."""
     project = await _get_project_by_slug(db, slug)
     await _verify_membership(db, project.id, user.id)
 
-    # Verify column belongs to this project
     col_result = await db.execute(
         select(ProjectBoardColumn).where(
             ProjectBoardColumn.id == data.column_id,
@@ -249,7 +265,6 @@ async def create_ticket(
         msg = "Invalid column for this project"
         raise ValueError(msg)
 
-    # Verify assignee is a project member (if provided)
     if data.assignee_id is not None:
         assignee_result = await db.execute(
             select(ProjectMember).where(
@@ -290,7 +305,7 @@ async def create_ticket(
     db.add(ticket)
     await db.commit()
     await db.refresh(ticket)
-    await sync_project_ticket_to_ml_tables(db, project, ticket, destination_column)
+    await _sync_to_ml(db, project, ticket, destination_column)
     await db.commit()
 
     ticket = await _get_ticket_loaded(db, ticket.id)
@@ -316,11 +331,7 @@ async def get_board_tickets(
     slug: str,
     user_id: uuid.UUID,
 ) -> list[ProjectTicket]:
-    """Get all tickets for a project board.
-
-    Raises:
-        ValueError: If project not found or user not a member.
-    """
+    """Get all tickets for a project board."""
     project = await _get_project_by_slug(db, slug)
     await _verify_membership(db, project.id, user_id)
 
@@ -361,11 +372,7 @@ async def get_ticket_by_key(
     ticket_key: str,
     user_id: uuid.UUID,
 ) -> ProjectTicket:
-    """Get a single ticket by its key.
-
-    Raises:
-        ValueError: If not found or user not a member.
-    """
+    """Get a single ticket by its key."""
     project = await _get_project_by_slug(db, slug)
     await _verify_membership(db, project.id, user_id)
 
@@ -396,11 +403,7 @@ async def update_ticket(
     data: TicketUpdateRequest,
     user_id: uuid.UUID,
 ) -> ProjectTicket:
-    """Update ticket fields.
-
-    Raises:
-        ValueError: If not found, not a member, or invalid assignee.
-    """
+    """Update ticket fields."""
     project = await _get_project_by_slug(db, slug)
     await _verify_membership(db, project.id, user_id)
 
@@ -415,7 +418,6 @@ async def update_ticket(
         msg = "Ticket not found"
         raise ValueError(msg)
 
-    # Validate assignee if changing
     if data.assignee_id is not None:
         assignee_check = await db.execute(
             select(ProjectMember).where(
@@ -427,7 +429,6 @@ async def update_ticket(
             msg = "Assignee is not a member of this project"
             raise ValueError(msg)
 
-    # Apply updates
     update_fields = data.model_dump(exclude_unset=True)
     legacy_size_provided = "size" in data.model_fields_set
     manual_size_provided = (
@@ -451,7 +452,7 @@ async def update_ticket(
         select(ProjectBoardColumn).where(ProjectBoardColumn.id == ticket.column_id)
     )
     current_column = column_result.scalar_one()
-    await sync_project_ticket_to_ml_tables(db, project, ticket, current_column)
+    await _sync_to_ml(db, project, ticket, current_column)
     await db.commit()
 
     ticket = await _get_ticket_loaded(db, ticket.id)
@@ -535,17 +536,10 @@ async def move_ticket(
     data: TicketMoveRequest,
     user_id: uuid.UUID,
 ) -> ProjectTicket:
-    """Move a ticket to a different column/position.
-
-    Reorders other tickets in the destination column to make room.
-
-    Raises:
-        ValueError: If not found, not a member, or invalid column.
-    """
+    """Move a ticket to a different column/position."""
     project = await _get_project_by_slug(db, slug)
     await _verify_membership(db, project.id, user_id)
 
-    # Verify destination column
     col_result = await db.execute(
         select(ProjectBoardColumn).where(
             ProjectBoardColumn.id == data.column_id,
@@ -574,13 +568,11 @@ async def move_ticket(
         select(ProjectBoardColumn).where(ProjectBoardColumn.id == old_column_id)
     )
     old_column = old_column_result.scalar_one()
-    was_complete = is_completion_column_name(old_column.name)
-    is_complete = is_completion_column_name(destination_column.name)
+    was_complete = _is_completion_column(old_column.name)
+    is_complete = _is_completion_column(destination_column.name)
 
-    # If moving within the same column
     if old_column_id == data.column_id:
         if data.position > old_position:
-            # Moving down — shift others up
             await db.execute(
                 update(ProjectTicket)
                 .where(
@@ -592,7 +584,6 @@ async def move_ticket(
                 .values(position=ProjectTicket.position - 1)
             )
         elif data.position < old_position:
-            # Moving up — shift others down
             await db.execute(
                 update(ProjectTicket)
                 .where(
@@ -604,8 +595,6 @@ async def move_ticket(
                 .values(position=ProjectTicket.position + 1)
             )
     else:
-        # Moving to different column
-        # Close gap in source column
         await db.execute(
             update(ProjectTicket)
             .where(
@@ -615,7 +604,6 @@ async def move_ticket(
             )
             .values(position=ProjectTicket.position - 1)
         )
-        # Make room in destination column
         await db.execute(
             update(ProjectTicket)
             .where(
@@ -631,14 +619,11 @@ async def move_ticket(
 
     await db.commit()
     await db.refresh(ticket)
-    await sync_project_ticket_to_ml_tables(db, project, ticket, destination_column)
+    await _sync_to_ml(db, project, ticket, destination_column)
     await db.commit()
     if not was_complete and is_complete:
-        await apply_ticket_completion_profile_update(
-            db,
-            project=project,
-            ticket=ticket,
-            column=destination_column,
+        await _apply_completion_update(
+            db, project=project, ticket=ticket, column=destination_column
         )
     return await _get_ticket_loaded(db, ticket.id)
 
@@ -654,11 +639,7 @@ async def delete_ticket(
     ticket_key: str,
     user_id: uuid.UUID,
 ) -> None:
-    """Delete a ticket. Any project member can delete.
-
-    Raises:
-        ValueError: If not found or not a member.
-    """
+    """Delete a ticket. Any project member can delete."""
     project = await _get_project_by_slug(db, slug)
     await _verify_membership(db, project.id, user_id)
 
@@ -678,7 +659,6 @@ async def delete_ticket(
 
     await db.delete(ticket)
 
-    # Close gap in column
     await db.execute(
         update(ProjectTicket)
         .where(
