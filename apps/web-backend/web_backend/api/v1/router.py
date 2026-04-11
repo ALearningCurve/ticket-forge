@@ -4,23 +4,23 @@ from fastapi import APIRouter
 
 from web_backend.api.v1.auth import router as auth_router
 from web_backend.api.v1.projects import router as projects_router
+from web_backend.api.v1.recommendations import router as recommendations_router
 from web_backend.api.v1.tickets import router as tickets_router
 from web_backend.api.v1.users import router as users_router
 
 router = APIRouter(prefix="/api/v1")
 router.include_router(auth_router)
 router.include_router(projects_router)
+router.include_router(recommendations_router)
 router.include_router(tickets_router)
 router.include_router(users_router)
 
-# Routes below depend on ml-core (embeddings, recommendations)
+# Routes below depend on ml-core at import time
 try:
   from web_backend.api.v1.inference import router as inference_router
   from web_backend.api.v1.profile import router as profile_router
-  from web_backend.api.v1.recommendations import router as recommendations_router
 
   router.include_router(inference_router)
   router.include_router(profile_router)
-  router.include_router(recommendations_router)
 except ImportError:
   pass

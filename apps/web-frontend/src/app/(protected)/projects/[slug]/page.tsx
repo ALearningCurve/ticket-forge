@@ -227,6 +227,7 @@ export default function ProjectDetailPage() {
           <TeamView
             members={project.members}
             tickets={tickets}
+            projectSlug={project.slug}
             sizePointsMap={project.size_points_map}
             weeklyPointsPerMember={project.weekly_points_per_member}
           />

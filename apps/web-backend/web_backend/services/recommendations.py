@@ -6,10 +6,16 @@ import json
 import uuid
 from dataclasses import dataclass
 
-from ml_core.embeddings import get_embedding_service
-from ml_core.keywords import get_keyword_extractor
-from ml_core.profiles import ProfileUpdater
-from ml_core.retrieval.hybrid_retrieval import vector_to_pgvector_text
+try:
+    from ml_core.embeddings import get_embedding_service
+    from ml_core.keywords import get_keyword_extractor
+    from ml_core.profiles import ProfileUpdater
+    from ml_core.retrieval.hybrid_retrieval import vector_to_pgvector_text
+
+    _HAS_ML = True
+except ImportError:
+    _HAS_ML = False
+
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -252,6 +258,10 @@ async def _fetch_project_ticket_with_column(
 def _embed_ticket_text(title: str, description: str | None) -> tuple[str, str]:
     """Generate the pgvector text and lexical query text for a ticket."""
 
+    if not _HAS_ML:
+        msg = "ml-core is required for embedding tickets"
+        raise RuntimeError(msg)
+
     embedding_service = get_embedding_service()
     keyword_extractor = get_keyword_extractor()
     combined_text = f"{title}\n{description or ''}".strip()
@@ -270,6 +280,9 @@ async def sync_project_ticket_to_ml_tables(
     column: ProjectBoardColumn,
 ) -> None:
     """Upsert a project ticket into the ML-side ticket and assignment tables."""
+
+    if not _HAS_ML:
+        return
 
     vector_text, _ = _embed_ticket_text(ticket.title, ticket.description)
     await db.execute(
@@ -369,6 +382,9 @@ async def sync_project_tickets_for_recommendations(
 ) -> None:
     """Sync all project tickets into the ML-side tables before recommendation."""
 
+    if not _HAS_ML:
+        return
+
     ticket_rows = await db.execute(
         select(ProjectTicket, ProjectBoardColumn)
         .join(ProjectBoardColumn, ProjectBoardColumn.id == ProjectTicket.column_id)
@@ -390,10 +406,15 @@ async def recommend_engineers_for_ticket(
     project = await _get_project_for_member_validation(db, slug, current_user_id)
     member_profiles = await ensure_project_member_profiles(db, project.id)
     ticket, column = await _fetch_project_ticket_with_column(db, project.id, ticket_key)
-    await sync_project_ticket_to_ml_tables(db, project, ticket, column)
-    await db.commit()
 
-    vector_text, keyword_text = _embed_ticket_text(ticket.title, ticket.description)
+    if _HAS_ML:
+        await sync_project_ticket_to_ml_tables(db, project, ticket, column)
+        await db.commit()
+        vector_text, keyword_text = _embed_ticket_text(ticket.title, ticket.description)
+    else:
+        vector_text = ZERO_VECTOR_TEXT
+        keyword_text = ticket.title
+
     allowed_member_ids = [profile.member_id for profile in member_profiles.values()]
     query = text(
         """
@@ -504,7 +525,9 @@ async def recommend_tickets_for_engineer(
     project = await _get_project_for_member_validation(db, slug, current_user_id)
     await _get_target_project_member(db, project.id, engineer_user_id)
     member_profiles = await ensure_project_member_profiles(db, project.id)
-    await sync_project_tickets_for_recommendations(db, project)
+
+    if _HAS_ML:
+        await sync_project_tickets_for_recommendations(db, project)
 
     target_profile = member_profiles.get(engineer_user_id)
     if target_profile is None:
@@ -642,6 +665,9 @@ async def apply_ticket_completion_profile_update(
     column: ProjectBoardColumn,
 ) -> None:
     """Apply one-time ML profile updates when a project ticket is completed."""
+
+    if not _HAS_ML:
+        return
 
     if ticket.assignee_id is None or not is_completion_column_name(column.name):
         return

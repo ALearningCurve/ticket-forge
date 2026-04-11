@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Sparkles } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Loader2, Sparkles } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,11 +18,18 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
-import type { ProjectMember, TicketResponse } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
+import {
+  getEngineerTicketRecommendations,
+  type EngineerTicketRecommendationsResponse,
+  type ProjectMember,
+  type TicketResponse,
+} from "@/lib/api";
 
 interface TeamViewProps {
   members: ProjectMember[];
   tickets: TicketResponse[];
+  projectSlug: string;
   sizePointsMap: { S: number; M: number; L: number; XL: number };
   weeklyPointsPerMember: number;
 }
@@ -38,10 +45,6 @@ const AVATAR_COLORS = [
   "#14b8a6",
 ];
 
-function getMatchScore(): number {
-  return Math.floor(Math.random() * 20) + 75;
-}
-
 function getAssignedTickets(
   tickets: TicketResponse[],
   userId: string
@@ -49,13 +52,6 @@ function getAssignedTickets(
   return tickets.filter((t) => t.assignee?.id === userId);
 }
 
-/**
- * Availability logic:
- * - Count only tickets with due dates in the future or today (active work)
- * - Tickets due yesterday or before = completed work, don't count
- * - < 3 active future tickets = Available
- * - 3+ active future tickets = Busy
- */
 function getActiveTickets(
   tickets: TicketResponse[],
   userId: string
@@ -65,11 +61,7 @@ function getActiveTickets(
 
   return tickets.filter((t) => {
     if (t.assignee?.id !== userId) return false;
-
-    // No due date = still active (unknown completion)
     if (!t.due_date) return true;
-
-    // Due date is today or in the future = active
     const due = new Date(t.due_date + "T00:00:00");
     return due >= today;
   });
@@ -89,21 +81,46 @@ function getAvailabilityLabel(
   return { label: "Overloaded", variant: "destructive" };
 }
 
-export function TeamView({ members, tickets }: TeamViewProps) {
+export function TeamView({
+  members,
+  tickets,
+  projectSlug,
+}: TeamViewProps) {
+  const { token } = useAuth();
   const [selectedMember, setSelectedMember] = useState<ProjectMember | null>(
     null
   );
   const [selectedMemberIndex, setSelectedMemberIndex] = useState(0);
+  const [recommendations, setRecommendations] =
+    useState<EngineerTicketRecommendationsResponse | null>(null);
+  const [recLoading, setRecLoading] = useState(false);
+  const [recError, setRecError] = useState<string | null>(null);
 
-  function getRecommendedTickets(): TicketResponse[] {
-    return tickets.filter((t) => !t.assignee).slice(0, 5);
-  }
+  // Fetch recommendations when a member is selected
+  useEffect(() => {
+    async function fetchRecs() {
+      if (!selectedMember || !token) return;
 
-  function getSuggestedReassignments(userId: string): TicketResponse[] {
-    return tickets
-      .filter((t) => t.assignee && t.assignee.id !== userId)
-      .slice(0, 3);
-  }
+      setRecLoading(true);
+      setRecError(null);
+      setRecommendations(null);
+
+      const result = await getEngineerTicketRecommendations(
+        token,
+        projectSlug,
+        selectedMember.user_id
+      );
+
+      if (result.error) {
+        setRecError(result.error);
+      } else {
+        setRecommendations(result.data);
+      }
+      setRecLoading(false);
+    }
+
+    void fetchRecs();
+  }, [selectedMember, token, projectSlug]);
 
   function handleMemberClick(member: ProjectMember, index: number) {
     setSelectedMember(member);
@@ -187,8 +204,11 @@ export function TeamView({ members, tickets }: TeamViewProps) {
                         {assigned.slice(0, 3).map((ticket) => {
                           const isOverdue =
                             ticket.due_date &&
-                            new Date(ticket.due_date + "T00:00:00") <
-                              new Date(new Date().toISOString().split("T")[0] + "T00:00:00");
+                            new Date(ticket.due_date + "T00:00:00") 
+                              new Date(
+                                new Date().toISOString().split("T")[0] +
+                                  "T00:00:00"
+                              );
 
                           return (
                             <div
@@ -303,8 +323,11 @@ export function TeamView({ members, tickets }: TeamViewProps) {
                       (ticket) => {
                         const isOverdue =
                           ticket.due_date &&
-                          new Date(ticket.due_date + "T00:00:00") <
-                            new Date(new Date().toISOString().split("T")[0] + "T00:00:00");
+                          new Date(ticket.due_date + "T00:00:00") 
+                            new Date(
+                              new Date().toISOString().split("T")[0] +
+                                "T00:00:00"
+                            );
 
                         return (
                           <div
@@ -349,7 +372,7 @@ export function TeamView({ members, tickets }: TeamViewProps) {
                                 variant="secondary"
                                 className="text-[10px]"
                               >
-                                {ticket.size}
+                                {ticket.size_bucket || ticket.size || "—"}
                               </Badge>
                             </div>
                           </div>
@@ -362,7 +385,7 @@ export function TeamView({ members, tickets }: TeamViewProps) {
 
               <Separator />
 
-              {/* AI Recommended Tickets */}
+              {/* AI Recommended Tickets — real API data */}
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
                   <Sparkles className="size-4 text-primary" />
@@ -375,134 +398,102 @@ export function TeamView({ members, tickets }: TeamViewProps) {
                   and current workload, these tickets are the best match.
                 </p>
 
-                {getRecommendedTickets().length > 0 ? (
+                {recLoading ? (
+                  <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
+                    <Loader2 className="size-4 animate-spin" />
+                    Analyzing skill match...
+                  </div>
+                ) : recError ? (
+                  <div className="rounded-lg border border-dashed px-4 py-8 text-center">
+                    <p className="text-sm text-muted-foreground">{recError}</p>
+                  </div>
+                ) : recommendations &&
+                  recommendations.recommendations.length > 0 ? (
                   <div className="space-y-2">
-                    {getRecommendedTickets().map(
-                      (ticket) => {
-                        const score = getMatchScore();
-                        return (
-                          <div
-                            key={ticket.id}
-                            className="flex items-center justify-between rounded-lg border border-dashed border-primary/20 bg-primary/5 px-3 py-2.5"
-                          >
-                            <div className="flex min-w-0 items-center gap-3">
-                              <div className="flex shrink-0 flex-col items-center">
-                                <span className="text-lg font-bold text-primary">
-                                  {score}%
+                    {recommendations.recommendations.map((ticket) => {
+                      const score = Math.round(
+                        ticket.recommendation_score * 100
+                      );
+                      const semantic = Math.round(
+                        ticket.semantic_similarity * 100
+                      );
+                      const lexical = Math.round(ticket.lexical_score * 100);
+
+                      return (
+                        <div
+                          key={ticket.ticket_key}
+                          className="flex items-center justify-between rounded-lg border border-dashed border-primary/20 bg-primary/5 px-3 py-2.5"
+                        >
+                          <div className="flex min-w-0 items-center gap-3">
+                            <div className="flex shrink-0 flex-col items-center">
+                              <span className="text-lg font-bold text-primary">
+                                {score}%
+                              </span>
+                              <span className="text-[9px] text-muted-foreground">
+                                match
+                              </span>
+                            </div>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-xs font-medium text-muted-foreground">
+                                  {ticket.ticket_key}
                                 </span>
-                                <span className="text-[9px] text-muted-foreground">
-                                  match
+                                <span className="truncate text-sm font-medium">
+                                  {ticket.title}
                                 </span>
                               </div>
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-1.5">
-                                  <span className="text-xs font-medium text-muted-foreground">
-                                    {ticket.ticket_key}
+                              <div className="mt-0.5 flex items-center gap-1.5">
+                                <Badge
+                                  variant="outline"
+                                  className="text-[10px]"
+                                >
+                                  {ticket.priority}
+                                </Badge>
+                                <Badge
+                                  variant="secondary"
+                                  className="text-[10px]"
+                                >
+                                  {ticket.type}
+                                </Badge>
+                                <span className="text-[10px] text-muted-foreground">
+                                  {ticket.column_name}
+                                </span>
+                              </div>
+                              <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground">
+                                <span>Semantic: {semantic}%</span>
+                                <span>Lexical: {lexical}%</span>
+                                {ticket.assignee_name && (
+                                  <span>
+                                    Assigned: {ticket.assignee_name}
                                   </span>
-                                  <span className="truncate text-sm font-medium">
-                                    {ticket.title}
-                                  </span>
-                                </div>
-                                <div className="mt-0.5 flex items-center gap-1.5">
-                                  <Badge
-                                    variant="outline"
-                                    className="text-[10px]"
-                                  >
-                                    {ticket.priority}
-                                  </Badge>
-                                  <Badge
-                                    variant="secondary"
-                                    className="text-[10px]"
-                                  >
-                                    {ticket.size}
-                                  </Badge>
-                                  <Badge
-                                    variant="secondary"
-                                    className="text-[10px]"
-                                  >
-                                    {ticket.type}
-                                  </Badge>
-                                </div>
+                                )}
                               </div>
                             </div>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="ml-2 shrink-0 text-xs"
-                            >
-                              Assign
-                            </Button>
                           </div>
-                        );
-                      }
-                    )}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="ml-2 shrink-0 text-xs"
+                          >
+                            Assign
+                          </Button>
+                        </div>
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="rounded-lg border border-dashed px-4 py-8 text-center">
                     <Sparkles className="mx-auto mb-2 size-5 text-muted-foreground/40" />
                     <p className="text-sm text-muted-foreground">
-                      No unassigned tickets to recommend
+                      No ticket recommendations available
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground/60">
-                      All tickets are already assigned
+                      Recommendations require engineer profiles with resume
+                      data
                     </p>
                   </div>
                 )}
               </div>
-
-              {/* Suggested reassignments */}
-              {getSuggestedReassignments(selectedMember.user_id).length >
-                0 && (
-                <>
-                  <Separator />
-                  <div className="space-y-3">
-                    <h3 className="text-sm font-semibold text-muted-foreground">
-                      Suggested reassignments
-                    </h3>
-                    <p className="text-xs text-muted-foreground">
-                      These tickets assigned to others may be a better fit for{" "}
-                      {selectedMember.first_name}.
-                    </p>
-                    <div className="space-y-1.5">
-                      {getSuggestedReassignments(selectedMember.user_id).map(
-                        (ticket) => {
-                          const score = getMatchScore();
-                          return (
-                            <div
-                              key={ticket.id}
-                              className="flex items-center justify-between rounded-md border px-3 py-2"
-                            >
-                              <div className="flex min-w-0 items-center gap-2">
-                                <span className="text-sm font-bold text-muted-foreground">
-                                  {score}%
-                                </span>
-                                <span className="text-xs font-medium text-muted-foreground">
-                                  {ticket.ticket_key}
-                                </span>
-                                <span className="truncate text-sm">
-                                  {ticket.title}
-                                </span>
-                              </div>
-                              <div className="ml-2 flex shrink-0 items-center gap-2">
-                                <span className="text-[10px] text-muted-foreground">
-                                  from {ticket.assignee?.first_name}
-                                </span>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-7 text-xs"
-                                >
-                                  Reassign
-                                </Button>
-                              </div>
-                            </div>
-                          );
-                        }
-                      )}
-                    </div>
-                  </div>
-                </>
-              )}
             </div>
           </DialogContent>
         )}

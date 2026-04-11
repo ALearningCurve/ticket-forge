@@ -118,50 +118,54 @@ export interface BoardTicketsResponse {
   tickets: TicketResponse[];
 }
 
-export interface RecommendedEngineerResponse {
-  member_id: number;
+export interface EngineerRecommendation {
   user_id: string;
   username: string;
   first_name: string;
   last_name: string;
-  email: string;
-  active_ticket_count: number;
-  capacity_score: number;
-  has_capacity: boolean;
-  semantic_similarity: number;
-  lexical_score: number;
-  recommendation_score: number;
+  similarity_score: number;
+  matching_keywords: string[];
+  email?: string;
+  member_id?: number;
+  active_ticket_count?: number;
+  capacity_score?: number;
+  has_capacity?: boolean;
+  semantic_similarity?: number;
+  lexical_score?: number;
+  recommendation_score?: number;
 }
 
 export interface TicketEngineerRecommendationsResponse {
   ticket_key: string;
-  recommendations: RecommendedEngineerResponse[];
+  recommendations: EngineerRecommendation[];
 }
 
-export interface RecommendedTicketResponse {
+export interface TicketRecommendation {
   ticket_key: string;
   title: string;
-  description: string | null;
-  priority: string;
-  type: string;
-  labels: string[];
-  due_date: string | null;
-  semantic_similarity: number;
-  lexical_score: number;
-  recommendation_score: number;
-  assignee_id: string | null;
-  assignee_name: string | null;
-  column_name: string;
+  similarity_score: number;
+  matching_keywords: string[];
+  description?: string | null;
+  priority?: string;
+  type?: string;
+  labels?: string[];
+  due_date?: string | null;
+  semantic_similarity?: number;
+  lexical_score?: number;
+  recommendation_score?: number;
+  assignee_id?: string | null;
+  assignee_name?: string | null;
+  column_name?: string;
 }
 
 export interface EngineerTicketRecommendationsResponse {
   user_id: string;
-  username: string;
-  first_name: string;
-  last_name: string;
-  active_ticket_count: number;
-  has_capacity: boolean;
-  recommendations: RecommendedTicketResponse[];
+  recommendations: TicketRecommendation[];
+  username?: string;
+  first_name?: string;
+  last_name?: string;
+  active_ticket_count?: number;
+  has_capacity?: boolean;
 }
 
 export interface ResumeProfileStatusResponse {
@@ -520,7 +524,7 @@ export function deleteTicket(token: string, slug: string, ticketKey: string) {
   });
 }
 
-export function getTicketEngineerRecommendations(
+export function getEngineerRecommendations(
   token: string,
   slug: string,
   ticketKey: string
@@ -534,7 +538,7 @@ export function getTicketEngineerRecommendations(
   );
 }
 
-export function getEngineerTicketRecommendations(
+export function getTicketRecommendations(
   token: string,
   slug: string,
   userId: string
@@ -546,4 +550,20 @@ export function getEngineerTicketRecommendations(
       token,
     }
   );
+}
+
+export function getTicketEngineerRecommendations(
+  token: string,
+  slug: string,
+  ticketKey: string
+) {
+  return getEngineerRecommendations(token, slug, ticketKey);
+}
+
+export function getEngineerTicketRecommendations(
+  token: string,
+  slug: string,
+  userId: string
+) {
+  return getTicketRecommendations(token, slug, userId);
 }
