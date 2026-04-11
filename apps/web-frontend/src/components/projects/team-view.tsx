@@ -17,6 +17,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { TicketDetailModal } from "@/components/projects/board/ticket-detail-modal";
 import { useAuth } from "@/lib/auth-context";
 import { cn } from "@/lib/utils";
 import {
@@ -104,6 +105,7 @@ export function TeamView({
   const [recommendations, setRecommendations] = useState<EngineerTicketRecommendationsResponse | null>(null);
   const [recLoading, setRecLoading] = useState(false);
   const [recError, setRecError] = useState<string | null>(null);
+  const [viewTicketKey, setViewTicketKey] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchRecs() {
@@ -443,6 +445,10 @@ export function TeamView({
                                 size="sm"
                                 variant="secondary"
                                 className="w-full lg:w-9 lg:h-9 lg:p-0 rounded-full lg:opacity-0 lg:group-hover:opacity-100 transition-all hover:bg-primary hover:text-primary-foreground"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setViewTicketKey(ticket.ticket_key);
+                                }}
                               >
                                 <span className="lg:hidden mr-2">View Ticket</span>
                                 <ArrowRight className="size-4" />
@@ -471,6 +477,19 @@ export function TeamView({
           </DialogContent>
         )}
       </Dialog>
+
+      {/* Ticket Detail Modal — opened from recommendation arrow */}
+      <TicketDetailModal
+        ticket={viewTicketKey ? tickets.find((t) => t.ticket_key === viewTicketKey) ?? null : null}
+        projectSlug={projectSlug}
+        members={members}
+        open={!!viewTicketKey}
+        onClose={() => setViewTicketKey(null)}
+        onUpdated={() => {
+          setViewTicketKey(null);
+        }}
+        onDeleted={() => setViewTicketKey(null)}
+      />
     </>
   );
 }
