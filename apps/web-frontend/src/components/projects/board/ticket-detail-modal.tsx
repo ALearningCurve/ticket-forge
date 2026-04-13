@@ -59,6 +59,7 @@ interface TicketDetailModalProps {
   onDeleted: (ticketKey: string) => void;
 }
 
+
 const priorityOptions = [
   {
     value: "critical",
@@ -222,6 +223,41 @@ export function TicketDetailModal({
   >([]);
   const [recError, setRecError] = useState<string | null>(null);
   const [recLoading, setRecLoading] = useState(false);
+
+  const [aiSizeEstimate, setAiSizeEstimate] = useState<string | null>(null);
+  const [isEstimating, setIsEstimating] = useState(false);
+
+  const handleEstimateSize = useCallback(async () => {
+    if (!token || !ticket) return;
+
+    // If ticket already has an AI prediction, show it immediately
+    if (ticket.size_bucket && ticket.size_source === "predicted") {
+      setAiSizeEstimate(ticket.size_bucket);
+      return;
+    }
+
+    // Otherwise, save with null size to trigger backend prediction
+    setIsEstimating(true);
+    const { data, error } = await updateTicket(
+      token,
+      projectSlug,
+      ticket.ticket_key,
+      { size_bucket: null },
+    );
+    setIsEstimating(false);
+
+    if (error) {
+      toast.error("Could not estimate size");
+      return;
+    }
+
+    if (data?.size_bucket) {
+      setAiSizeEstimate(data.size_bucket);
+      onUpdated(data);
+    } else {
+      toast.error("AI model unavailable — set size manually");
+    }
+  }, [token, ticket, projectSlug, onUpdated]);
 
   useEffect(() => {
     async function loadRecommendations() {
@@ -683,48 +719,89 @@ export function TicketDetailModal({
                 <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
                   Size
                 </Label>
-                <Select
-                  value={sizeMode}
-                  onValueChange={(value) => setSizeMode(value as SizeMode)}
-                >
-                  <SelectTrigger className="h-9 text-sm bg-background">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {sizeOptions.map((opt) => (
-                      <SelectItem key={opt.value} value={opt.value}>
-                        <div className="flex items-center gap-2">
-                          {opt.value === "auto" ? (
-                            <span className="flex size-5 items-center justify-center rounded bg-muted text-[10px] font-bold text-muted-foreground">
-                              {opt.short}
-                            </span>
-                          ) : (
-                            <span
-                              className={cn(
-                                "flex size-5 items-center justify-center rounded text-[10px] font-bold",
-                                sizeColors[opt.value],
-                              )}
-                            >
-                              {opt.short}
-                            </span>
-                          )}
-                          <span>{opt.label}</span>
-                          {opt.value !== "auto" && (
-                            <span className="ml-auto text-[10px] text-muted-foreground">
-                              (
-                              {
-                                sizePointsMap[
-                                  opt.value as keyof typeof sizePointsMap
-                                ]
-                              }
-                              pt)
-                            </span>
-                          )}
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="flex items-center gap-1.5">
+                  <Select
+                    value={sizeMode === "auto" ? "" : sizeMode}
+                    onValueChange={(value) => {
+                      setSizeMode(value as SizeMode);
+                      setAiSizeEstimate(null);
+                    }}
+                  >
+                    <SelectTrigger className="h-9 flex-1 text-sm bg-background">
+                      <SelectValue placeholder="Not set" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {sizeOptions
+                        .filter((opt) => opt.value !== "auto")
+                        .map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            <div className="flex items-center gap-2">
+                              <span
+                                className={cn(
+                                  "flex size-5 items-center justify-center rounded text-[10px] font-bold",
+                                  sizeColors[opt.value],
+                                )}
+                              >
+                                {opt.short}
+                              </span>
+                              <span>{opt.label}</span>
+                              <span className="ml-auto text-[10px] text-muted-foreground">
+                                ({sizePointsMap[opt.value as keyof typeof sizePointsMap]}pt)
+                              </span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-9 shrink-0 gap-1.5 text-xs text-primary border-primary/30 hover:bg-primary/10 hover:text-primary"
+                    disabled={isEstimating}
+                    onClick={handleEstimateSize}
+                  >
+                    {isEstimating ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <Sparkles className="size-3.5" />
+                    )}
+                    Estimate
+                  </Button>
+                </div>
+
+                {/* AI Estimate Result */}
+                {aiSizeEstimate && (
+                  <div className="flex items-center justify-between rounded-md border border-primary/20 bg-primary/5 px-3 py-2 mt-1.5">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="size-3 text-primary" />
+                      <span className="text-xs text-muted-foreground">AI suggests</span>
+                      <span
+                        className={cn(
+                          "rounded px-1.5 py-0.5 text-[10px] font-bold",
+                          sizeColors[aiSizeEstimate],
+                        )}
+                      >
+                        {aiSizeEstimate}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground">
+                        ({sizePointsMap[aiSizeEstimate as keyof typeof sizePointsMap]}pt)
+                      </span>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-[10px] font-semibold text-primary hover:bg-primary/10"
+                      onClick={() => {
+                        setSizeMode(aiSizeEstimate as SizeMode);
+                        setAiSizeEstimate(null);
+                      }}
+                    >
+                      Accept
+                    </Button>
+                  </div>
+                )}
               </div>
 
               {/* Type */}
