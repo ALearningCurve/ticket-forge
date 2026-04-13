@@ -1,4 +1,4 @@
-"""GraphQL scraper for all issue types from all repos."""
+"""GraphQL scraper for closed issues from all configured repos."""
 
 import asyncio
 
@@ -35,6 +35,9 @@ REPOS = [
   ("hashicorp", "terraform"),
   ("ansible", "ansible"),
   ("prometheus", "prometheus"),
+  ("kubernetes", "kubernetes"),
+  ("helm", "helm"),
+  ("grafana", "grafana"),
 ]
 
 GRAPHQL_URL = "https://api.github.com/graphql"
@@ -103,7 +106,7 @@ def build_query(owner: str, name: str, state: str, cursor: str | None = None) ->
   return {"query": query}
 
 
-async def scrape_repo_state(  # noqa: PLR0915
+async def scrape_repo_state(  # noqa: PLR0915, PLR0912
   client: httpx.AsyncClient,
   owner: str,
   name: str,
@@ -171,6 +174,19 @@ async def scrape_repo_state(  # noqa: PLR0915
       else:
         issue_type = "open_unassigned"
 
+      # Filter: only closed tickets with assignee
+      if state == "CLOSED" and not assignee:
+        continue
+      # Filter: skip open unassigned
+      if issue_type == "open_unassigned":
+        continue
+      # Filter: only tickets after 2020
+      if item["createdAt"] < "2020-01-01":
+        continue
+      # Filter: must have closed_at date
+      if state == "CLOSED" and not item.get("closedAt"):
+        continue
+
       issues_list.append(
         GitHubIssue(
           id=f"{owner}_{name}-{item['number']}",
@@ -192,19 +208,33 @@ async def scrape_repo_state(  # noqa: PLR0915
 
     pbar.set_postfix({"page": page, "total": len(issues_list)})
 
+    if nodes and all(item["createdAt"] < "2020-01-01" for item in nodes):
+      pbar.write(f"Reached pre-2020 tickets, stopping pagination for {repo_full}")
+      break
+
     if not page_info["hasNextPage"]:
       break
 
     cursor = page_info["endCursor"]
     page += 1
-    await asyncio.sleep(0.3)
+    await asyncio.sleep(1.5)
 
   pbar.close()
   return issues_list
 
 
 async def scrape_all_issues(limit_per_state: int | None = None) -> list[dict]:
-  """Scrape all configured repos and return issue records in-memory."""
+  """Scrape closed issues from all configured repos and return records in-memory.
+
+  Only CLOSED issues with a valid assignee and closed_at date, created
+  after 2020-01-01, are collected. Open issues are not scraped.
+
+  Args:
+      limit_per_state: Optional cap on issues fetched per repo (for testing).
+
+  Returns:
+      List of issue dicts serialized from GitHubIssue models.
+  """
   all_issues: list[GitHubIssue] = []
 
   async with httpx.AsyncClient(headers=_headers(), timeout=60.0) as client:
@@ -213,11 +243,8 @@ async def scrape_all_issues(limit_per_state: int | None = None) -> list[dict]:
       print(f"Processing {repo_full}...")
 
       closed = await scrape_repo_state(client, owner, name, "CLOSED", limit_per_state)
-      open_all = await scrape_repo_state(client, owner, name, "OPEN", limit_per_state)
       all_issues.extend(closed)
-      all_issues.extend(open_all)
-
-      print(f"Total from {repo_full}: {len(closed) + len(open_all)}")
+      print(f"Total from {repo_full}: {len(closed)}")
 
   total = len(all_issues)
   closed_count = sum(1 for i in all_issues if i.issue_type == "closed")
@@ -234,8 +261,16 @@ async def scrape_all_issues(limit_per_state: int | None = None) -> list[dict]:
 
 async def main() -> None:
   """Standalone runner for scrape-only testing."""
+  import json
+  from pathlib import Path
+
   records = await scrape_all_issues()
+  output = Path(__file__).parents[3] / "data" / "github_issues" / "all_tickets.json"
+  output.parent.mkdir(parents=True, exist_ok=True)
+  with open(output, "w") as f:
+    json.dump(records, f)
   print(f"Scraped {len(records)} issue records.")
+  print(f"Saved to {output}")
 
 
 if __name__ == "__main__":
