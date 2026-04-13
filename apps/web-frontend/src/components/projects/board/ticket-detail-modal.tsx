@@ -535,7 +535,7 @@ export function TicketDetailModal({
                         </div>
                         <div className="flex items-center gap-1 text-primary">
                           <span className="text-xs font-bold">
-                            {Math.round(topRec.recommendation_score * 100)}%
+                            {Math.round((topRec.recommendation_score ?? 0) * 100)}%
                           </span>
                         </div>
                       </button>
@@ -668,15 +668,15 @@ export function TicketDetailModal({
                         </div>
                         <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
                           <p>
-                            Match: {Math.round(rec.recommendation_score * 100)}%
+                            Match: {Math.round((rec.recommendation_score ?? 0) * 100)}%
                           </p>
                           <p>Active tickets: {rec.active_ticket_count}</p>
                           <p>
                             Semantic:{" "}
-                            {Math.round(rec.semantic_similarity * 100)}%
+                            {Math.round((rec.semantic_similarity ?? 0) * 100)}%
                           </p>
                           <p>
-                            Capacity: {Math.round(rec.capacity_score * 100)}%
+                            Capacity: {Math.round((rec.capacity_score ?? 0) * 100)}%
                           </p>
                         </div>
                       </button>
