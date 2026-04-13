@@ -133,7 +133,7 @@ export function MemberRecommendationModal({
                     ) : null}
 
                     <div className="mt-3 flex flex-wrap items-center gap-2">
-                      {ticket.labels.map((label) => (
+                      {(ticket.labels ?? []).map((label) => (
                         <Badge key={label} variant="outline">
                           {label}
                         </Badge>
@@ -143,13 +143,13 @@ export function MemberRecommendationModal({
                     <div className="mt-3 grid gap-2 text-xs text-muted-foreground md:grid-cols-2">
                       <p>
                         Recommendation:{" "}
-                        {Math.round(ticket.recommendation_score * 100)}%
+                        {Math.round((ticket.recommendation_score ?? 0) * 100)}
                       </p>
                       <p>
-                        Semantic: {Math.round(ticket.semantic_similarity * 100)}%
+                        Semantic: {Math.round((ticket.semantic_similarity ?? 0) * 100)}
                       </p>
                       <p>
-                        Lexical: {Math.round(ticket.lexical_score * 100)}%
+                        Lexical: {Math.round((ticket.lexical_score ?? 0) * 100)}
                       </p>
                       <p>
                         {ticket.assignee_name

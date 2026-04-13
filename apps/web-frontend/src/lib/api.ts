@@ -567,3 +567,6 @@ export function getEngineerTicketRecommendations(
 ) {
   return getTicketRecommendations(token, slug, userId);
 }
+
+// Type alias for backward compatibility
+export type RecommendedEngineerResponse = EngineerRecommendation;
