@@ -525,6 +525,7 @@ export default function ProjectDetailPage() {
               members={project.members}
               tickets={tickets}
               projectSlug={project.slug}
+              boardColumns={project.board_columns}
               sizePointsMap={project.size_points_map}
               weeklyPointsPerMember={project.weekly_points_per_member}
             />
