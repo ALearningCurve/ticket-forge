@@ -111,6 +111,7 @@ class TestRecommendationRoutes:
                             priority="high",
                             type="bug",
                             labels=["backend", "security"],
+                            size_bucket="M",
                             due_date=None,
                             semantic_similarity=0.91,
                             lexical_score=0.42,
