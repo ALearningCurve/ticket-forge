@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Uuid, func
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, String, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from web_backend.models.base import Base, TimestampMixin
@@ -28,6 +28,7 @@ class AuthUser(TimestampMixin, Base):
         String(255), unique=True, nullable=False, index=True
     )
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    member_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     refresh_tokens: Mapped[list["RefreshToken"]] = relationship(

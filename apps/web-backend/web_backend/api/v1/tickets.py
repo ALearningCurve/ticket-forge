@@ -11,6 +11,7 @@ from web_backend.database import get_db
 from web_backend.models.user import AuthUser
 from web_backend.schemas.tickets import (
     BoardTicketsResponse,
+    TicketBatchSizingResponse,
     TicketAssigneeResponse,
     TicketCreateRequest,
     TicketMoveRequest,
@@ -19,6 +20,7 @@ from web_backend.schemas.tickets import (
 )
 from web_backend.security.dependencies import get_current_user
 from web_backend.services.tickets import (
+    classify_missing_ticket_sizes,
     create_ticket,
     delete_ticket,
     get_board_tickets,
@@ -56,6 +58,11 @@ def _ticket_to_response(ticket) -> TicketResponse:
         priority=ticket.priority,
         type=ticket.type,
         labels=ticket.labels,
+        size=ticket.size_bucket,
+        size_bucket=ticket.size_bucket,
+        size_source=ticket.size_source,
+        size_confidence=ticket.size_confidence,
+        size_updated_at=ticket.size_updated_at,
         due_date=ticket.due_date,
         position=ticket.position,
         assignee=assignee,
@@ -114,6 +121,36 @@ async def create_ticket_endpoint(
         ) from exc
 
     return _ticket_to_response(ticket)
+
+
+# ------------------------------------------------------------------ #
+#  POST /projects/:slug/tickets/classify-missing — backfill AI sizes
+# ------------------------------------------------------------------ #
+
+
+@router.post("/classify-missing", response_model=TicketBatchSizingResponse)
+async def classify_missing_ticket_sizes_endpoint(
+    slug: str,
+    current_user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> TicketBatchSizingResponse:
+    """Classify and persist any tickets that do not have a stored size."""
+    try:
+        updated_count, tickets = await classify_missing_ticket_sizes(
+            db,
+            slug,
+            current_user.id,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    return TicketBatchSizingResponse(
+        updated_count=updated_count,
+        tickets=[_ticket_to_response(ticket) for ticket in tickets],
+    )
 
 
 # ------------------------------------------------------------------ #

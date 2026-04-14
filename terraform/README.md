@@ -9,6 +9,16 @@ This folder manages ticket-forge infrastructure on GCP, including:
 - Airflow runtime on Compute Engine VM with IAP/internal-only web access.
 - Cloud Storage training artifacts bucket with `index.json` dataset pointer.
 
+This stack also supports an **optional** app-serving path in `app_serving.tf`:
+- `ticketforge-api` (FastAPI)
+- `ticketforge-inference` (inference stub)
+- `ticketforge-web` (Next.js)
+Enable with `enable_ticketforge_app_cloud_run = true` and three `ticketforge_*_container_image` values.
+
+The legacy serving resources in `serving.tf` (`web_backend` / `web_frontend`)
+remain available for compatibility with existing deployment flows. For issue 103
+validation, use the optional `ticketforge_*` app-serving resources above.
+
 ## Airflow + Cloud Storage resources
 
 This feature provisions a hosted Airflow runtime and cloud dataset storage:
@@ -27,6 +37,7 @@ This feature provisions a hosted Airflow runtime and cloud dataset storage:
 
 Important variables:
 
+- `airflow_region`, `airflow_zone` (optional Airflow-only location overrides)
 - `airflow_repo_ref`, `airflow_version`, `airflow_vm_machine_type`, `airflow_vm_disk_size_gb`
 - `airflow_db_name`, `airflow_db_user`,
 - `shared_cloud_sql_instance_name`
@@ -71,6 +82,11 @@ This needs to be done once per GCP project.
 TF_VAR_project_id=YOUR_PROJECT_ID # update to your GCP project id
 TF_VAR_region=us-east1
 TF_VAR_state_bucket=ticketforge-terraform
+# Optional Airflow-only override. Keep unset to colocate Airflow with the rest
+# of the stack, or set both to move only the Airflow VM and its dedicated
+# subnet/router/NAT.
+# TF_VAR_airflow_region=us-central1
+# TF_VAR_airflow_zone=us-central1-a
 # Optional MLflow overrides
 # TF_VAR_mlflow_artifact_registry_repository=mlflow-repo
 # TF_VAR_mlflow_image_tag=v3.10.0
@@ -232,6 +248,10 @@ so CI can resolve `MLFLOW_TRACKING_URI` via:
 3. Applies Terraform with `airflow_repo_ref=<resolved sha>`.
 4. Runs schema init scripts against Cloud SQL.
 5. Executes `scripts/ci/airflow_smoketest.sh` against `airflow_webserver_url`.
+
+When `TF_VAR_airflow_region` differs from `TF_VAR_region`, Terraform keeps the
+shared east1 subnet for Cloud Run/MLflow and creates a dedicated Airflow
+subnet/router/NAT in the override region so only Airflow moves.
 
 The prior image build/tag/rollback flow has been removed because Airflow VM deploys
 no longer use an Artifact Registry runtime image.

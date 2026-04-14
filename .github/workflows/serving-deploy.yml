@@ -39,7 +39,7 @@ on:
         type: string
 
 concurrency:
-  group: serving-deploy-prod
+  group: ticketforge-terraform-apply-prod
   cancel-in-progress: false
 
 permissions:
@@ -132,18 +132,7 @@ jobs:
               --event "push" \
               --limit 20 \
               --json databaseId,headSha,status,conclusion)"
-            run_id="$(
-              RUNS_JSON="${runs_json}" SOURCE_SHA="${SOURCE_SHA}" python3 - <<'PY'
-              import json
-              import os
-
-              runs = json.loads(os.environ["RUNS_JSON"])
-              for run in runs:
-                  if run.get("headSha") == os.environ["SOURCE_SHA"]:
-                      print(run.get("databaseId", ""))
-                      break
-              PY
-            )"
+            run_id="$(RUNS_JSON="${runs_json}" SOURCE_SHA="${SOURCE_SHA}" python3 -c 'import json, os; runs = json.loads(os.environ["RUNS_JSON"]); print(next((str(run.get("databaseId", "")) for run in runs if run.get("headSha") == os.environ["SOURCE_SHA"]), ""))')"
             if [[ -n "${run_id}" ]]; then
               break
             fi
@@ -155,17 +144,34 @@ jobs:
             exit 1
           fi
 
-          gh run watch "${run_id}" --repo "${{ github.repository }}" --interval 10
-          conclusion="$(gh run view "${run_id}" --repo "${{ github.repository }}" --json conclusion --jq .conclusion)"
-          if [[ "${conclusion}" != "success" ]]; then
-            echo "CI/CD concluded with status ${conclusion}" >&2
-            exit 1
-          fi
+          for _ in $(seq 1 90); do
+            jobs_json="$(gh run view "${run_id}" --repo "${{ github.repository }}" --json jobs)"
+            gate_result="$(
+              JOBS_JSON="${jobs_json}" python3 -c 'import json, os; jobs = json.loads(os.environ["JOBS_JSON"]).get("jobs", []); gate = next((job for job in jobs if job.get("name") == "Check / Finished"), None); print("missing" if gate is None else "pending" if gate.get("status") != "completed" else (gate.get("conclusion") or "unknown"))'
+            )"
+
+            case "${gate_result}" in
+              success)
+                exit 0
+                ;;
+              pending|missing)
+                sleep 10
+                ;;
+              *)
+                echo "CI/CD test gate concluded with status ${gate_result}" >&2
+                exit 1
+                ;;
+            esac
+          done
+
+          echo "Timed out waiting for CI/CD test gate on ${SOURCE_SHA}" >&2
+          exit 1
 
   bootstrap-serving-infra:
     name: Deploy / Bootstrap Serving Infra
     needs: [resolve-context, wait-for-ci]
     if: >-
+      always() &&
       (needs.wait-for-ci.result == 'success' || needs.wait-for-ci.result == 'skipped') &&
       (
         needs.resolve-context.outputs.deploy_backend == 'true' ||
@@ -200,6 +206,9 @@ jobs:
       - name: Terraform Init
         run: terraform -chdir=terraform init -backend-config="bucket=${TF_VAR_state_bucket}"
 
+      - name: Ensure tf-apply can create runtime service accounts
+        run: bash scripts/ci/ensure_tf_apply_service_account_admin.sh
+
       - name: Bootstrap serving resources when missing
         run: |
           set -euo pipefail
@@ -226,6 +235,15 @@ jobs:
             exit 0
           fi
 
+          mlflow_tracking_uri="$(gcloud run services describe mlflow-tracking \
+            --region="${TF_VAR_region}" \
+            --format='value(status.url)' 2>/dev/null || true)"
+
+          extra_vars=()
+          if [[ -n "${mlflow_tracking_uri}" ]]; then
+            extra_vars+=("-var=mlflow_tracking_uri_override=${mlflow_tracking_uri}")
+          fi
+
           terraform -chdir=terraform apply -auto-approve \
             -target=google_cloud_run_v2_service.web_backend \
             -target=google_cloud_run_v2_service.web_frontend \
@@ -234,7 +252,8 @@ jobs:
             -var="project_id=${TF_VAR_project_id}" \
             -var="state_bucket=${TF_VAR_state_bucket}" \
             -var="region=${TF_VAR_region}" \
-            -var="environment=${TF_VAR_environment}"
+            -var="environment=${TF_VAR_environment}" \
+            "${extra_vars[@]}"
 
       - name: Resolve serving targets
         id: targets
@@ -250,7 +269,9 @@ jobs:
     name: Deploy / Backend Serving API
     needs: [resolve-context, wait-for-ci, bootstrap-serving-infra]
     if: >-
+      always() &&
       (needs.wait-for-ci.result == 'success' || needs.wait-for-ci.result == 'skipped') &&
+      needs.bootstrap-serving-infra.result == 'success' &&
       needs.resolve-context.outputs.deploy_backend == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -274,65 +295,75 @@ jobs:
       - name: Terraform Init
         run: terraform -chdir=terraform init -backend-config="bucket=${TF_VAR_state_bucket}"
 
+      - name: Ensure MLflow tracking service is ready
+        id: mlflow-ready
+        run: bash scripts/ci/ensure_mlflow_tracking_ready.sh
+
       - name: Resolve serving model version
         id: model-version
         env:
           MANUAL_MODEL_VERSION: ${{ needs.resolve-context.outputs.serving_model_version }}
-          BACKEND_SERVICE_NAME: ${{ needs.bootstrap-serving-infra.outputs.backend_service_name }}
+          MLFLOW_TRACKING_URI: ${{ steps.mlflow-ready.outputs.tracking_uri }}
         run: |
           set -euo pipefail
 
           resolved_version="${MANUAL_MODEL_VERSION}"
           if [[ -z "${resolved_version}" ]]; then
-            service_json="$(gcloud run services describe "${BACKEND_SERVICE_NAME}" \
-              --region="${TF_VAR_region}" \
-              --format=json)"
-            resolved_version="$(
-              SERVICE_JSON="${service_json}" python3 - <<'PY'
-              import json
-              import os
+            mlflow_admin_password="$(gcloud secrets versions access 1 \
+              --secret=mlflow-tracking-admin-password \
+              --project="${TF_VAR_project_id}")"
+            versions_json="$(curl -fsS \
+              -u "admin:${mlflow_admin_password}" \
+              "${MLFLOW_TRACKING_URI}/api/2.0/mlflow/registered-models/get-latest-versions?name=ticket-forge-best" \
+              || true)"
+            resolved_version="$(VERSIONS_JSON="${versions_json}" python3 -c "import json, os; raw = os.environ.get('VERSIONS_JSON', '').strip(); payload = json.loads(raw) if raw else {}; latest = payload.get('model_versions') or payload.get('latest_versions') or []; print(next((str(version.get('version', '')) for version in latest if (version.get('current_stage') or version.get('stage') or '').lower() == 'production'), ''))")"
+          fi
 
-              service = json.loads(os.environ["SERVICE_JSON"])
-              envs = (
-                  service.get("spec", {})
-                  .get("template", {})
-                  .get("containers", [{}])[0]
-                  .get("env", [])
-              )
-              for item in envs:
-                  if item.get("name") == "SERVING_MODEL_VERSION":
-                      print(item.get("value", ""))
-                      break
-              else:
-                  print("")
-              PY
-            )"
+          skip_backend="false"
+          if [[ -z "${resolved_version}" ]]; then
+            skip_backend="true"
           fi
 
           echo "value=${resolved_version}" >> "$GITHUB_OUTPUT"
+          echo "skip_backend=${skip_backend}" >> "$GITHUB_OUTPUT"
 
       - name: Configure Docker auth
+        if: steps.model-version.outputs.skip_backend != 'true'
         run: gcloud auth configure-docker "${TF_VAR_region}-docker.pkg.dev" --quiet
 
       - name: Build and push backend image
         id: image
+        if: steps.model-version.outputs.skip_backend != 'true'
         env:
           BACKEND_REPO: ${{ needs.bootstrap-serving-infra.outputs.backend_repo }}
           SOURCE_SHA: ${{ needs.resolve-context.outputs.source_sha }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
           set -euo pipefail
           short_sha="${SOURCE_SHA::12}"
-          image="${TF_VAR_region}-docker.pkg.dev/${TF_VAR_project_id}/${BACKEND_REPO}/web-backend:${short_sha}"
+          image="${TF_VAR_region}-docker.pkg.dev/${TF_VAR_project_id}/${BACKEND_REPO}/web-backend:${short_sha}-${RUN_ID}-${RUN_ATTEMPT}"
           docker build -f apps/web-backend/Dockerfile -t "${image}" .
           docker push "${image}"
           echo "image=${image}" >> "$GITHUB_OUTPUT"
 
       - name: Apply backend deployment
+        if: steps.model-version.outputs.skip_backend != 'true'
         env:
           BACKEND_IMAGE: ${{ steps.image.outputs.image }}
           FRONTEND_SERVICE_URL: ${{ needs.bootstrap-serving-infra.outputs.frontend_service_url }}
           SERVING_MODEL_VERSION: ${{ steps.model-version.outputs.value }}
         run: |
+          set -euo pipefail
+          mlflow_tracking_uri="$(gcloud run services describe mlflow-tracking \
+            --region="${TF_VAR_region}" \
+            --format='value(status.url)' 2>/dev/null || true)"
+
+          extra_vars=()
+          if [[ -n "${mlflow_tracking_uri}" ]]; then
+            extra_vars+=("-var=mlflow_tracking_uri_override=${mlflow_tracking_uri}")
+          fi
+
           terraform -chdir=terraform apply -auto-approve \
             -target=google_cloud_run_v2_service.web_backend \
             -var="project_id=${TF_VAR_project_id}" \
@@ -341,9 +372,11 @@ jobs:
             -var="environment=${TF_VAR_environment}" \
             -var="web_backend_image=${BACKEND_IMAGE}" \
             -var="web_backend_serving_model_version=${SERVING_MODEL_VERSION}" \
-            -var="web_backend_cors_origins=[\"${FRONTEND_SERVICE_URL}\"]"
+            -var="web_backend_cors_origins=[\"${FRONTEND_SERVICE_URL}\"]" \
+            "${extra_vars[@]}"
 
       - name: Smoke test backend
+        if: steps.model-version.outputs.skip_backend != 'true'
         run: |
           bash scripts/ci/backend_smoketest.sh \
             "${{ needs.bootstrap-serving-infra.outputs.backend_service_url }}" \
@@ -455,7 +488,9 @@ jobs:
     name: Deploy / Frontend Web App
     needs: [resolve-context, wait-for-ci, bootstrap-serving-infra, deploy-backend]
     if: >-
+      always() &&
       (needs.wait-for-ci.result == 'success' || needs.wait-for-ci.result == 'skipped') &&
+      needs.bootstrap-serving-infra.result == 'success' &&
       needs.resolve-context.outputs.deploy_frontend == 'true' &&
       (needs.deploy-backend.result == 'success' || needs.deploy-backend.result == 'skipped')
     runs-on: ubuntu-latest
@@ -489,10 +524,12 @@ jobs:
           FRONTEND_REPO: ${{ needs.bootstrap-serving-infra.outputs.frontend_repo }}
           SOURCE_SHA: ${{ needs.resolve-context.outputs.source_sha }}
           BACKEND_SERVICE_URL: ${{ needs.bootstrap-serving-infra.outputs.backend_service_url }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
           set -euo pipefail
           short_sha="${SOURCE_SHA::12}"
-          image="${TF_VAR_region}-docker.pkg.dev/${TF_VAR_project_id}/${FRONTEND_REPO}/web-frontend:${short_sha}"
+          image="${TF_VAR_region}-docker.pkg.dev/${TF_VAR_project_id}/${FRONTEND_REPO}/web-frontend:${short_sha}-${RUN_ID}-${RUN_ATTEMPT}"
           docker build \
             -f apps/web-frontend/Dockerfile \
             --build-arg NEXT_PUBLIC_API_URL="${BACKEND_SERVICE_URL}" \

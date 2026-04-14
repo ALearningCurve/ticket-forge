@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -22,6 +23,12 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import {
+  getResumeProfileStatus,
+  uploadResume,
+  type ResumeProfileStatusResponse,
+} from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 
 const ACCEPTED_TYPES = [
   "application/pdf",
@@ -32,10 +39,14 @@ const MAX_SIZE_MB = 10;
 const MAX_SIZE_BYTES = MAX_SIZE_MB * 1024 * 1024;
 
 export default function ResumeUploadPage() {
+  const router = useRouter();
+  const { token } = useAuth();
   const [file, setFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isUploaded, setIsUploaded] = useState(false);
+  const [existingResume, setExistingResume] =
+    useState<ResumeProfileStatusResponse | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   function validateFile(f: File): string | null {
@@ -61,7 +72,6 @@ export default function ResumeUploadPage() {
   function handleInputChange(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
     if (f) handleFile(f);
-    // Reset input so same file can be re-selected
     e.target.value = "";
   }
 
@@ -75,12 +85,15 @@ export default function ResumeUploadPage() {
     setIsDragging(false);
   }, []);
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-    const f = e.dataTransfer.files?.[0];
-    if (f) handleFile(f);
-  }, [handleFile]);
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      setIsDragging(false);
+      const f = e.dataTransfer.files?.[0];
+      if (f) handleFile(f);
+    },
+    [handleFile]
+  );
 
   function removeFile() {
     setFile(null);
@@ -88,15 +101,22 @@ export default function ResumeUploadPage() {
   }
 
   async function handleUpload() {
-    if (!file) return;
+    if (!file || !token) return;
     setIsUploading(true);
-
-    // Simulated upload — replace with real API call when backend is ready
-    await new Promise((r) => setTimeout(r, 2000));
-
+    const { data, error } = await uploadResume(token, file);
     setIsUploading(false);
-    setIsUploaded(true);
-    toast.success("Resume uploaded! Your skills profile will be updated shortly.");
+
+    if (error) {
+      toast.error(error);
+      return;
+    }
+
+    if (data) {
+      setExistingResume(data);
+      setIsUploaded(true);
+      toast.success("Resume uploaded and your skills profile was updated.");
+      router.refresh();
+    }
   }
 
   function formatFileSize(bytes: number): string {
@@ -104,6 +124,18 @@ export default function ResumeUploadPage() {
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
+
+  useEffect(() => {
+    async function loadResumeStatus() {
+      if (!token) return;
+      const { data } = await getResumeProfileStatus(token);
+      if (data) {
+        setExistingResume(data);
+      }
+    }
+
+    void loadResumeStatus();
+  }, [token]);
 
   return (
     <div className="mx-auto max-w-2xl px-6 py-8">
@@ -120,6 +152,12 @@ export default function ResumeUploadPage() {
         Your resume is used by TicketForge&apos;s AI to build your skills
         profile for smarter ticket assignment.
       </p>
+      {existingResume?.has_resume && (
+        <p className="mt-2 text-sm text-muted-foreground">
+          A resume is already on file. Uploading a new one will refresh your
+          engineer profile.
+        </p>
+      )}
 
       <Separator className="my-6" />
 
@@ -133,7 +171,6 @@ export default function ResumeUploadPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* Drop zone */}
           {!file && (
             <div
               onDragOver={handleDragOver}
@@ -168,7 +205,6 @@ export default function ResumeUploadPage() {
             </div>
           )}
 
-          {/* Selected file */}
           {file && (
             <div className="rounded-lg border bg-muted/30 p-4">
               <div className="flex items-start justify-between">
@@ -190,6 +226,19 @@ export default function ResumeUploadPage() {
                         </span>
                       </div>
                     )}
+                    {existingResume?.last_uploaded_at && isUploaded && (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Updated{" "}
+                        {new Date(existingResume.last_uploaded_at).toLocaleDateString(
+                          "en-US",
+                          {
+                            month: "short",
+                            day: "numeric",
+                            year: "numeric",
+                          }
+                        )}
+                      </p>
+                    )}
                   </div>
                 </div>
                 <button
@@ -200,7 +249,6 @@ export default function ResumeUploadPage() {
                 </button>
               </div>
 
-              {/* Upload button */}
               {!isUploaded && (
                 <div className="mt-4 flex items-center gap-2">
                   <Button
@@ -223,7 +271,6 @@ export default function ResumeUploadPage() {
                 </div>
               )}
 
-              {/* Replace option after upload */}
               {isUploaded && (
                 <div className="mt-4">
                   <Button
@@ -243,7 +290,6 @@ export default function ResumeUploadPage() {
 
           <Separator />
 
-          {/* What happens next */}
           <div className="space-y-3">
             <p className="text-sm font-medium">What happens after upload?</p>
             <div className="space-y-2">

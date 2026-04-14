@@ -63,6 +63,16 @@ output "airflow_vm_internal_ip" {
   value       = google_compute_instance.airflow_vm.network_interface[0].network_ip
 }
 
+output "airflow_vm_region" {
+  description = "Region backing the Airflow VM subnet and runtime."
+  value       = local.effective_airflow_region
+}
+
+output "airflow_vm_zone" {
+  description = "Zone for the Airflow Compute Engine VM."
+  value       = local.effective_airflow_zone
+}
+
 output "airflow_webserver_url" {
   description = "Internal Airflow webserver URL. Access via: gcloud compute start-iap-tunnel <instance-name> 8080"
   value       = "http://${google_compute_instance.airflow_vm.network_interface[0].network_ip}:8080"
@@ -121,4 +131,24 @@ output "vpc_network_name" {
 output "terraform_state_bucket_name" {
   description = "Bucket used for Terraform state backend configuration."
   value       = var.state_bucket
+}
+
+output "ticketforge_api_uri" {
+  description = "Public HTTPS URL for the TicketForge API Cloud Run service when app serving is enabled."
+  value       = length(google_cloud_run_v2_service.ticketforge_api) > 0 ? google_cloud_run_v2_service.ticketforge_api[0].uri : null
+}
+
+output "ticketforge_inference_uri" {
+  description = "Public HTTPS URL for the TicketForge inference Cloud Run service when app serving is enabled."
+  value       = length(google_cloud_run_v2_service.ticketforge_inference) > 0 ? google_cloud_run_v2_service.ticketforge_inference[0].uri : null
+}
+
+output "ticketforge_web_uri" {
+  description = "Public HTTPS URL for the TicketForge web Cloud Run service when app serving is enabled."
+  value       = length(google_cloud_run_v2_service.ticketforge_web) > 0 ? google_cloud_run_v2_service.ticketforge_web[0].uri : null
+}
+
+output "ticketforge_api_service_account_email" {
+  description = "Runtime service account for the API Cloud Run service when app serving is enabled."
+  value       = length(google_service_account.ticketforge_api) > 0 ? google_service_account.ticketforge_api[0].email : null
 }

@@ -9,6 +9,13 @@ variable "region" {
   default     = "us-east1"
 }
 
+variable "airflow_region" {
+  description = "Optional dedicated GCP region for Airflow runtime resources. Defaults to region when unset."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
 variable "state_bucket" {
   description = "Name for the tfstate bucket (must be globally unique)."
   type        = string
@@ -78,6 +85,12 @@ variable "mlflow_image_tag" {
     )
     error_message = "mlflow_image_tag may only contain letters, numbers, dot, underscore, and dash."
   }
+}
+
+variable "mlflow_tracking_uri_override" {
+  description = "Optional explicit MLflow tracking URI for workflows that must deploy backend resources without planning changes to the MLflow service."
+  type        = string
+  default     = null
 }
 
 variable "mlflow_db_tier" {
@@ -210,9 +223,16 @@ variable "environment" {
 }
 
 variable "zone" {
-  description = "Compute Engine zone for the Airflow VM."
+  description = "Default Compute Engine zone for the Airflow VM when airflow_zone is unset."
   type        = string
-  default     = "us-east1-b"
+  default     = "us-east1-c"
+}
+
+variable "airflow_zone" {
+  description = "Optional dedicated Compute Engine zone for the Airflow VM. Defaults to zone when unset."
+  type        = string
+  default     = null
+  nullable    = true
 }
 
 variable "airflow_vm_machine_type" {
@@ -341,4 +361,50 @@ variable "enable_terraform_state_bucket" {
   description = "Whether to create the Terraform state bucket with this configuration."
   type        = bool
   default     = true
+}
+
+variable "enable_ticketforge_app_cloud_run" {
+  description = <<-EOT
+    Provision optional Cloud Run (v2) services for the TicketForge FastAPI API,
+    lightweight inference HTTP process, and Next.js frontend. Requires three
+    container image URIs via ticketforge_*_container_image variables.
+  EOT
+  type        = bool
+  default     = false
+}
+
+variable "ticketforge_api_service_name" {
+  description = "Cloud Run service name for the TicketForge FastAPI API."
+  type        = string
+  default     = "ticketforge-api"
+}
+
+variable "ticketforge_inference_service_name" {
+  description = "Cloud Run service name for the TicketForge inference stub."
+  type        = string
+  default     = "ticketforge-inference"
+}
+
+variable "ticketforge_web_service_name" {
+  description = "Cloud Run service name for the TicketForge Next.js UI."
+  type        = string
+  default     = "ticketforge-web"
+}
+
+variable "ticketforge_api_container_image" {
+  description = "Container image URI for the API service (FastAPI / Uvicorn on port 8080)."
+  type        = string
+  default     = ""
+}
+
+variable "ticketforge_inference_container_image" {
+  description = "Container image URI for the inference service (FastAPI stub on port 8080)."
+  type        = string
+  default     = ""
+}
+
+variable "ticketforge_web_container_image" {
+  description = "Container image URI for the web service (Next.js on port 8080)."
+  type        = string
+  default     = ""
 }

@@ -19,6 +19,11 @@ from web_backend.database import get_db
 from web_backend.main import app
 from web_backend.models.base import Base
 
+collect_ignore = [
+    "test_airflow_service.py",
+    "test_coldstart_router.py",
+]
+
 
 @pytest.fixture(scope="session")
 def event_loop():

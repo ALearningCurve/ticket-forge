@@ -44,6 +44,170 @@ _EXPERIMENT_NAME = "ticket-forge-training"
 _REGISTERED_MODEL_NAME = "ticket-forge-best"
 
 
+def _model_aliases(model_name: str) -> set[str]:
+  """Return equivalent model-name aliases used across training paths."""
+  aliases = {model_name}
+  if model_name == "random_forest":
+    aliases.add("forest")
+  elif model_name == "forest":
+    aliases.add("random_forest")
+  return aliases
+
+
+def _candidate_run_ids_for_model(runs: list[object], best_model_name: str) -> list[str]:
+  """Order candidate MLflow runs likely to contain the best-estimator artifact."""
+  aliases = _model_aliases(best_model_name)
+  scored_candidates: list[tuple[int, str]] = []
+  all_run_ids: list[str] = []
+
+  for run in runs:
+    run_info = getattr(run, "info", None)
+    run_data = getattr(run, "data", None)
+    run_tags = getattr(run_data, "tags", {}) if run_data is not None else {}
+    run_name = str(run_tags.get("mlflow.runName", ""))
+    run_id_value = getattr(run_info, "run_id", None)
+    if not run_id_value:
+      continue
+    all_run_ids.append(run_id_value)
+
+    score = 0
+    if str(run_tags.get("model", "")) in aliases:
+      score += 3
+    if str(run_tags.get("model_name", "")) in aliases:
+      score += 3
+    if run_name in {f"search_{alias}" for alias in aliases}:
+      score += 4
+    scored_candidates.append((score, run_id_value))
+
+  positive_scored = [(score, rid) for score, rid in scored_candidates if score > 0]
+  positive_scored.sort(key=lambda item: item[0], reverse=True)
+  if positive_scored:
+    return [run_id_value for _, run_id_value in positive_scored]
+  return all_run_ids
+
+
+def _register_from_candidates(
+  candidate_run_ids: list[str],
+  best_model_name: str,
+) -> bool:
+  """Try registering from candidate run artifacts in order."""
+
+  def _candidate_model_uris(run_id: str) -> list[str]:
+    # Support both the new explicit name and older/default artifact naming.
+    return [
+      f"runs:/{run_id}/best_estimator",
+      f"runs:/{run_id}/model",
+    ]
+
+  for candidate_run_id in candidate_run_ids:
+    if not candidate_run_id:
+      continue
+    for model_uri in _candidate_model_uris(candidate_run_id):
+      try:
+        mlflow.register_model(model_uri=model_uri, name=_REGISTERED_MODEL_NAME)
+      except Exception as exc:
+        logger.info(
+          "Could not register '%s' from %s (%s: %s), trying next candidate URI",
+          best_model_name,
+          model_uri,
+          type(exc).__name__,
+          exc,
+        )
+        continue
+
+      logger.info(
+        "Registered '%s' from existing artifact %s",
+        best_model_name,
+        model_uri,
+      )
+      return True
+  return False
+
+
+def _register_from_logged_model_ids(
+  client: MlflowClient,
+  experiment_id: str,
+  candidate_run_ids: list[str],
+  best_model_name: str,
+) -> bool:
+  """Try registering from MLflow logged-model IDs tied to candidate runs."""
+  if not candidate_run_ids:
+    return False
+
+  search_logged_models = getattr(client, "search_logged_models", None)
+  if search_logged_models is None:
+    return False
+
+  try:
+    logged_models = search_logged_models(
+      experiment_ids=[experiment_id],
+      max_results=500,
+    )
+  except Exception:
+    logger.info(
+      "Could not search logged models for '%s' candidates",
+      best_model_name,
+      exc_info=True,
+    )
+    return False
+
+  run_rank = {run_id: idx for idx, run_id in enumerate(candidate_run_ids)}
+
+  def _name_rank(name: str) -> int:
+    if name == "best_estimator":
+      return 0
+    if name == "model":
+      return 1
+    return 2
+
+  candidates: list[tuple[int, int, str, str, str]] = []
+  for logged_model in logged_models:
+    source_run_id = str(getattr(logged_model, "source_run_id", "") or "")
+    model_id = str(getattr(logged_model, "model_id", "") or "")
+    name = str(getattr(logged_model, "name", "") or "")
+
+    if not source_run_id or source_run_id not in run_rank:
+      continue
+    if not model_id:
+      continue
+
+    candidates.append(
+      (
+        run_rank[source_run_id],
+        _name_rank(name),
+        model_id,
+        source_run_id,
+        name,
+      )
+    )
+
+  candidates.sort(key=lambda item: (item[0], item[1]))
+  for _, _, model_id, source_run_id, name in candidates:
+    model_uri = f"models:/{model_id}"
+    try:
+      mlflow.register_model(model_uri=model_uri, name=_REGISTERED_MODEL_NAME)
+    except Exception as exc:
+      logger.info(
+        "Could not register '%s' from %s (%s: %s), trying next logged model",
+        best_model_name,
+        model_uri,
+        type(exc).__name__,
+        exc,
+      )
+      continue
+
+    logger.info(
+      "Registered '%s' from logged model id %s (run=%s, name=%s)",
+      best_model_name,
+      model_id,
+      source_run_id,
+      name or "unknown",
+    )
+    return True
+
+  return False
+
+
 def _setup_experiment() -> str:
   """Ensure the MLflow experiment exists and return its ID.
 
@@ -194,7 +358,7 @@ def _log_model_run(
         grid = joblib.load(pkl_path)
         mlflow.sklearn.log_model(
           grid.best_estimator_,
-          artifact_path="best_estimator",
+          name="best_estimator",
           registered_model_name=None,
         )
         mlflow.log_params({k: str(v) for k, v in (grid.best_params_ or {}).items()})
@@ -320,7 +484,7 @@ def _register_model(
       mlflow.set_tag("promoted_model", best_model_name)
       mlflow.sklearn.log_model(
         model,
-        artifact_path="model",
+        name="model",
         registered_model_name=_REGISTERED_MODEL_NAME,
       )
       if candidate_metrics:
@@ -330,6 +494,70 @@ def _register_model(
     logger.exception("Model registration failed for %s", best_model_name)
     return False
   return True
+
+
+def _register_logged_best_estimator(
+  client: MlflowClient,
+  run_id: str,
+  best_model_name: str,
+) -> bool:
+  """Register using an already-logged run artifact to avoid re-uploading.
+
+  This path avoids large single-request uploads through the tracking endpoint
+  (which can hit HTTP 413 on Cloud Run) by creating the model version from the
+  existing ``runs:/.../best_estimator`` artifact.
+  """
+  experiment = mlflow.get_experiment_by_name(_EXPERIMENT_NAME)
+  if experiment is None:
+    logger.info(
+      "MLflow experiment '%s' not found; falling back to local upload",
+      _EXPERIMENT_NAME,
+    )
+    return False
+
+  search_filter = f"tags.run_id = '{run_id}'"
+  try:
+    runs = client.search_runs(
+      experiment_ids=[experiment.experiment_id],
+      filter_string=search_filter,
+      order_by=["attributes.start_time DESC"],
+      max_results=50,
+    )
+  except Exception:
+    logger.warning(
+      "Could not search MLflow runs for existing logged model '%s' (run_id=%s)",
+      best_model_name,
+      run_id,
+      exc_info=True,
+    )
+    return False
+
+  if not runs:
+    logger.info(
+      "No logged model run found for '%s' (run_id=%s); falling back to local upload",
+      best_model_name,
+      run_id,
+    )
+    return False
+
+  candidate_run_ids = _candidate_run_ids_for_model(runs, best_model_name)
+  if _register_from_candidates(candidate_run_ids, best_model_name):
+    return True
+  if _register_from_logged_model_ids(
+    client,
+    experiment.experiment_id,
+    candidate_run_ids,
+    best_model_name,
+  ):
+    return True
+
+  logger.warning(
+    "No matching logged model artifact or logged model id found for '%s' (run_id=%s); "
+    "falling back to local upload",
+    best_model_name,
+    run_id,
+  )
+  return False
 
 
 def _transition_to_production(client: MlflowClient, new_version: str) -> bool:
@@ -387,6 +615,7 @@ def _load_and_register(
   best_model_name: str,
   run_id: str,
   candidate_metrics: dict[str, float],
+  client: MlflowClient,
 ) -> bool:
   """Load the best model pickle and register it in the MLflow Model Registry.
 
@@ -399,6 +628,7 @@ def _load_and_register(
       best_model_name:  Model name used to locate ``{model}.pkl``.
       run_id:           Training run identifier (logged as an MLflow tag).
       candidate_metrics: Candidate eval metrics logged during registration.
+      client:           MLflow tracking client.
 
   Returns:
       True if loading and registration both succeeded, False otherwise.
@@ -407,6 +637,12 @@ def _load_and_register(
   if not pkl_path.exists():
     logger.warning("Model pickle not found at %s — cannot promote", pkl_path)
     return False
+
+  # Prefer model registration from an already-logged artifact to avoid
+  # large request uploads that can fail behind Cloud Run limits.
+  if _register_logged_best_estimator(client, run_id, best_model_name):
+    return True
+
   try:
     grid = joblib.load(pkl_path)
     model = grid.best_estimator_
@@ -567,7 +803,13 @@ def promote_best_model(run_id: str) -> str | None:
           guard_result.get("fail_reasons", []),
         )
       else:
-        loaded = _load_and_register(run_dir, best_model_name, run_id, candidate_metrics)
+        loaded = _load_and_register(
+          run_dir,
+          best_model_name,
+          run_id,
+          candidate_metrics,
+          client,
+        )
         if loaded:
           new_version = _get_new_version(client, best_model_name)
           if new_version is not None and _transition_to_production(client, new_version):

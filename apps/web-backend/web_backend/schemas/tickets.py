@@ -19,7 +19,9 @@ class TicketCreateRequest(BaseModel):
     column_id: uuid.UUID
     priority: str = Field(default="medium", pattern="^(low|medium|high|critical)$")
     type: str = Field(default="task", pattern="^(task|story|bug)$")
-    labels: list[str] = Field(default=[])
+    labels: list[str] = Field(default_factory=list)
+    size: str | None = Field(None, pattern="^(S|M|L|XL)$")
+    size_bucket: str | None = Field(None, pattern="^(S|M|L|XL)$")
     due_date: date | None = None
     assignee_id: uuid.UUID | None = None
 
@@ -37,6 +39,8 @@ class TicketUpdateRequest(BaseModel):
     priority: str | None = Field(None, pattern="^(low|medium|high|critical)$")
     type: str | None = Field(None, pattern="^(task|story|bug)$")
     labels: list[str] | None = None
+    size: str | None = Field(None, pattern="^(S|M|L|XL)$")
+    size_bucket: str | None = Field(None, pattern="^(S|M|L|XL)$")
     due_date: date | None = None
     assignee_id: uuid.UUID | None = None
 
@@ -82,6 +86,11 @@ class TicketResponse(BaseModel):
     priority: str
     type: str
     labels: list[str]
+    size: str | None
+    size_bucket: str | None
+    size_source: str | None
+    size_confidence: float | None
+    size_updated_at: datetime | None
     due_date: date | None
     position: int
     assignee: TicketAssigneeResponse | None = None
@@ -95,4 +104,11 @@ class TicketResponse(BaseModel):
 class BoardTicketsResponse(BaseModel):
     """All tickets for a project, grouped for the board."""
 
+    tickets: list[TicketResponse]
+
+
+class TicketBatchSizingResponse(BaseModel):
+    """Result payload for on-demand project ticket sizing."""
+
+    updated_count: int
     tickets: list[TicketResponse]

@@ -48,6 +48,10 @@ CREATE TABLE IF NOT EXISTS project_tickets (
     priority     ticket_priority  NOT NULL DEFAULT 'medium',
     type         ticket_type      NOT NULL DEFAULT 'task',
     labels       JSONB            NOT NULL DEFAULT '[]',
+    size_bucket  VARCHAR(16),
+    size_source  VARCHAR(16),
+    size_confidence DOUBLE PRECISION,
+    size_updated_at TIMESTAMPTZ,
     due_date     DATE,
     position     INTEGER          NOT NULL DEFAULT 0,
 
@@ -56,6 +60,18 @@ CREATE TABLE IF NOT EXISTS project_tickets (
 
     CONSTRAINT uq_project_tickets_key UNIQUE (project_id, ticket_key)
 );
+
+ALTER TABLE IF EXISTS project_tickets
+    ADD COLUMN IF NOT EXISTS size_bucket VARCHAR(16);
+
+ALTER TABLE IF EXISTS project_tickets
+    ADD COLUMN IF NOT EXISTS size_source VARCHAR(16);
+
+ALTER TABLE IF EXISTS project_tickets
+    ADD COLUMN IF NOT EXISTS size_confidence DOUBLE PRECISION;
+
+ALTER TABLE IF EXISTS project_tickets
+    ADD COLUMN IF NOT EXISTS size_updated_at TIMESTAMPTZ;
 
 CREATE INDEX IF NOT EXISTS idx_project_tickets_project_id
     ON project_tickets (project_id);

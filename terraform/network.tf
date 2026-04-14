@@ -10,6 +10,14 @@ resource "google_compute_subnetwork" "airflow_subnet" {
   network       = google_compute_network.airflow_vpc.id
 }
 
+resource "google_compute_subnetwork" "airflow_vm_subnet" {
+  count         = local.airflow_uses_dedicated_network ? 1 : 0
+  name          = "airflow-vm-subnet-${var.environment}-${local.effective_airflow_region}"
+  ip_cidr_range = "10.21.0.0/24"
+  region        = local.effective_airflow_region
+  network       = google_compute_network.airflow_vpc.id
+}
+
 resource "google_compute_global_address" "private_service_range" {
   name          = "airflow-private-range-${var.environment}"
   purpose       = "VPC_PEERING"
@@ -36,10 +44,30 @@ resource "google_compute_router" "airflow_router" {
   }
 }
 
+resource "google_compute_router" "airflow_vm_router" {
+  count   = local.airflow_uses_dedicated_network ? 1 : 0
+  name    = "airflow-vm-router-${var.environment}-${local.effective_airflow_region}"
+  region  = local.effective_airflow_region
+  network = google_compute_network.airflow_vpc.id
+
+  bgp {
+    asn = 64514
+  }
+}
+
 resource "google_compute_router_nat" "airflow_nat" {
   name                               = "airflow-nat-${var.environment}"
   router                             = google_compute_router.airflow_router.name
   region                             = google_compute_router.airflow_router.region
+  nat_ip_allocate_option             = "AUTO_ONLY"
+  source_subnetwork_ip_ranges_to_nat = "ALL_SUBNETWORKS_ALL_IP_RANGES"
+}
+
+resource "google_compute_router_nat" "airflow_vm_nat" {
+  count                              = local.airflow_uses_dedicated_network ? 1 : 0
+  name                               = "airflow-vm-nat-${var.environment}-${local.effective_airflow_region}"
+  router                             = google_compute_router.airflow_vm_router[0].name
+  region                             = google_compute_router.airflow_vm_router[0].region
   nat_ip_allocate_option             = "AUTO_ONLY"
   source_subnetwork_ip_ranges_to_nat = "ALL_SUBNETWORKS_ALL_IP_RANGES"
 }
@@ -53,7 +81,7 @@ resource "google_compute_firewall" "airflow_allow_web_internal" {
     ports    = ["8080"]
   }
 
-  source_ranges = [google_compute_subnetwork.airflow_subnet.ip_cidr_range]
+  source_ranges = local.airflow_internal_source_ranges
   target_tags   = ["airflow-web"]
 }
 

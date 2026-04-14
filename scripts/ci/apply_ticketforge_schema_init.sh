@@ -8,7 +8,10 @@ db_name="$(terraform -chdir=terraform output -raw cloud_sql_ticketforge_database
 db_user="$(terraform -chdir=terraform output -raw cloud_sql_ticketforge_database_user)"
 cloud_sql_private_ip="$(terraform -chdir=terraform output -raw cloud_sql_private_ip)"
 airflow_vm_name="$(terraform -chdir=terraform output -raw airflow_vm_instance_name)"
-airflow_vm_zone="${TF_VAR_zone:-us-east1-b}"
+airflow_vm_zone="$(terraform -chdir=terraform output -raw airflow_vm_zone 2>/dev/null || true)"
+if [[ -z "${airflow_vm_zone}" ]]; then
+  airflow_vm_zone="${TF_VAR_airflow_zone:-${TF_VAR_zone:-us-east1-c}}"
+fi
 env_name="${TF_VAR_environment:-prod}"
 db_password_secret_id="${TF_VAR_ticketforge_db_password_secret_id:-ticketforge-db-password-${env_name}}"
 db_password="$(gcloud secrets versions access latest --project="${TF_VAR_project_id}" --secret="${db_password_secret_id}")"
