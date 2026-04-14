@@ -580,7 +580,7 @@ async def recommend_tickets_for_engineer(
             ON t.ticket_id = pt.ticket_key
           WHERE pt.project_id = :project_id
             AND lower(pbc.name) NOT IN ('done', 'complete', 'completed', 'closed', 'resolved')
-            AND (pt.assignee_id IS NULL OR pt.assignee_id = :engineer_user_id)
+            AND (pt.assignee_id IS NULL)
         )
         SELECT
           tc.ticket_key,
