@@ -28,7 +28,7 @@ export function BoardColumn({
 }: BoardColumnProps) {
   return (
     <div className="flex h-full w-[340px] shrink-0 flex-col rounded-xl border border-border/40 bg-muted/10 shadow-sm overflow-hidden">
-      
+
       {/* ========== COLUMN HEADER ========== */}
       <div className="flex shrink-0 items-center justify-between px-3.5 py-3 border-b border-border/40 bg-muted/20">
         <div className="flex items-center gap-2.5">
@@ -39,7 +39,7 @@ export function BoardColumn({
             {column.tickets.length}
           </div>
         </div>
-        
+
         {isLast && (
           <div className="flex items-center gap-1 rounded bg-primary/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-primary ring-1 ring-primary/20">
             <Sparkles className="size-2.5" />
@@ -72,7 +72,7 @@ export function BoardColumn({
                 onClick={onTicketClick}
               />
             ))}
-            
+
             {provided.placeholder}
 
             {/* Empty State */}
@@ -94,7 +94,7 @@ export function BoardColumn({
           onCreateTicket={onCreateTicket}
         />
       </div>
-      
+
     </div>
   );
 }

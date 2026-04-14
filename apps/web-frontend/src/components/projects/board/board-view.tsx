@@ -156,7 +156,7 @@ export function BoardView({
                 memberIndex,
               ),
             );
-            
+
             toast.success(
               <div className="flex items-center gap-2">
                 <Sparkles className="size-4 text-primary" />

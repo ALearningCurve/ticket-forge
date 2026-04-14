@@ -27,9 +27,7 @@ class Project(TimestampMixin, Base):
 
     __tablename__ = "projects"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     slug: Mapped[str] = mapped_column(
         String(100), unique=True, nullable=False, index=True
@@ -73,9 +71,7 @@ class ProjectMember(Base):
 
     __tablename__ = "project_members"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     project_id: Mapped[uuid.UUID] = mapped_column(
         Uuid,
         ForeignKey("projects.id", ondelete="CASCADE"),
@@ -100,7 +96,9 @@ class ProjectMember(Base):
     )
 
     __table_args__ = (
-        UniqueConstraint("project_id", "user_id", name="uq_project_members_project_user"),
+        UniqueConstraint(
+            "project_id", "user_id", name="uq_project_members_project_user"
+        ),
     )
 
     # Relationships
@@ -113,9 +111,7 @@ class ProjectBoardColumn(Base):
 
     __tablename__ = "project_board_columns"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     project_id: Mapped[uuid.UUID] = mapped_column(
         Uuid,
         ForeignKey("projects.id", ondelete="CASCADE"),
@@ -131,7 +127,9 @@ class ProjectBoardColumn(Base):
     )
 
     __table_args__ = (
-        UniqueConstraint("project_id", "position", name="uq_board_columns_project_position"),
+        UniqueConstraint(
+            "project_id", "position", name="uq_board_columns_project_position"
+        ),
         UniqueConstraint("project_id", "name", name="uq_board_columns_project_name"),
     )
 
