@@ -254,3 +254,6 @@ ticketforge-venv/
 diff_output.txt
 
 mlruns
+
+# demo seeding credential output (local only)
+demo/data/demo_user_credentials.json
