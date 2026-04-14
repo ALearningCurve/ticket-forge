@@ -31,6 +31,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 
+import joblib
 import matplotlib.pyplot as plt
 import mlflow
 import mlflow.sklearn
@@ -47,6 +48,24 @@ from training.dataset import find_latest_pipeline_output
 logger = get_logger(__name__)
 models = {"forest", "svm", "xgboost", "lgbm"}
 models_with_sample_weight = models.difference(set(["svm", "lgbm"]))
+
+# Trainer module names are not always the same as persisted artifact stems.
+MODEL_ARTIFACT_ALIASES: dict[str, tuple[str, ...]] = {
+  "forest": ("random_forest",),
+}
+
+
+def _model_artifact_stems(model_name: str) -> tuple[str, ...]:
+  """Return candidate artifact stems for a model key.
+
+  Args:
+      model_name: CLI/training model key (for example, ``forest``).
+
+  Returns:
+      Ordered tuple of artifact filename stems to probe.
+  """
+  aliases = MODEL_ARTIFACT_ALIASES.get(model_name, ())
+  return (*aliases, model_name)
 
 
 def _ensure_run_manifest(run_id: str) -> None:
@@ -155,6 +174,30 @@ def _enable_autolog(max_tuning_runs: int) -> None:
   )
 
 
+def _log_best_estimator(run_dir: Path, model_name: str) -> None:
+  """Log the fitted best estimator for a trained model to MLflow.
+
+  Args:
+      run_dir: Directory containing the saved ``{model_name}.pkl`` file.
+      model_name: Model identifier whose fitted grid search should be logged.
+  """
+  pkl_path = run_dir / f"{model_name}.pkl"
+  if not pkl_path.exists():
+    msg = f"Model pickle not found at {pkl_path}"
+    raise FileNotFoundError(msg)
+
+  grid = joblib.load(pkl_path)
+  mlflow.sklearn.log_model(
+    grid.best_estimator_,
+    name="best_estimator",
+    registered_model_name=None,
+  )
+  best_params = getattr(grid, "best_params_", None) or {}
+  if best_params:
+    mlflow.log_params({k: str(v) for k, v in best_params.items()})
+  logger.info("Logged best %s estimator to MLflow", model_name)
+
+
 def _train_models(models_list: set[str], run_id: str) -> None:
   """Train all specified models under nested MLflow runs.
 
@@ -180,13 +223,35 @@ def _train_models(models_list: set[str], run_id: str) -> None:
 
         # Log the best model variant for this sub-model type
         run_dir = Paths.models_root / run_id
-        model_pkl = run_dir / f"{model}.pkl"
-        eval_json = run_dir / f"eval_{model}.json"
-
-        if model_pkl.exists():
+        artifact_stem = next(
+          (
+            stem
+            for stem in _model_artifact_stems(model)
+            if (run_dir / f"{stem}.pkl").exists()
+          ),
+          None,
+        )
+        if artifact_stem is None:
+          logger.warning(
+            "No trained model pickle found for %s in %s",
+            model,
+            run_dir,
+          )
+        else:
+          model_pkl = run_dir / f"{artifact_stem}.pkl"
           mlflow.log_artifact(str(model_pkl), artifact_path="model")
+          _log_best_estimator(run_dir, artifact_stem)
 
-        if eval_json.exists():
+        eval_json = next(
+          (
+            run_dir / f"eval_{stem}.json"
+            for stem in _model_artifact_stems(model)
+            if (run_dir / f"eval_{stem}.json").exists()
+          ),
+          None,
+        )
+
+        if eval_json is not None:
           with open(eval_json) as f:
             metrics = json.load(f)
             for metric_name, metric_value in metrics.items():
@@ -195,7 +260,7 @@ def _train_models(models_list: set[str], run_id: str) -> None:
                 mlflow.log_metric(metric_name, metric_value)
           logger.info(
             "Logged best %s model (macro_f1=%.4f, accuracy=%.4f)",
-            model,
+            artifact_stem or model,
             metrics.get("macro_f1", 0),
             metrics.get("accuracy", 0),
           )

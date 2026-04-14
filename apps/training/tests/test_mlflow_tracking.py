@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import joblib
 import numpy as np
+import pytest
 from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import RandomizedSearchCV
 
@@ -500,58 +501,35 @@ class TestLoadAndRegister:
         "training.analysis.mlflow_tracking._register_logged_best_estimator",
         return_value=True,
       ) as mock_logged_register,
-      patch("training.analysis.mlflow_tracking._register_model") as mock_register_model,
     ):
       result = _load_and_register(
         run_dir=run_dir,
         best_model_name="forest",
         run_id="run-1",
-        candidate_metrics={},
         client=MagicMock(),
       )
 
     assert result is True
     mock_logged_register.assert_called_once()
-    mock_register_model.assert_not_called()
 
-  def test_falls_back_to_local_upload_when_logged_artifact_missing(
-    self, tmp_path: Path
-  ) -> None:
+  def test_raises_when_logged_artifact_missing(self, tmp_path: Path) -> None:
     from training.analysis.mlflow_tracking import _load_and_register
 
     run_dir = tmp_path / "run"
     run_dir.mkdir()
     _make_grid_pickle(run_dir, "forest")
 
-    fake_grid = MagicMock()
-    fake_grid.best_estimator_ = object()
-
-    with (
-      patch(
-        "training.analysis.mlflow_tracking._register_logged_best_estimator",
-        return_value=False,
-      ),
-      patch("training.analysis.mlflow_tracking.joblib.load", return_value=fake_grid),
-      patch(
-        "training.analysis.mlflow_tracking._register_model",
-        return_value=True,
-      ) as mock_register_model,
+    with patch(
+      "training.analysis.mlflow_tracking._register_logged_best_estimator",
+      return_value=False,
     ):
-      result = _load_and_register(
-        run_dir=run_dir,
-        best_model_name="forest",
-        run_id="run-2",
-        candidate_metrics={"accuracy": 0.8},
-        client=MagicMock(),
-      )
-
-    assert result is True
-    mock_register_model.assert_called_once_with(
-      fake_grid.best_estimator_,
-      "forest",
-      "run-2",
-      {"accuracy": 0.8},
-    )
+      with pytest.raises(RuntimeError, match="logged MLflow model"):
+        _load_and_register(
+          run_dir=run_dir,
+          best_model_name="forest",
+          run_id="run-2",
+          client=MagicMock(),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -617,9 +595,8 @@ class TestPromoteBestModel:
       patch("training.analysis.mlflow_tracking.MlflowClient"),
     ):
       mp.models_root = tmp_path
-      result = promote_best_model("run_no_pkl")
-
-    assert result is None
+      with pytest.raises(RuntimeError, match="logged MLflow model"):
+        promote_best_model("run_no_pkl")
 
   def test_archives_old_production_before_promoting(self, tmp_path: Path) -> None:
     from training.analysis.mlflow_tracking import promote_best_model
@@ -642,6 +619,10 @@ class TestPromoteBestModel:
       patch("training.analysis.mlflow_tracking.TRAIN_USE_DUMMY_DATA", False),
       patch("training.analysis.mlflow_tracking.Paths") as mp,
       patch("training.analysis.mlflow_tracking._setup_experiment"),
+      patch(
+        "training.analysis.mlflow_tracking._register_logged_best_estimator",
+        return_value=True,
+      ),
       patch("training.analysis.mlflow_tracking.MlflowClient", return_value=mock_client),
       patch("training.analysis.mlflow_tracking.mlflow") as mock_mlflow,
     ):
@@ -678,6 +659,10 @@ class TestPromoteBestModel:
       patch("training.analysis.mlflow_tracking.TRAIN_USE_DUMMY_DATA", False),
       patch("training.analysis.mlflow_tracking.Paths") as mp,
       patch("training.analysis.mlflow_tracking._setup_experiment"),
+      patch(
+        "training.analysis.mlflow_tracking._register_logged_best_estimator",
+        return_value=True,
+      ),
       patch("training.analysis.mlflow_tracking.MlflowClient", return_value=mock_client),
       patch("training.analysis.mlflow_tracking.mlflow") as mock_mlflow,
     ):
@@ -700,6 +685,10 @@ class TestPromoteBestModel:
       patch("training.analysis.mlflow_tracking.TRAIN_USE_DUMMY_DATA", False),
       patch("training.analysis.mlflow_tracking.Paths") as mp,
       patch("training.analysis.mlflow_tracking._setup_experiment"),
+      patch(
+        "training.analysis.mlflow_tracking._register_logged_best_estimator",
+        return_value=True,
+      ),
       patch("training.analysis.mlflow_tracking.MlflowClient", return_value=mock_client),
       patch("training.analysis.mlflow_tracking.mlflow") as mock_mlflow,
     ):

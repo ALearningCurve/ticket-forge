@@ -172,15 +172,18 @@ gate-driven CI/CD path using `training.cmd.run_model_cicd`.
 - Model-impacting push, scheduled, and manual runs:
     1. Pull latest DVC data.
     2. Train models (`training.cmd.train`).
-    3. Evaluate validation gate (R2/MAE thresholds).
+     3. Evaluate validation gate using absolute accuracy / macro F1 floors and
+         relative drops versus the current production baseline.
     4. Evaluate bias gate from generated bias reports.
     5. Evaluate regression guardrail against production baseline (default max degradation 10%).
     6. Promote to MLflow Production only if all gates pass and promotion is enabled.
 
 ### Gate configuration environment variables
 
-- `MODEL_CICD_MIN_R2` (default `0.60`)
-- `MODEL_CICD_MAX_MAE` (default `20.0`)
+- `MODEL_CICD_MIN_ACCURACY` (default `0.35`)
+- `MODEL_CICD_MIN_MACRO_F1` (default `0.35`)
+- `MODEL_CICD_MAX_ACCURACY_RELATIVE_DROP` (default `0.10`)
+- `MODEL_CICD_MAX_MACRO_F1_RELATIVE_DROP` (default `0.10`)
 - `MODEL_CICD_MAX_BIAS_RELATIVE_GAP` (default `0.40`)
 - `MODEL_CICD_MAX_REGRESSION_DEGRADATION` (default `0.10`)
 - `MODEL_CICD_BIAS_SLICES` (default `repo,seniority`)

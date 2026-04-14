@@ -73,3 +73,44 @@ def test_configure_mlflow_uses_default_when_missing() -> None:
 
   assert uri == "file:///tmp/mlruns"
   mock_mlflow.set_tracking_uri.assert_called_once_with("file:///tmp/mlruns")
+
+
+def test_configure_mlflow_sets_multipart_defaults_for_remote_uri() -> None:
+  """Remote tracking URI enables multipart client defaults unless pre-set."""
+  with patch.dict(
+    "os.environ",
+    {
+      "MLFLOW_TRACKING_URI": "https://example-mlflow.run.app",
+      "MLFLOW_TRACKING_URI_FROM_GCP": "false",
+    },
+    clear=False,
+  ):
+    with patch("training.analysis.mlflow_config.mlflow"):
+      _ = configure_mlflow_from_env("file:///tmp/mlruns")
+    import os
+
+    assert os.environ["MLFLOW_ENABLE_PROXY_MULTIPART_UPLOAD"] == "true"
+    assert os.environ["MLFLOW_MULTIPART_UPLOAD_MINIMUM_FILE_SIZE"] == "10485760"
+    assert os.environ["MLFLOW_MULTIPART_UPLOAD_CHUNK_SIZE"] == "8388608"
+
+
+def test_configure_mlflow_does_not_override_multipart_env() -> None:
+  """Explicit multipart environment variables should be respected."""
+  with patch.dict(
+    "os.environ",
+    {
+      "MLFLOW_TRACKING_URI": "https://example-mlflow.run.app",
+      "MLFLOW_TRACKING_URI_FROM_GCP": "false",
+      "MLFLOW_ENABLE_PROXY_MULTIPART_UPLOAD": "false",
+      "MLFLOW_MULTIPART_UPLOAD_MINIMUM_FILE_SIZE": "999",
+      "MLFLOW_MULTIPART_UPLOAD_CHUNK_SIZE": "262144",
+    },
+    clear=False,
+  ):
+    with patch("training.analysis.mlflow_config.mlflow"):
+      _ = configure_mlflow_from_env("file:///tmp/mlruns")
+    import os
+
+    assert os.environ["MLFLOW_ENABLE_PROXY_MULTIPART_UPLOAD"] == "false"
+    assert os.environ["MLFLOW_MULTIPART_UPLOAD_MINIMUM_FILE_SIZE"] == "999"
+    assert os.environ["MLFLOW_MULTIPART_UPLOAD_CHUNK_SIZE"] == "262144"

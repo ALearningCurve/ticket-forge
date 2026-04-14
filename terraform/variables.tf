@@ -131,6 +131,37 @@ variable "mlflow_additional_invokers" {
   default     = []
 }
 
+variable "mlflow_enable_proxy_multipart_upload" {
+  description = "Enable MLflow proxied multipart upload for artifacts to avoid large single-request uploads through Cloud Run."
+  type        = bool
+  default     = true
+}
+
+variable "mlflow_multipart_upload_minimum_file_size" {
+  description = "Minimum artifact size in bytes before MLflow uses multipart upload for proxied artifact writes."
+  type        = number
+  default     = 10485760 # 10 MiB
+
+  validation {
+    condition     = var.mlflow_multipart_upload_minimum_file_size >= 0
+    error_message = "mlflow_multipart_upload_minimum_file_size must be >= 0."
+  }
+}
+
+variable "mlflow_multipart_upload_chunk_size" {
+  description = "Chunk size in bytes for MLflow multipart proxy uploads. Must be a multiple of 256 KiB for GCS."
+  type        = number
+  default     = 8388608 # 8 MiB
+
+  validation {
+    condition = (
+      var.mlflow_multipart_upload_chunk_size >= 262144
+      && floor(var.mlflow_multipart_upload_chunk_size / 262144) == var.mlflow_multipart_upload_chunk_size / 262144
+    )
+    error_message = "mlflow_multipart_upload_chunk_size must be >= 262144 and a multiple of 262144 (256 KiB)."
+  }
+}
+
 variable "web_backend_service_name" {
   description = "Cloud Run service name for the production backend inference API."
   type        = string

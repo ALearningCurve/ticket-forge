@@ -37,6 +37,10 @@ resource "google_service_account" "mlflow_server" {
   display_name = "MLflow Tracking Service"
 }
 
+resource "google_service_account_key" "mlflow_server_signing" {
+  service_account_id = google_service_account.mlflow_server.name
+}
+
 resource "google_project_iam_member" "mlflow_server_cloudsql" {
   project = var.project_id
   role    = "roles/cloudsql.client"
@@ -84,9 +88,25 @@ resource "google_secret_manager_secret" "mlflow_admin_password" {
   depends_on = [google_project_service.mlflow_services]
 }
 
+resource "google_secret_manager_secret" "mlflow_gcs_signing_key" {
+  secret_id = "${var.mlflow_service_name}-gcs-signing-key"
+
+  replication {
+    auto {}
+  }
+
+  depends_on = [google_project_service.mlflow_services]
+}
+
 resource "google_secret_manager_secret_version" "mlflow_admin_password" {
   secret      = google_secret_manager_secret.mlflow_admin_password.id
   secret_data = random_password.mlflow_admin_password.result
+}
+
+resource "google_secret_manager_secret_version" "mlflow_gcs_signing_key" {
+  secret = google_secret_manager_secret.mlflow_gcs_signing_key.id
+  # google_service_account_key.private_key is base64-encoded JSON
+  secret_data = base64decode(google_service_account_key.mlflow_server_signing.private_key)
 }
 
 resource "google_secret_manager_secret_iam_member" "mlflow_server_secret_access" {
@@ -103,6 +123,12 @@ resource "google_secret_manager_secret_iam_member" "mlflow_server_flask_secret_a
 
 resource "google_secret_manager_secret_iam_member" "mlflow_server_admin_password_access" {
   secret_id = google_secret_manager_secret.mlflow_admin_password.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.mlflow_server.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "mlflow_server_gcs_signing_key_access" {
+  secret_id = google_secret_manager_secret.mlflow_gcs_signing_key.id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.mlflow_server.email}"
 }
@@ -136,6 +162,19 @@ resource "google_cloud_run_v2_service" "mlflow" {
       }
     }
 
+    volumes {
+      name = "mlflow-gcs-signing-key"
+
+      secret {
+        secret = google_secret_manager_secret.mlflow_gcs_signing_key.secret_id
+
+        items {
+          path    = "key.json"
+          version = google_secret_manager_secret_version.mlflow_gcs_signing_key.version
+        }
+      }
+    }
+
     containers {
       image   = local.effective_mlflow_image
       command = ["/bin/sh", "-c"]
@@ -151,6 +190,11 @@ resource "google_cloud_run_v2_service" "mlflow" {
       volume_mounts {
         name       = "cloudsql"
         mount_path = "/cloudsql"
+      }
+
+      volume_mounts {
+        name       = "mlflow-gcs-signing-key"
+        mount_path = "/var/secrets/mlflow"
       }
 
       env {
@@ -191,6 +235,26 @@ resource "google_cloud_run_v2_service" "mlflow" {
         }
       }
 
+      env {
+        name  = "GOOGLE_APPLICATION_CREDENTIALS"
+        value = "/var/secrets/mlflow/key.json"
+      }
+
+      env {
+        name  = "MLFLOW_ENABLE_PROXY_MULTIPART_UPLOAD"
+        value = var.mlflow_enable_proxy_multipart_upload ? "true" : "false"
+      }
+
+      env {
+        name  = "MLFLOW_MULTIPART_UPLOAD_MINIMUM_FILE_SIZE"
+        value = tostring(var.mlflow_multipart_upload_minimum_file_size)
+      }
+
+      env {
+        name  = "MLFLOW_MULTIPART_UPLOAD_CHUNK_SIZE"
+        value = tostring(var.mlflow_multipart_upload_chunk_size)
+      }
+
       resources {
         limits = {
           cpu    = "1"
@@ -210,9 +274,11 @@ resource "google_cloud_run_v2_service" "mlflow" {
     google_secret_manager_secret_version.mlflow_db_password,
     google_secret_manager_secret_version.mlflow_flask_secret_key,
     google_secret_manager_secret_version.mlflow_admin_password,
+    google_secret_manager_secret_version.mlflow_gcs_signing_key,
     google_secret_manager_secret_iam_member.mlflow_server_secret_access,
     google_secret_manager_secret_iam_member.mlflow_server_flask_secret_access,
     google_secret_manager_secret_iam_member.mlflow_server_admin_password_access,
+    google_secret_manager_secret_iam_member.mlflow_server_gcs_signing_key_access,
     google_project_iam_member.mlflow_server_cloudsql,
     google_storage_bucket_iam_member.mlflow_artifacts_access,
   ]

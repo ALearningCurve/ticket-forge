@@ -460,42 +460,6 @@ def _read_best_model_name(run_dir: Path) -> str | None:
   return None
 
 
-def _register_model(
-  model: object,
-  best_model_name: str,
-  run_id: str,
-  candidate_metrics: dict[str, float],
-) -> bool:
-  """Register the model in the MLflow Model Registry.
-
-  Args:
-      model:            Fitted sklearn estimator to register.
-      best_model_name:  Name of the best model (used as run tag).
-      run_id:           Training run identifier (used as run tag).
-      candidate_metrics: Candidate eval metrics stored on promotion run.
-
-  Returns:
-      True if registration succeeded, False otherwise.
-  """
-  try:
-    with mlflow.start_run(run_name=f"promote_{best_model_name}_{run_id}"):
-      mlflow.set_tag("promotion", "true")
-      mlflow.set_tag("run_id", run_id)
-      mlflow.set_tag("promoted_model", best_model_name)
-      mlflow.sklearn.log_model(
-        model,
-        name="model",
-        registered_model_name=_REGISTERED_MODEL_NAME,
-      )
-      if candidate_metrics:
-        eval_metrics = {f"eval_{k}": float(v) for k, v in candidate_metrics.items()}
-        mlflow.log_metrics(eval_metrics)
-  except Exception:
-    logger.exception("Model registration failed for %s", best_model_name)
-    return False
-  return True
-
-
 def _register_logged_best_estimator(
   client: MlflowClient,
   run_id: str,
@@ -510,7 +474,7 @@ def _register_logged_best_estimator(
   experiment = mlflow.get_experiment_by_name(_EXPERIMENT_NAME)
   if experiment is None:
     logger.info(
-      "MLflow experiment '%s' not found; falling back to local upload",
+      "MLflow experiment '%s' not found; cannot register logged model",
       _EXPERIMENT_NAME,
     )
     return False
@@ -534,7 +498,7 @@ def _register_logged_best_estimator(
 
   if not runs:
     logger.info(
-      "No logged model run found for '%s' (run_id=%s); falling back to local upload",
+      "No logged model run found for '%s' (run_id=%s)",
       best_model_name,
       run_id,
     )
@@ -552,12 +516,50 @@ def _register_logged_best_estimator(
     return True
 
   logger.warning(
-    "No matching logged model artifact or logged model id found for '%s' (run_id=%s); "
-    "falling back to local upload",
+    "No matching logged model artifact or logged model id found for '%s' (run_id=%s)",
     best_model_name,
     run_id,
   )
   return False
+
+
+def _register_model(
+  model: object,
+  best_model_name: str,
+  run_id: str,
+  candidate_metrics: dict[str, float],
+) -> bool:
+  """Register the model in the MLflow Model Registry.
+
+  This helper preserves the promotion-run metadata logging used by existing
+  tests and historical runs, but it is no longer used as a fallback path.
+
+  Args:
+      model: Fitted sklearn estimator to register.
+      best_model_name: Name of the best model (used as run tag).
+      run_id: Training run identifier (used as run tag).
+      candidate_metrics: Candidate eval metrics stored on promotion run.
+
+  Returns:
+      True if registration succeeded, False otherwise.
+  """
+  try:
+    with mlflow.start_run(run_name=f"promote_{best_model_name}_{run_id}"):
+      mlflow.set_tag("promotion", "true")
+      mlflow.set_tag("run_id", run_id)
+      mlflow.set_tag("promoted_model", best_model_name)
+      mlflow.sklearn.log_model(
+        model,
+        name="model",
+        registered_model_name=_REGISTERED_MODEL_NAME,
+      )
+      if candidate_metrics:
+        eval_metrics = {f"eval_{k}": float(v) for k, v in candidate_metrics.items()}
+        mlflow.log_metrics(eval_metrics)
+  except Exception:
+    logger.exception("Model registration failed for %s", best_model_name)
+    return False
+  return True
 
 
 def _transition_to_production(client: MlflowClient, new_version: str) -> bool:
@@ -614,42 +616,30 @@ def _load_and_register(
   run_dir: Path,
   best_model_name: str,
   run_id: str,
-  candidate_metrics: dict[str, float],
   client: MlflowClient,
 ) -> bool:
-  """Load the best model pickle and register it in the MLflow Model Registry.
-
-  Checks that the pickle exists, loads the fitted estimator from the
-  GridSearchCV result, then delegates to _register_model. Returns False on
-  any failure so the caller can treat it as a single boolean gate.
+  """Register the best logged estimator from MLflow and fail if it is missing.
 
   Args:
-      run_dir:          Training run directory containing the pickle file.
-      best_model_name:  Model name used to locate ``{model}.pkl``.
-      run_id:           Training run identifier (logged as an MLflow tag).
-      candidate_metrics: Candidate eval metrics logged during registration.
-      client:           MLflow tracking client.
+      run_dir: Training run directory containing artifacts.
+      best_model_name: Model name used to locate promotion metadata.
+      run_id: Training run identifier (logged as an MLflow tag).
+      client: MLflow tracking client.
 
   Returns:
-      True if loading and registration both succeeded, False otherwise.
-  """
-  pkl_path = run_dir / f"{best_model_name}.pkl"
-  if not pkl_path.exists():
-    logger.warning("Model pickle not found at %s — cannot promote", pkl_path)
-    return False
+      True if registration succeeded.
 
-  # Prefer model registration from an already-logged artifact to avoid
-  # large request uploads that can fail behind Cloud Run limits.
+  Raises:
+      RuntimeError: If the training run did not log a best-estimator artifact.
+  """
   if _register_logged_best_estimator(client, run_id, best_model_name):
     return True
 
-  try:
-    grid = joblib.load(pkl_path)
-    model = grid.best_estimator_
-  except Exception:
-    logger.exception("Could not load model from %s", pkl_path)
-    return False
-  return _register_model(model, best_model_name, run_id, candidate_metrics)
+  msg = (
+    f"Could not find a logged MLflow model for '{best_model_name}' "
+    f"(run_id={run_id}); training must log best_estimator before promotion."
+  )
+  raise RuntimeError(msg)
 
 
 def _read_candidate_metrics(run_dir: Path, best_model_name: str) -> dict[str, float]:
@@ -759,12 +749,12 @@ def _get_new_version(client: MlflowClient, best_model_name: str) -> str | None:
 
 
 def promote_best_model(run_id: str) -> str | None:
-  """Register and promote the best model from a training run to Production.
+  """Register and promote the best logged estimator from a training run.
 
-  Reads best.txt to identify the best model, loads its pickle, registers
-  it in the MLflow Model Registry as a new version of _REGISTERED_MODEL_NAME,
-  archives any existing Production version, and transitions the new version
-  to the "Production" stage.
+  Reads best.txt to identify the best model, requires that training logged
+  the best estimator to MLflow, registers it as a new version of
+  _REGISTERED_MODEL_NAME, archives any existing Production version, and
+  transitions the new version to the "Production" stage.
 
   Requires a non-filesystem tracking URI to use the Model Registry.
   Set MLFLOW_TRACKING_URI to a database-backed URI (e.g. sqlite:///mlflow.db)
@@ -807,7 +797,6 @@ def promote_best_model(run_id: str) -> str | None:
           run_dir,
           best_model_name,
           run_id,
-          candidate_metrics,
           client,
         )
         if loaded:

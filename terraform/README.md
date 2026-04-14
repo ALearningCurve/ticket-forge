@@ -42,6 +42,8 @@ Important variables:
 - `airflow_db_name`, `airflow_db_user`,
 - `shared_cloud_sql_instance_name`
 - `mlflow_db_tier`, `cloud_sql_max_connections`
+- `mlflow_enable_proxy_multipart_upload`
+- `mlflow_multipart_upload_minimum_file_size`, `mlflow_multipart_upload_chunk_size`
 - `ticketforge_db_name`, `ticketforge_db_user`
 - `web_backend_service_name`, `web_frontend_service_name`
 - `web_backend_image`, `web_frontend_image`
@@ -90,6 +92,10 @@ TF_VAR_state_bucket=ticketforge-terraform
 # Optional MLflow overrides
 # TF_VAR_mlflow_artifact_registry_repository=mlflow-repo
 # TF_VAR_mlflow_image_tag=v3.10.0
+# Enable multipart uploads for larger model artifacts (recommended)
+# TF_VAR_mlflow_enable_proxy_multipart_upload=true
+# TF_VAR_mlflow_multipart_upload_minimum_file_size=10485760
+# TF_VAR_mlflow_multipart_upload_chunk_size=8388608
 # Optional explicit override (must be docker.io, gcr.io, or docker.pkg.dev)
 # TF_VAR_mlflow_server_image=us-east1-docker.pkg.dev/YOUR_PROJECT_ID/mlflow-repo/mlflow-gcp:v3.10.0
 # TF_VAR_mlflow_additional_invokers=["user:you@example.com"]
@@ -293,6 +299,11 @@ Admin username: `admin`
 
 The Cloud Run service now bootstraps MLflow auth config at startup using
 `MLFLOW_AUTH_CONFIG_PATH` and a Secret Manager-backed admin password.
+
+For proxied multipart artifact uploads to GCS, MLflow must generate signed URLs.
+The deployment now provisions a dedicated service-account key secret and mounts
+it into the MLflow Cloud Run container as `GOOGLE_APPLICATION_CREDENTIALS` so
+multipart upload endpoints can sign URLs correctly.
 
 - Secret name pattern: `<mlflow_service_name>-admin-password`
 - Config generated at runtime: `/tmp/basic_auth.ini`

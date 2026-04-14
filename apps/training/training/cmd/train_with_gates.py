@@ -224,10 +224,14 @@ def main() -> int:
   candidate_metrics = _read_eval_metrics(run_dir, best_model)
   config = load_gate_config()
 
-  validation_gate = evaluate_validation_gate(candidate_metrics, config)
   bias_gate = evaluate_bias_gate(run_dir, best_model, config)
 
   baseline_version, baseline_metrics = _load_production_baseline()
+  validation_gate = evaluate_validation_gate(
+    candidate_metrics,
+    baseline_metrics,
+    config,
+  )
   regression_guardrail = evaluate_regression_guardrail(
     candidate_metrics,
     baseline_metrics,

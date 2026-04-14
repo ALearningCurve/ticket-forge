@@ -6,7 +6,9 @@ invocations can share a single setup path.
 
 from __future__ import annotations
 
+import os
 import subprocess
+from urllib.parse import urlparse
 
 import mlflow
 from shared.configuration import Paths, getenv_or
@@ -15,6 +17,9 @@ from shared.logging import get_logger
 logger = get_logger(__name__)
 
 DEFAULT_TRACKING_URI = (Paths.repo_root / "mlruns").as_uri()
+
+_DEFAULT_MULTIPART_UPLOAD_MIN_FILE_SIZE = "10485760"  # 10 MiB
+_DEFAULT_MULTIPART_UPLOAD_CHUNK_SIZE = "8388608"  # 8 MiB (multiple of 256 KiB)
 
 
 def _is_true(value: str | None) -> bool:
@@ -78,6 +83,36 @@ def _resolve_tracking_uri_from_gcp() -> str | None:
   return resolved_uri
 
 
+def _configure_proxy_multipart_upload_defaults(tracking_uri: str) -> None:
+  """Configure client-side multipart upload defaults for remote tracking URIs.
+
+  MLflow multipart proxy upload avoids large single-request uploads through the
+  tracking server, which can otherwise trigger HTTP 413 errors on Cloud Run.
+
+  Args:
+      tracking_uri: Final tracking URI selected for this process.
+  """
+  parsed = urlparse(tracking_uri)
+  if parsed.scheme not in {"http", "https"}:
+    return
+
+  os.environ.setdefault("MLFLOW_ENABLE_PROXY_MULTIPART_UPLOAD", "true")
+  os.environ.setdefault(
+    "MLFLOW_MULTIPART_UPLOAD_MINIMUM_FILE_SIZE",
+    _DEFAULT_MULTIPART_UPLOAD_MIN_FILE_SIZE,
+  )
+  os.environ.setdefault(
+    "MLFLOW_MULTIPART_UPLOAD_CHUNK_SIZE",
+    _DEFAULT_MULTIPART_UPLOAD_CHUNK_SIZE,
+  )
+
+  logger.info(
+    "MLflow multipart upload client defaults enabled (min=%s, chunk=%s)",
+    os.environ.get("MLFLOW_MULTIPART_UPLOAD_MINIMUM_FILE_SIZE"),
+    os.environ.get("MLFLOW_MULTIPART_UPLOAD_CHUNK_SIZE"),
+  )
+
+
 def configure_mlflow_from_env(default_tracking_uri: str | None = None) -> str:
   """Configure MLflow tracking URI from env and return the resolved URI.
 
@@ -99,6 +134,7 @@ def configure_mlflow_from_env(default_tracking_uri: str | None = None) -> str:
   if not tracking_uri:
     tracking_uri = default_tracking_uri or DEFAULT_TRACKING_URI
 
+  _configure_proxy_multipart_upload_defaults(tracking_uri)
   mlflow.set_tracking_uri(tracking_uri)
   logger.info("MLflow tracking URI: %s", tracking_uri)
   return tracking_uri

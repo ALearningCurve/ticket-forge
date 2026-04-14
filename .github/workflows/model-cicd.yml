@@ -267,8 +267,10 @@ jobs:
           MLFLOW_GCP_PROJECT_ID: ${{ env.TF_VAR_project_id }}
 
           # Gate tuning (optional)
-          MODEL_CICD_MIN_ACCURACY: "0.70"                    # Accuracy threshold
-          MODEL_CICD_MIN_MACRO_F1: "0.65"                    # Macro F1 threshold
+          MODEL_CICD_MIN_ACCURACY: "0.35"                    # Absolute accuracy floor
+          MODEL_CICD_MIN_MACRO_F1: "0.35"                    # Absolute macro F1 floor
+          MODEL_CICD_MAX_ACCURACY_RELATIVE_DROP: "0.10"      # Max accuracy drop vs production
+          MODEL_CICD_MAX_MACRO_F1_RELATIVE_DROP: "0.10"      # Max macro F1 drop vs production
           MODEL_CICD_MAX_BIAS_RELATIVE_GAP: "0.70"           # Bias disparity tolerance
           MODEL_CICD_MAX_REGRESSION_DEGRADATION: "0.10"      # % degradation vs production
 
