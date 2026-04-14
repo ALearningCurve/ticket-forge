@@ -379,7 +379,7 @@ export function TicketDetailModal({
 
   return (
     <Dialog key={ticket.id} open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="flex max-h-[90vh] w-[94vw] flex-col overflow-hidden p-0 sm:w-[55vw] sm:!max-w-[900px]">
+      <DialogContent className="flex max-h-[90vh] w-[94vw] flex-col overflow-hidden p-0 sm:w-[65vw] sm:!max-w-[1500px]">
         {/* ========== HEADER ========== */}
         <DialogHeader className="shrink-0 border-b bg-background px-5 py-3.5 shadow-sm z-10">
           <div className="flex items-center justify-between">
@@ -688,7 +688,7 @@ export function TicketDetailModal({
           </div>
 
           {/* RIGHT SIDEBAR: Metadata */}
-          <div className="w-full shrink-0 border-t md:border-l md:border-t-0 bg-muted/10 p-5 md:w-[260px] md:overflow-y-auto flex flex-col gap-5">
+          <div className="w-full shrink-0 border-t md:border-l md:border-t-0 bg-muted/10 p-5 md:w-[320px] md:overflow-y-auto flex flex-col gap-5">
             <div className="grid grid-cols-2 gap-4 md:grid-cols-1 md:gap-5">
               {/* Priority */}
               <div className="space-y-1.5">
