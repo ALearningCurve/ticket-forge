@@ -328,20 +328,20 @@ def _email_for_username(username: str) -> str:
   local = "".join(ch if ch.isalnum() else "." for ch in username.lower())
   local = ".".join(part for part in local.split(".") if part) or "demo.user"
   if len(local) > 48:
-    digest = hashlib.sha1(username.encode("utf-8")).hexdigest()[:8]
+    digest = hashlib.sha256(username.encode("utf-8")).hexdigest()[:8]
     local = f"{local[:39]}.{digest}"
   return f"{local}@{DEMO_EMAIL_DOMAIN}"
 
 
 def _password_for_username(username: str) -> str:
   """Build deterministic demo password per username."""
-  digest = hashlib.sha1(username.encode("utf-8")).hexdigest()[:6]
+  digest = hashlib.sha256(username.encode("utf-8")).hexdigest()[:6]
   return f"TfDemo@{digest}!"
 
 
 def _ticket_key_for_source_id(source_id: str) -> str:
   """Build deterministic <=20 char ticket key from source id."""
-  digest = hashlib.sha1(source_id.encode("utf-8")).hexdigest()[:8].upper()
+  digest = hashlib.sha256(source_id.encode("utf-8")).hexdigest()[:8].upper()
   return f"DEMO-{digest}"
 
 
@@ -580,7 +580,7 @@ def _ensure_demo_users(
     email = _email_for_username(username)
     cur.execute("SELECT 1 FROM auth_users WHERE lower(email) = lower(%s)", (email,))
     if cur.fetchone() is not None:
-      digest = hashlib.sha1(username.encode("utf-8")).hexdigest()[:6]
+      digest = hashlib.sha256(username.encode("utf-8")).hexdigest()[:6]
       email = f"{email.split('@', maxsplit=1)[0]}.{digest}@{DEMO_EMAIL_DOMAIN}"
 
     plain_password = _password_for_username(username)
