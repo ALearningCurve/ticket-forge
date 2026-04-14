@@ -8,6 +8,7 @@ on:
       - "apps/training/**"
       - "apps/pipelines/**"
       - "libs/**"
+      - "scripts/postgres/init/**"
       - ".github/workflows/**"
   workflow_dispatch:
 

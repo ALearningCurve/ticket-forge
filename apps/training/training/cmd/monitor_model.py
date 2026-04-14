@@ -202,23 +202,63 @@ def _write_serving_records(path: Path, records: list[dict[str, Any]]) -> int:
   return len(records)
 
 
+_FETCH_TIMEOUT = 90.0
+_FETCH_MAX_RETRIES = 3
+_FETCH_RETRY_DELAY = 10
+
+
 def _fetch_serving_records(
   backend_url: str,
   *,
   limit: int,
 ) -> list[dict[str, Any]]:
-  """Fetch recent serving telemetry from the deployed backend."""
-  response = httpx.get(
-    f"{backend_url}/api/v1/inference/monitoring/export",
-    params={"limit": limit},
-    timeout=30.0,
+  """Fetch recent serving telemetry from the deployed backend.
+
+  Retries up to ``_FETCH_MAX_RETRIES`` times with a delay between attempts to
+  handle Cloud Run cold-starts and transient network errors.  Raises after all
+  retries are exhausted so the workflow fails visibly rather than silently
+  writing an empty baseline that would corrupt future drift comparisons.
+  """
+  import time
+
+  url = f"{backend_url}/api/v1/inference/monitoring/export"
+  last_err: Exception | None = None
+
+  for attempt in range(1, _FETCH_MAX_RETRIES + 1):
+    try:
+      logger.info(
+        "Fetching serving records (attempt %d/%d) from %s",
+        attempt,
+        _FETCH_MAX_RETRIES,
+        url,
+      )
+      response = httpx.get(url, params={"limit": limit}, timeout=_FETCH_TIMEOUT)
+      response.raise_for_status()
+      payload = response.json()
+      if not isinstance(payload, list):
+        msg = "Backend monitoring export must return a JSON array"
+        raise TypeError(msg)
+    except (httpx.TimeoutException, httpx.ConnectError, httpx.HTTPStatusError) as exc:
+      last_err = exc
+      logger.warning(
+        "Attempt %d/%d failed: %s",
+        attempt,
+        _FETCH_MAX_RETRIES,
+        exc,
+      )
+      if attempt < _FETCH_MAX_RETRIES:
+        time.sleep(_FETCH_RETRY_DELAY)
+      continue
+    else:
+      records = [record for record in payload if isinstance(record, dict)]
+      logger.info("Fetched %d serving records", len(records))
+      return records
+
+  msg = (
+    f"All {_FETCH_MAX_RETRIES} attempts to fetch serving records from "
+    f"{url} failed. Last error: {last_err}"
   )
-  response.raise_for_status()
-  payload = response.json()
-  if not isinstance(payload, list):
-    msg = "Backend monitoring export must return a JSON array"
-    raise TypeError(msg)
-  return [record for record in payload if isinstance(record, dict)]
+  raise RuntimeError(msg) from last_err
 
 
 def _empty_serving_profile(export_path: Path) -> dict[str, Any]:
