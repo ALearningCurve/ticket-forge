@@ -216,7 +216,6 @@ class TestRefresh:
     async def test_refresh_success(self, client: AsyncClient) -> None:
         """Rotates tokens — new access token, new refresh cookie."""
         signup_resp = await client.post("/api/v1/auth/signup", json=VALID_SIGNUP)
-        signup_resp.json()["access_token"]  # ensure access_token is present
 
         refresh_cookie = signup_resp.cookies.get(REFRESH_COOKIE_NAME)
         assert refresh_cookie is not None
