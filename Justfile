@@ -60,6 +60,12 @@ train *args='':
 train-with-gates *args='':
     uv run python -m training.cmd.train_with_gates {{ args }}
 
+# seed demo project from sample data (users + tickets)
+[group('data-pipeline')]
+[positional-arguments]
+demo-seed-project-data *args='':
+    uv run python demo/seed_demo_project.py "$@"
+
 # initializes terraform
 [group('ops')]
 tf-init:
