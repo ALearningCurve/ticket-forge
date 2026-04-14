@@ -39,6 +39,7 @@ class RecommendedTicketResponse(BaseModel):
     priority: str
     type: str
     labels: list[str]
+    size_bucket: str | None
     due_date: date | None
     semantic_similarity: float
     lexical_score: float

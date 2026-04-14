@@ -368,8 +368,8 @@ export function TicketDetailModal({
   const TypeIcon = currentType?.icon || CheckSquare;
   const currentPriority = priorityOptions.find((p) => p.value === priority);
   const selectedOrPredictedSize = (
-    sizeMode === "auto" ? ticket.size_bucket || ticket.size || "M" : sizeMode
-  ) as SizeValue;
+    sizeMode === "auto" ? ticket.size_bucket || ticket.size || null : sizeMode
+  ) as SizeValue | null;
   const pointsCost =
     sizePointsMap[selectedOrPredictedSize as keyof typeof sizePointsMap] || 0;
   const dueInfo = dueDate ? getDaysUntilDue(dueDate) : null;
@@ -869,18 +869,15 @@ export function TicketDetailModal({
                   {pointsCost} / {weeklyPointsPerMember}
                 </span>
                 <span className="text-muted-foreground">Status</span>
-                <span className="text-right">
-                  <span
-                    className={cn(
-                      "rounded px-1.5 py-0.5 text-[10px] font-bold",
-                      sizeColors[selectedOrPredictedSize],
-                    )}
-                  >
-                    {sizeMode === "auto"
-                      ? `AI ${selectedOrPredictedSize}`
-                      : selectedOrPredictedSize}
-                  </span>
-                </span>
+<span className="text-right">
+  {selectedOrPredictedSize ? (
+    <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-bold", sizeColors[selectedOrPredictedSize])}>
+      {sizeMode === "auto" ? `AI ${selectedOrPredictedSize}` : selectedOrPredictedSize}
+    </span>
+  ) : (
+    <span className="text-[10px] text-muted-foreground">Not set</span>
+  )}
+</span>
                 <span className="text-muted-foreground">Level</span>
                 <span className="flex items-center justify-end gap-1.5">
                   <span

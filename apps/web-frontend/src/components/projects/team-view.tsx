@@ -479,6 +479,11 @@ export function TeamView({
                                 <Badge variant="secondary" className="text-[9px] bg-muted/50">
                                   {ticket.type}
                                 </Badge>
+                                {ticket.size_bucket && (
+                                <Badge variant="secondary" className="text-[9px] bg-muted/50">
+                                  {ticket.size_bucket}
+                                </Badge>
+                                )}
                                 {ticket.labels?.slice(0, 3).map((label) => (
                                   <span key={label} className="text-[10px] text-muted-foreground flex items-center gap-1 border rounded px-1.5 py-0.5 bg-muted/10">
                                     <span className="size-1.5 rounded-full bg-primary/40"></span>

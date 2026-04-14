@@ -54,7 +54,7 @@ function apiTicketToCard(
     title: t.title,
     type: t.type as TicketData["type"],
     priority: t.priority as TicketData["priority"],
-    size: (t.size_bucket || t.size || "M") as TicketData["size"],
+    size: (t.size_bucket || t.size || null) as TicketData["size"],
     labels: t.labels || [],
     dueDate: t.due_date
       ? new Date(t.due_date + "T00:00:00").toLocaleDateString("en-US", {

@@ -149,6 +149,7 @@ export interface TicketRecommendation {
   priority?: string;
   type?: string;
   labels?: string[];
+  size_bucket?: string | null;
   due_date?: string | null;
   semantic_similarity?: number;
   lexical_score?: number;

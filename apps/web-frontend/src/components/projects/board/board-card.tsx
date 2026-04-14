@@ -15,7 +15,7 @@ export interface TicketData {
   title: string;
   type: "task" | "story" | "bug";
   priority: "low" | "medium" | "high" | "critical";
-  size: "S" | "M" | "L" | "XL";
+  size: "S" | "M" | "L" | "XL" | null;
   labels: string[];
   assignee?: {
     initials: string;
@@ -115,11 +115,12 @@ export function BoardCard({ ticket, index, onClick }: BoardCardProps) {
                 </span>
               </div>
             )}
-            <span
-              className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold ${sizeStyles[ticket.size]}`}
-            >
-              {ticket.size}
-            </span>
+            {ticket.size && (
+              <span
+                className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold ${sizeStyles[ticket.size]}`}>
+                {ticket.size}
+              </span>
+            )}
           </div>
 
           {/* Footer: type icon + key + assignee */}
