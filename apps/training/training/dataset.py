@@ -383,7 +383,7 @@ class Dataset(BaseModel):
     reflect real backlog/prioritization behaviour.
 
     Returns:
-        List of ticket dicts belonging to this split.
+        List of ticket dicts belonging to this split
     """
     pipeline_dir = find_latest_pipeline_output()
     dataset_path = _find_dataset_file(pipeline_dir)
