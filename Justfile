@@ -187,7 +187,6 @@ gcp-airflow-trigger url dag_id conf_json='{}' run_id='':
         bash scripts/ci/airflow_trigger_dag.sh "{{ url }}" "{{ dag_id }}" '{{ conf_json }}'
     fi
 
-
 # creates/updates Airflow deployment on GCP with Terraform
 [group('ops')]
 gcp-airflow-deploy:
@@ -196,42 +195,42 @@ gcp-airflow-deploy:
 # opens proxy tunnel to GCP resources (e.g. Airflow webserver, Cloud SQL instances)
 [group('ops')]
 gcp-proxy target local_port='18080':
-        #!/usr/bin/env bash
-        set -euo pipefail
+    #!/usr/bin/env bash
+    set -euo pipefail
 
-        : "${TF_VAR_project_id:?TF_VAR_project_id must be set in environment}"
+    : "${TF_VAR_project_id:?TF_VAR_project_id must be set in environment}"
 
-        case "{{ target }}" in
-            airflow)
-                zone="${TF_VAR_airflow_zone:-${TF_VAR_zone:-us-east1-c}}"
-                instance="${AIRFLOW_VM_NAME:-airflow-vm-prod}"
-                echo "Opening Airflow IAP tunnel: 127.0.0.1:{{ local_port }} -> ${instance}:8080 (${zone})"
-                exec gcloud compute start-iap-tunnel "${instance}" 8080 \
-                    --zone="${zone}" \
-                    --local-host-port="127.0.0.1:{{ local_port }}"
-                ;;
-            cloud-sql|cloudsql|sql)
-                zone="${TF_VAR_airflow_zone:-${TF_VAR_zone:-us-east1-c}}"
-                instance="${AIRFLOW_VM_NAME:-airflow-vm-prod}"
-                cloud_sql_private_ip="$(terraform -chdir=terraform output -raw cloud_sql_private_ip 2>/dev/null || true)"
-                if [[ -z "${cloud_sql_private_ip}" ]]; then
-                    echo "Could not resolve cloud_sql_private_ip from Terraform outputs."
-                    echo "Run: just tf output cloud_sql_private_ip"
-                    exit 1
-                fi
-                echo "Opening Cloud SQL IAP relay: 127.0.0.1:{{ local_port }} -> ${cloud_sql_private_ip}:5432 via ${instance} (${zone})"
-                exec gcloud compute ssh \
-                    --project="${TF_VAR_project_id}" \
-                    --zone="${zone}" \
-                    --tunnel-through-iap \
-                    "${instance}" \
-                    -- -N -L "127.0.0.1:{{ local_port }}:${cloud_sql_private_ip}:5432"
-                ;;
-            *)
-                echo "Usage: just gcp-proxy <airflow|cloud-sql> [local_port]"
-                exit 2
-                ;;
-        esac
+    case "{{ target }}" in
+        airflow)
+            zone="${TF_VAR_airflow_zone:-${TF_VAR_zone:-us-east1-c}}"
+            instance="${AIRFLOW_VM_NAME:-airflow-vm-prod}"
+            echo "Opening Airflow IAP tunnel: 127.0.0.1:{{ local_port }} -> ${instance}:8080 (${zone})"
+            exec gcloud compute start-iap-tunnel "${instance}" 8080 \
+                --zone="${zone}" \
+                --local-host-port="127.0.0.1:{{ local_port }}"
+            ;;
+        cloud-sql|cloudsql|sql)
+            zone="${TF_VAR_airflow_zone:-${TF_VAR_zone:-us-east1-c}}"
+            instance="${AIRFLOW_VM_NAME:-airflow-vm-prod}"
+            cloud_sql_private_ip="$(terraform -chdir=terraform output -raw cloud_sql_private_ip 2>/dev/null || true)"
+            if [[ -z "${cloud_sql_private_ip}" ]]; then
+                echo "Could not resolve cloud_sql_private_ip from Terraform outputs."
+                echo "Run: just tf output cloud_sql_private_ip"
+                exit 1
+            fi
+            echo "Opening Cloud SQL IAP relay: 127.0.0.1:{{ local_port }} -> ${cloud_sql_private_ip}:5432 via ${instance} (${zone})"
+            exec gcloud compute ssh \
+                --project="${TF_VAR_project_id}" \
+                --zone="${zone}" \
+                --tunnel-through-iap \
+                "${instance}" \
+                -- -N -L "127.0.0.1:{{ local_port }}:${cloud_sql_private_ip}:5432"
+            ;;
+        *)
+            echo "Usage: just gcp-proxy <airflow|cloud-sql> [local_port]"
+            exit 2
+            ;;
+    esac
 
 # output connection credentials for deployed services
 [group('ops')]
@@ -334,3 +333,9 @@ tf-outputs:
     echo
     echo "Cloud SQL Socket DSN (for GCP runtimes):"
     echo "${ticketforge_socket_dsn}"
+
+# run arbitrary cli command from project root with environment variables loaded from .env
+[group('lang-agnostic')]
+[positional-arguments]
+env-run *args='':
+    "$@"
