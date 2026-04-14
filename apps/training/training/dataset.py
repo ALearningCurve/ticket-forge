@@ -35,12 +35,12 @@ Y_t = npt.NDArray[Any]
 _SPLIT_RATIOS: dict[str, float] = {"train": 0.7, "validation": 0.15, "test": 0.15}
 
 # Time bucket boundaries (in business hours)
-# Bucket 0: S  —  0-10 hrs  (small,  quick fix)
-# Bucket 1: M  — 10-50 hrs  (medium, few days)
-# Bucket 2: L  — 50-100 hrs (large,  ~2 weeks)
-# Bucket 3: XL — 100-480 hrs(x-large, long haul)
-# Tickets above 480 hrs (~60 working days) are dropped as abandoned/noise
-TIME_BUCKETS = [0, 10, 50, 100, 480]
+# Bucket 0: S  —   0-20 hrs
+# Bucket 1: M  —  20-118 hrs
+# Bucket 2: L  — 118-442 hrs
+# Bucket 3: XL — 442-1920 hrs
+# Tickets above 1920 hrs (~240 working days) are dropped as abandoned/noise
+TIME_BUCKETS = [0, 20, 118, 442, 1920]
 N_CLASSES = len(TIME_BUCKETS) - 1
 
 _DATETIME_FMT = "%Y-%m-%dT%H:%M:%SZ"
@@ -152,8 +152,10 @@ def _is_not_abandoned_assignment(ticket: dict[str, Any]) -> bool:
 
   Detects the OSS anti-pattern where an engineer self-assigns a ticket
   reflexively but never actually works on it. Filters tickets that were:
-    - Assigned very quickly (<24 hours after creation, reflexive assignment)
-    - BUT remained open for a very long time (>480 hours / ~60 days)
+    - Assigned within 48 hours of creation (catches same-day and
+      next-day reflexive assignments in OSS triage workflows)
+    - BUT remained open longer than 120 hours (~3 weeks calendar time),
+      suggesting the ticket was abandoned or blocked, not actively worked on
 
   These cases inflate the XL completion time bucket without reflecting
   actual work done.
@@ -195,8 +197,10 @@ def _is_not_abandoned_assignment(ticket: dict[str, Any]) -> bool:
   tta_hrs = (assigned_dt - created_dt).total_seconds() / 3600
   duration_hrs = (closed_dt - created_dt).total_seconds() / 3600
 
-  # Drop if: quickly assigned (<24h) AND stayed open very long (>480h)
-  # This flags the "self-assigned but never worked on" pattern
+  # Drop if: assigned within 48h AND open longer than 120h (abandoned/blocked noise)
+  # In OSS repos (Terraform, Kubernetes), quick self-assignment followed by
+  # 3+ weeks of inactivity strongly indicates reflexive triage, not active work.
+  # 120h chosen to catch early abandonments before they inflate the XL bucket.
   is_abandoned = tta_hrs < 48 and duration_hrs > 120
 
   return not is_abandoned  # Return True if NOT abandoned
@@ -358,10 +362,10 @@ class Dataset(BaseModel):
 
   Target variable is a time bucket class (0-3) based on
   completion_hours_business:
-    0: S  —  0-10 hrs  (small)
-    1: M  — 10-50 hrs  (medium)
-    2: L  — 50-100 hrs (large)
-    3: XL — 100-480 hrs(x-large)
+    # Bucket 0: S  —   0-20 hrs
+    # Bucket 1: M  —  20-118 hrs
+    # Bucket 2: L  — 118-442 hrs
+    # Bucket 3: XL — 442-1920 hrs
   """
 
   split: Splits_t
@@ -379,7 +383,7 @@ class Dataset(BaseModel):
     reflect real backlog/prioritization behaviour.
 
     Returns:
-        List of ticket dicts belonging to this split.
+        List of ticket dicts belonging to this split
     """
     pipeline_dir = find_latest_pipeline_output()
     dataset_path = _find_dataset_file(pipeline_dir)
@@ -400,21 +404,20 @@ class Dataset(BaseModel):
 
     n_records = len(records)
 
-    # Drop records with missing, negative, or abandoned completion times.
+    # Drop records with missing, negative, or out-of-range completion times.
     # No mean imputation — garbage records are excluded entirely.
-    # Tickets above 480 hrs (~60 working days) are dropped as abandoned/noise
-    # based on industry research showing legitimate tickets rarely exceed this.
+    # Tickets above 1920 hrs (~240 working days) are dropped as abandoned/noise.
     records = [
       r
       for r in records
       if r.get("completion_hours_business") is not None
-      and 0 <= r["completion_hours_business"] <= 480
+      and 0 <= r["completion_hours_business"] <= 1920
     ]
 
     # Quality filter: keep all historical data and allow unassigned tickets.
     # Age window is intentionally broad to effectively disable recency pruning.
     initial_count = len(records)
-    records = [r for r in records if _is_ticket_in_timewindow(r, years_back=5)]
+    records = [r for r in records if _is_ticket_in_timewindow(r, years_back=20)]
     filtered_count = initial_count - len(records)
 
     if filtered_count > 0:
@@ -424,8 +427,8 @@ class Dataset(BaseModel):
         len(records),
       )
 
-    # Filter out abandoned assignments: tickets assigned quickly (<24h) but
-    # stayed open forever (>480h). These are reflexive self-assignments that
+    # Filter out abandoned assignments: tickets assigned quickly (<48h) but
+    # stayed open longer than 120h. These are reflexive self-assignments that
     # were never actually worked on, and inflate the XL completion bucket
     # with noise.
     initial_count = len(records)
@@ -533,10 +536,10 @@ class Dataset(BaseModel):
     """Loads the target vector y as time bucket class labels.
 
     Converts completion_hours_business into one of 4 buckets:
-      0: S  —  0-10 hrs
-      1: M  — 10-50 hrs
-      2: L  — 50-100 hrs
-      3: XL — 100-480 hrs
+      # Bucket 0: S  —   0-20 hrs
+      # Bucket 1: M  —  20-118 hrs
+      # Bucket 2: L  — 118-442 hrs
+      # Bucket 3: XL — 442-1920 hrs
 
     Records with missing or negative completion hours are already dropped
     in _load_records() — no imputation is applied here.
@@ -562,8 +565,8 @@ class Dataset(BaseModel):
     y = np.array(raw, dtype=np.float64)
 
     # Convert continuous hours to time bucket class labels
-    # TIME_BUCKETS = [0, 10, 50, 100, 480]
-    # Bucket 0: S (0-10), 1: M (10-50), 2: L (50-100), 3: XL (100-480)
+    # TIME_BUCKETS = [0, 20, 118, 442, 1920]
+    # Bucket 0: S (0-20), 1: M (20-118), 2: L (118-442), 3: XL (442-1920)
     return np.digitize(y, TIME_BUCKETS[1:-1]).astype(np.int64)
 
   def load_metadata(self) -> pd.DataFrame:
@@ -602,16 +605,13 @@ class Dataset(BaseModel):
 
   def load_sample_weights(self) -> Y_t:
     """Load per-sample weights for bias-aware and class-aware training.
-
     Builds two inverse-frequency weight vectors:
-      - Repo weights from metadata (fairness across repositories)
+      - Repo weights from sample_weights.json (if available) or computed on the fly
       - Class weights from y buckets (fairness across S/M/L/XL classes)
-
     The final weight is a geometric blend of both components:
       combined = repo_weight^alpha * class_weight^(1-alpha)
-
     where alpha is configured by TRAIN_REPO_CLASS_WEIGHT_ALPHA
-    (default 0.7). Final weights are normalized to mean 1.0.
+    (default 0.3). Final weights are normalized to mean 1.0.
 
     Returns:
         Float64 array of per-sample weights, same length as load_y().
@@ -622,11 +622,22 @@ class Dataset(BaseModel):
     alpha = _load_repo_class_weight_alpha()
     logger.info("alpha blend of %f", alpha)
 
-    # Repo inverse-frequency weights from metadata column.
-    group_counts = meta[group_col].value_counts()
-    total = len(meta)
-    n_groups = len(group_counts)
-    repo_w = meta[group_col].map(lambda g: total / (n_groups * group_counts[g]))
+    # Try loading repo weights from sample_weights.json first
+    pipeline_dir = find_latest_pipeline_output()
+    weights_file = pipeline_dir / "sample_weights.json"
+    if weights_file.exists():
+      with open(weights_file) as f:
+        weights_data = json.load(f)
+      weights_by_group = weights_data.get("weights_by_group", {})
+      repo_w = meta[group_col].map(lambda g: weights_by_group.get(g, 1.0))
+      logger.info("Loaded repo weights from %s", weights_file)
+    else:
+      # Fall back to computing on the fly
+      group_counts = meta[group_col].value_counts()
+      total = len(meta)
+      n_groups = len(group_counts)
+      repo_w = meta[group_col].map(lambda g: total / (n_groups * group_counts[g]))
+      logger.info("Computed repo weights on the fly")
 
     # Class inverse-frequency weights from target buckets.
     class_counts = np.bincount(y, minlength=N_CLASSES)
