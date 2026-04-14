@@ -16,41 +16,41 @@ bearer_scheme = HTTPBearer(auto_error=False)
 
 
 async def get_current_user(
-  credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
-  db: AsyncSession = Depends(get_db),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    db: AsyncSession = Depends(get_db),
 ) -> AuthUser:
-  """Extract and validate the current user from the access token.
+    """Extract and validate the current user from the access token.
 
-  Raises:
-    HTTPException 401: If token is missing, expired, or user not found.
-  """
-  if credentials is None:
-    raise HTTPException(
-      status_code=status.HTTP_401_UNAUTHORIZED,
-      detail="Missing authentication token",
-      headers={"WWW-Authenticate": "Bearer"},
+    Raises:
+      HTTPException 401: If token is missing, expired, or user not found.
+    """
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing authentication token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    try:
+        payload = decode_access_token(credentials.credentials)
+        user_id = uuid.UUID(payload["sub"])
+    except (JWTError, KeyError, ValueError) as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from e
+
+    result = await db.execute(
+        select(AuthUser).where(AuthUser.id == user_id, AuthUser.is_active.is_(True))
     )
+    user = result.scalar_one_or_none()
 
-  try:
-    payload = decode_access_token(credentials.credentials)
-    user_id = uuid.UUID(payload["sub"])
-  except (JWTError, KeyError, ValueError) as e:
-    raise HTTPException(
-      status_code=status.HTTP_401_UNAUTHORIZED,
-      detail="Invalid or expired token",
-      headers={"WWW-Authenticate": "Bearer"},
-    ) from e
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found or inactive",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
-  result = await db.execute(
-    select(AuthUser).where(AuthUser.id == user_id, AuthUser.is_active.is_(True))
-  )
-  user = result.scalar_one_or_none()
-
-  if user is None:
-    raise HTTPException(
-      status_code=status.HTTP_401_UNAUTHORIZED,
-      detail="User not found or inactive",
-      headers={"WWW-Authenticate": "Bearer"},
-    )
-
-  return user
+    return user

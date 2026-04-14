@@ -40,7 +40,7 @@ router = APIRouter(prefix="/projects", tags=["Projects"])
 def _project_to_response(project, members=None) -> ProjectResponse:
     """Convert ORM Project to API response with nested members/columns."""
     member_responses = []
-    for m in (members or project.members):
+    for m in members or project.members:
         member_responses.append(
             MemberResponse(
                 id=m.id,
@@ -66,8 +66,7 @@ def _project_to_response(project, members=None) -> ProjectResponse:
         created_at=project.created_at,
         updated_at=project.updated_at,
         board_columns=[
-            BoardColumnResponse.model_validate(c)
-            for c in project.board_columns
+            BoardColumnResponse.model_validate(c) for c in project.board_columns
         ],
         members=member_responses,
     )
@@ -132,12 +131,16 @@ async def update_project_endpoint(
     """Update project settings (owner or admin)."""
     try:
         project = await update_project(
-            db, slug, current_user.id,
+            db,
+            slug,
+            current_user.id,
             name=data.name,
             description=data.description,
             default_ticket_size=data.default_ticket_size,
             weekly_points_per_member=data.weekly_points_per_member,
-            size_points_map=data.size_points_map.model_dump() if data.size_points_map else None,
+            size_points_map=data.size_points_map.model_dump()
+            if data.size_points_map
+            else None,
         )
     except ValueError as exc:
         raise HTTPException(
@@ -237,9 +240,7 @@ async def update_role_endpoint(
 ) -> MemberResponse:
     """Change a member's role (owner only)."""
     try:
-        return await update_member_role(
-            db, slug, current_user.id, user_id, data.role
-        )
+        return await update_member_role(db, slug, current_user.id, user_id, data.role)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
