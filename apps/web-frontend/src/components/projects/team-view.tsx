@@ -56,6 +56,13 @@ const DONE_COLUMNS = new Set([
   "resolved",
 ]);
 
+function getAllAssignedTickets(
+  tickets: TicketResponse[],
+  userId: string
+): TicketResponse[] {
+  return tickets.filter((t) => t.assignee?.id === userId);
+}
+
 function getOpenTickets(
   tickets: TicketResponse[],
   userId: string,
@@ -308,7 +315,7 @@ export function TeamView({
                           {openTickets.slice(0, 3).map((ticket) => {
                             const isOverdue =
                               ticket.due_date &&
-                              new Date(ticket.due_date + "T00:00:00") 
+                              new Date(ticket.due_date + "T00:00:00")
                                 new Date(
                                   new Date().toISOString().split("T")[0] +
                                     "T00:00:00"
@@ -449,80 +456,85 @@ export function TeamView({
               <div className="flex w-full shrink-0 flex-col border-b bg-muted/10 lg:w-[340px] lg:border-b-0 lg:border-r">
                 <div className="border-b border-border/50 bg-muted/5 p-5">
                   <h3 className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-                    Active Workload (
-                    {
-                      getOpenTickets(
-                        tickets,
-                        selectedMember.user_id,
-                        boardColumns
-                      ).length
-                    }
-                    )
+                    All Tickets ({getAllAssignedTickets(tickets, selectedMember.user_id).length})
                   </h3>
                 </div>
 
-                <div className="flex-1 overflow-y-auto p-5">
-                  {getOpenTickets(
-                    tickets,
-                    selectedMember.user_id,
-                    boardColumns
-                  ).length === 0 ? (
-                    <div className="flex h-40 flex-col items-center justify-center rounded-lg border border-dashed bg-background/50 text-center text-muted-foreground">
-                      <User className="mb-2 size-8 opacity-20" />
-                      <p className="text-sm font-medium">No active tickets</p>
-                      <p className="text-xs opacity-70">
-                        This member&apos;s queue is clear.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="space-y-2.5">
-                      {getOpenTickets(
-                        tickets,
-                        selectedMember.user_id,
-                        boardColumns
-                      ).map((ticket) => {
-                        const isOverdue =
-                          ticket.due_date &&
-                          new Date(ticket.due_date + "T00:00:00") 
-                            new Date(
-                              new Date().toISOString().split("T")[0] +
-                                "T00:00:00"
-                            );
+               <div className="flex-1 overflow-y-auto p-5">
+                  {(() => {
+                    const open = getOpenTickets(tickets, selectedMember.user_id, boardColumns);
+                    const done = getDoneTickets(tickets, selectedMember.user_id, boardColumns);
 
-                        return (
-                          <div
-                            key={ticket.id}
-                            className="group flex flex-col gap-2 rounded-lg border bg-background p-3 shadow-sm transition-all hover:shadow-md"
-                          >
-                            <div className="flex items-start justify-between gap-2">
-                              <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] font-bold text-muted-foreground">
-                                {ticket.ticket_key}
-                              </span>
-                              <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-                                {isOverdue && (
-                                  <Badge
-                                    variant="destructive"
-                                    className="px-1.5 py-0 text-[9px] font-bold uppercase tracking-wider"
-                                  >
-                                    Overdue
-                                  </Badge>
-                                )}
-                                <Badge
-                                  variant="outline"
-                                  className="bg-background px-1.5 py-0 text-[9px]"
-                                >
-                                  {ticket.priority}
-                                </Badge>
-                              </div>
-                            </div>
-                            <span className="text-sm font-medium leading-tight text-foreground/90">
-                              {ticket.title}
-                            </span>
+                    if (open.length === 0 && done.length === 0) {
+                      return (
+                        <div className="flex h-40 flex-col items-center justify-center rounded-lg border border-dashed bg-background/50 text-center text-muted-foreground">
+                          <User className="mb-2 size-8 opacity-20" />
+                          <p className="text-sm font-medium">No tickets</p>
+                          <p className="text-xs opacity-70">This member&apos;s queue is clear.</p>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div className="space-y-4">
+                        {open.length > 0 && (
+                          <div className="space-y-2.5">
+                            <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/60">
+                              In Progress ({open.length})
+                            </p>
+                            {open.map((ticket) => {
+                              const isOverdue = ticket.due_date && new Date(ticket.due_date + "T00:00:00") < new Date(new Date().toISOString().split("T")[0] + "T00:00:00");
+                              const col = boardColumns.find((c) => c.id === ticket.column_id);
+                              return (
+                                <div key={ticket.id} className="group flex flex-col gap-2 rounded-lg border bg-background p-3 shadow-sm transition-all hover:shadow-md">
+                                  <div className="flex items-start justify-between gap-2">
+                                    <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] font-bold text-muted-foreground">{ticket.ticket_key}</span>
+                                    <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+                                      {isOverdue && (
+                                        <Badge variant="destructive" className="px-1.5 py-0 text-[9px] font-bold uppercase tracking-wider">Overdue</Badge>
+                                      )}
+                                      {ticket.size_bucket && (
+                                        <Badge variant="secondary" className="bg-muted/50 px-1.5 py-0 text-[9px]">{ticket.size_bucket}</Badge>
+                                      )}
+                                      {col && (
+                                        <Badge variant="outline" className="bg-background px-1.5 py-0 text-[9px]">{col.name}</Badge>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <span className="text-sm font-medium leading-tight text-foreground/90">{ticket.title}</span>
+                                </div>
+                              );
+                            })}
                           </div>
-                        );
-                      })}
-                    </div>
-                  )}
+                        )}
+
+                        {done.length > 0 && (
+                          <div className="space-y-2.5">
+                            <p className="text-[10px] font-bold uppercase tracking-wider text-green-600/60 dark:text-green-400/60">
+                              Completed ({done.length})
+                            </p>
+                            {done.map((ticket) => {
+                              const col = boardColumns.find((c) => c.id === ticket.column_id);
+                              return (
+                                <div key={ticket.id} className="flex flex-col gap-1.5 rounded-lg border border-border/40 bg-muted/20 p-3 opacity-60">
+                                  <div className="flex items-start justify-between gap-2">
+                                    <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] font-bold text-muted-foreground">{ticket.ticket_key}</span>
+                                    <div className="flex shrink-0 items-center gap-1.5">
+                                      {ticket.size_bucket && (
+                                        <Badge variant="secondary" className="bg-muted/50 px-1.5 py-0 text-[9px] opacity-60">{ticket.size_bucket}</Badge>
+                                      )}
+                                      <Badge variant="outline" className="bg-green-50 text-green-700 dark:bg-green-950/30 dark:text-green-400 px-1.5 py-0 text-[9px]">Done</Badge>
+                                    </div>
+                                  </div>
+                                  <span className="text-sm font-medium leading-tight text-foreground/60 line-through decoration-muted-foreground/30">{ticket.title}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
 
