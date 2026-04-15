@@ -14,6 +14,12 @@ It performs an end-to-end setup for demo validation:
 4. Stores username/password mapping to a local JSON file.
 5. Builds non-stub `users.profile_vector` and `users.skill_keywords` by replaying closed assigned tickets.
 6. Recreates the demo project board and seeds tickets into `project_tickets`.
+7. Distributes synthetic open tickets across deterministic sprint windows using
+   `due_date` bands and `sprint-*` labels.
+8. Applies deterministic workload scatter for synthetic open tickets so member
+   assignment counts are not perfectly uniform.
+9. Caps seeded assignments with a deterministic per-member points budget so
+   board capacity remains aligned with the default weekly threshold.
 
 ## Inputs
 
@@ -21,11 +27,20 @@ It performs an end-to-end setup for demo validation:
 - `demo/data/real_tickets.json` (optional dataset)
 - `demo/data/combined_tickets.json` (optional dataset)
 
+Optional per-ticket sizing fields in input payloads:
+
+- `ticket_size`
+- `size_bucket`
+- `size`
+
+When present (and valid as `S|M|L|XL`), these are persisted as manual ticket sizes during seeding.
+
 ## Output
 
 - `demo/data/demo_user_credentials.json` (ignored by git)
 
 This file includes generated demo credentials and project metadata for the latest run.
+All recreated demo users use the same shared password: `Demo123#`.
 
 ## Recommended Command
 
