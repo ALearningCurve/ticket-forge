@@ -336,3 +336,60 @@ class TestCompletionSync:
         db_session.add(user)
         await db_session.flush()
         return user
+
+
+class TestEngineerTicketRecommendations:
+    """Engineer ticket recommendation service coverage."""
+
+    async def test_recommendations_do_not_full_sync_project_tickets(
+        self, db_session
+    ) -> None:
+        """Engineer ticket recommendations should not trigger a full project sync."""
+        from web_backend.services.recommendations import recommend_tickets_for_engineer
+
+        current_user_id = uuid.uuid4()
+        engineer_user_id = uuid.uuid4()
+        project_id = uuid.uuid4()
+        project = SimpleNamespace(id=project_id)
+        engineer_profile = SimpleNamespace(
+            user_id=engineer_user_id,
+            username="janedoe",
+            first_name="Jane",
+            last_name="Doe",
+            email="jane@example.com",
+            member_id=101,
+        )
+        query_result = SimpleNamespace(mappings=lambda: SimpleNamespace(all=lambda: []))
+
+        with (
+            patch(
+                "web_backend.services.recommendations._get_project_for_member_validation",
+                new=AsyncMock(return_value=project),
+            ),
+            patch(
+                "web_backend.services.recommendations._get_target_project_member",
+                new=AsyncMock(return_value=SimpleNamespace(user_id=engineer_user_id)),
+            ),
+            patch(
+                "web_backend.services.recommendations.ensure_project_member_profiles",
+                new=AsyncMock(return_value={engineer_user_id: engineer_profile}),
+            ),
+            patch(
+                "web_backend.services.recommendations.sync_project_tickets_for_recommendations",
+                new=AsyncMock(),
+            ) as full_sync,
+            patch.object(
+                db_session,
+                "execute",
+                new=AsyncMock(
+                    side_effect=[SimpleNamespace(scalar_one=lambda: 0), query_result]
+                ),
+            ),
+        ):
+            response = await recommend_tickets_for_engineer(
+                db_session, "demo-project", engineer_user_id, current_user_id
+            )
+
+        full_sync.assert_not_awaited()
+        assert response.user_id == engineer_user_id
+        assert response.recommendations == []

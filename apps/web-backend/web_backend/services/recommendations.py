@@ -14,6 +14,10 @@ try:
 
     _HAS_ML = True
 except ImportError:
+    get_embedding_service = None
+    get_keyword_extractor = None
+    ProfileUpdater = None
+    vector_to_pgvector_text = None
     _HAS_ML = False
 
 from sqlalchemy import func, select, text
@@ -262,6 +266,9 @@ def _embed_ticket_text(title: str, description: str | None) -> tuple[str, str]:
         msg = "ml-core is required for embedding tickets"
         raise RuntimeError(msg)
 
+    assert get_embedding_service is not None
+    assert get_keyword_extractor is not None
+    assert vector_to_pgvector_text is not None
     embedding_service = get_embedding_service()
     keyword_extractor = get_keyword_extractor()
     combined_text = f"{title}\n{description or ''}".strip()
@@ -526,9 +533,6 @@ async def recommend_tickets_for_engineer(
     await _get_target_project_member(db, project.id, engineer_user_id)
     member_profiles = await ensure_project_member_profiles(db, project.id)
 
-    if _HAS_ML:
-        await sync_project_tickets_for_recommendations(db, project)
-
     target_profile = member_profiles.get(engineer_user_id)
     if target_profile is None:
         msg = "Engineer profile not found"
@@ -679,6 +683,8 @@ async def apply_ticket_completion_profile_update(
     profile = await _ensure_member_profile(db, assignee)
     await sync_project_ticket_to_ml_tables(db, project, ticket, column)
 
+    assert get_keyword_extractor is not None
+    assert ProfileUpdater is not None
     keyword_extractor = get_keyword_extractor()
     updater = ProfileUpdater()
     ticket_text = f"{ticket.title} {ticket.description or ''}".strip()
