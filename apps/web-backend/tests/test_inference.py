@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import patch
+import uuid
 
 import numpy as np
 import pytest
@@ -12,7 +14,13 @@ from ml_core.features import TOTAL_FEATURE_DIM
 from sqlalchemy import select
 
 from web_backend.models.inference import InferenceEvent
-from web_backend.services.inference import _build_feature_vector, _normalize_ticket_text
+from web_backend.schemas.inference import TicketSizePredictionRequest
+from web_backend.services.inference import (
+    SemanticSizeEstimate,
+    _estimate_semantic_size,
+    _build_feature_vector,
+    _normalize_ticket_text,
+)
 
 
 class _FakeEstimator:
@@ -49,7 +57,9 @@ def test_build_feature_vector_matches_training_shape() -> None:
             return_value=np.ones(384, dtype=np.float32),
         ),
     ):
-        features, summary = _build_feature_vector(payload=SimpleNamespace(**payload))
+        features, summary = _build_feature_vector(
+            payload=TicketSizePredictionRequest(**payload)
+        )
 
     assert features.shape == (1, TOTAL_FEATURE_DIM)
     assert summary.repo == "hashicorp/terraform"
@@ -134,6 +144,119 @@ async def test_ticket_size_prediction_endpoint_persists_event(
     assert event.model_version == "7"
     assert event.predicted_bucket == "L"
     assert event.keyword_count == 3
+
+
+@pytest.mark.asyncio
+async def test_ticket_size_prediction_endpoint_blends_semantic_and_model_sizes(
+    client,
+) -> None:
+    """Project-aware inference should blend the model and semantic estimates."""
+    fake_model = SimpleNamespace(
+        estimator=_FakeEstimator(),
+        selector="Production",
+        tracking_uri="https://mlflow.example.run.app",
+        model_name="ticket-forge-best",
+        model_stage="Production",
+        model_version="7",
+        model_run_id="run-123",
+    )
+
+    with (
+        patch(
+            "web_backend.services.inference.get_loaded_model",
+            return_value=fake_model,
+        ),
+        patch(
+            "web_backend.services.inference._extract_keywords",
+            return_value=["backend", "terraform", "bug"],
+        ),
+        patch(
+            "web_backend.services.inference._embed_text",
+            return_value=np.ones(384, dtype=np.float32),
+        ),
+        patch(
+            "web_backend.services.inference._estimate_semantic_size",
+            return_value=SemanticSizeEstimate(
+                average_points=1.0,
+                sample_count=5,
+                bucket="S",
+            ),
+        ),
+    ):
+        response = await client.post(
+            "/api/v1/inference/ticket-size",
+            json={
+                "title": "Terraform apply fails in production",
+                "body": "Our backend deploy crashes with a panic",
+                "repo": "hashicorp/terraform",
+                "issue_type": "bug",
+                "labels": ["bug", "backend"],
+                "comments_count": 4,
+                "historical_avg_completion_hours": 18.0,
+                "rail": "board_ui",
+                "project_id": "11111111-1111-1111-1111-111111111111",
+                "ticket_id": "22222222-2222-2222-2222-222222222222",
+                "size_points_map": {"S": 1, "M": 2, "L": 3, "XL": 5},
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["predicted_bucket"] == "M"
+    assert payload["model_bucket"] == "L"
+    assert payload["semantic_bucket"] == "S"
+    assert payload["semantic_average_points"] == 1.0
+    assert payload["semantic_sample_count"] == 5
+    assert payload["blended_points"] == 2.4
+
+
+@pytest.mark.asyncio
+async def test_semantic_size_estimate_runs_without_ticket_id(caplog) -> None:
+    """New tickets should still get semantic estimates without a ticket_id."""
+
+    class _FakeResult:
+        def mappings(self):
+            return self
+
+        def all(self):
+            return [
+                {"size_bucket": "XL", "rank": 1},
+                {"size_bucket": "S", "rank": 2},
+                {"size_bucket": "S", "rank": 3},
+            ]
+
+    class _FakeDb:
+        def __init__(self) -> None:
+            self.executed = False
+
+        async def execute(self, *_args, **_kwargs):
+            self.executed = True
+            return _FakeResult()
+
+    fake_db: Any = _FakeDb()
+    payload = TicketSizePredictionRequest(
+        title="Terraform apply fails in production",
+        project_id=uuid.UUID("11111111-1111-1111-1111-111111111111"),
+        ticket_id=None,
+    )
+
+    caplog.set_level("DEBUG")
+
+    estimate = await _estimate_semantic_size(
+        fake_db,
+        payload,
+        ticket_vector=np.ones(384, dtype=np.float32),
+    )
+
+    assert fake_db.executed is True
+    assert estimate == SemanticSizeEstimate(
+        average_points=2.276596,
+        sample_count=3,
+        bucket="M",
+    )
+    assert any(
+        "Semantic size estimate project_id=" in message for message in caplog.messages
+    )
 
 
 @pytest.mark.asyncio

@@ -6,6 +6,7 @@ and deletion. Routes call these — no direct DB queries in routes.
 
 import logging
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from sqlalchemy import func, select, update
@@ -41,6 +42,15 @@ except ImportError:
 MANUAL_SIZE_SOURCE = "manual"
 PREDICTED_SIZE_SOURCE = "predicted"
 SIZE_RECOMPUTE_FIELDS = {"title", "description", "labels", "type"}
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectSizingContext:
+    """Snapshot project sizing fields to avoid ORM lazy loads after commit."""
+
+    id: uuid.UUID
+    slug: str
+    size_points_map: dict
 
 
 # ------------------------------------------------------------------ #
@@ -171,7 +181,7 @@ def _assign_manual_size(ticket: ProjectTicket, size_bucket: str | None) -> None:
 
 
 def _build_ticket_prediction_request(
-    project: Project,
+    project_ctx: ProjectSizingContext,
     ticket: ProjectTicket,
     *,
     rail: str,
@@ -181,13 +191,16 @@ def _build_ticket_prediction_request(
     return TicketSizePredictionRequest(
         title=ticket.title,
         body=ticket.description or "",
-        repo=project.slug,
+        repo=project_ctx.slug,
         issue_type=ticket.type,
         labels=[str(label) for label in (ticket.labels or [])],
         comments_count=0,
         historical_avg_completion_hours=0.0,
         created_at=ticket.created_at,
         assigned_at=assigned_at,
+        project_id=project_ctx.id,
+        ticket_id=ticket.id,
+        size_points_map=project_ctx.size_points_map,
         rail=rail,
     )
 
@@ -195,7 +208,7 @@ def _build_ticket_prediction_request(
 async def _predict_and_persist_ticket_size(
     db: AsyncSession,
     *,
-    project: Project,
+    project_ctx: ProjectSizingContext,
     ticket: ProjectTicket,
     rail: str,
 ) -> bool:
@@ -203,13 +216,13 @@ async def _predict_and_persist_ticket_size(
     if not _HAS_ML:
         return False
 
-    project_slug = project.slug
+    project_slug = project_ctx.slug
     ticket_key = ticket.ticket_key
 
     try:
         prediction = await predict_ticket_size(
             db,
-            _build_ticket_prediction_request(project, ticket, rail=rail),
+            _build_ticket_prediction_request(project_ctx, ticket, rail=rail),
         )
     except Exception:
         await db.rollback()
@@ -252,6 +265,11 @@ async def create_ticket(
 ) -> ProjectTicket:
     """Create a ticket in a project."""
     project = await _get_project_by_slug(db, slug)
+    project_ctx = ProjectSizingContext(
+        id=project.id,
+        slug=project.slug,
+        size_points_map=dict(project.size_points_map),
+    )
     await _verify_membership(db, project.id, user.id)
 
     col_result = await db.execute(
@@ -313,7 +331,7 @@ async def create_ticket(
     if ticket.size_bucket is None:
         await _predict_and_persist_ticket_size(
             db,
-            project=project,
+            project_ctx=project_ctx,
             ticket=ticket,
             rail="board_ticket_create",
         )
@@ -405,6 +423,11 @@ async def update_ticket(
 ) -> ProjectTicket:
     """Update ticket fields."""
     project = await _get_project_by_slug(db, slug)
+    project_ctx = ProjectSizingContext(
+        id=project.id,
+        slug=project.slug,
+        size_points_map=dict(project.size_points_map),
+    )
     await _verify_membership(db, project.id, user_id)
 
     result = await db.execute(
@@ -465,7 +488,7 @@ async def update_ticket(
         if requested_size is None:
             await _predict_and_persist_ticket_size(
                 db,
-                project=project,
+                project_ctx=project_ctx,
                 ticket=ticket,
                 rail="board_ticket_update",
             )
@@ -476,7 +499,7 @@ async def update_ticket(
     ):
         await _predict_and_persist_ticket_size(
             db,
-            project=project,
+            project_ctx=project_ctx,
             ticket=ticket,
             rail="board_ticket_update",
         )
@@ -496,6 +519,11 @@ async def classify_missing_ticket_sizes(
 ) -> tuple[int, list[ProjectTicket]]:
     """Classify and persist any unsized tickets for a project."""
     project = await _get_project_by_slug(db, slug)
+    project_ctx = ProjectSizingContext(
+        id=project.id,
+        slug=project.slug,
+        size_points_map=dict(project.size_points_map),
+    )
     await _verify_membership(db, project.id, user_id)
 
     result = await db.execute(
@@ -514,7 +542,7 @@ async def classify_missing_ticket_sizes(
         updated_count += int(
             await _predict_and_persist_ticket_size(
                 db,
-                project=project,
+                project_ctx=project_ctx,
                 ticket=ticket,
                 rail="board_ticket_batch",
             )

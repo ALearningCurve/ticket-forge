@@ -59,7 +59,7 @@ async def test_create_ticket_auto_predicts_size(client) -> None:
     with patch(
         "web_backend.services.tickets.predict_ticket_size",
         new=AsyncMock(return_value=fake_prediction),
-    ):
+    ) as mock_predict:
         response = await client.post(
             f"/api/v1/projects/{project['slug']}/tickets",
             headers=headers,
@@ -71,6 +71,7 @@ async def test_create_ticket_auto_predicts_size(client) -> None:
     assert payload["size_bucket"] == "L"
     assert payload["size_source"] == "predicted"
     assert payload["size_confidence"] == 0.91
+    mock_predict.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -211,7 +212,7 @@ async def test_legacy_size_update_sets_manual_size_bucket(client) -> None:
 
 @pytest.mark.asyncio
 async def test_classify_missing_endpoint_backfills_unsized_tickets(client) -> None:
-    """Batch sizing endpoint should backfill legacy unsized project tickets."""
+    """Batch sizing endpoint should backfill multiple legacy unsized tickets."""
     headers = await _auth_headers(client)
     project = await _create_project(client, headers)
     column_id = project["board_columns"][0]["id"]
@@ -225,9 +226,16 @@ async def test_classify_missing_endpoint_backfills_unsized_tickets(client) -> No
             headers=headers,
             json={"title": "Legacy unsized ticket", "column_id": column_id},
         )
+        create_response_2 = await client.post(
+            f"/api/v1/projects/{project['slug']}/tickets",
+            headers=headers,
+            json={"title": "Second legacy unsized ticket", "column_id": column_id},
+        )
 
     assert create_response.status_code == 201
+    assert create_response_2.status_code == 201
     assert create_response.json()["size_bucket"] is None
+    assert create_response_2.json()["size_bucket"] is None
 
     fake_prediction = SimpleNamespace(predicted_bucket="M", confidence=0.58)
     with patch(
@@ -241,9 +249,9 @@ async def test_classify_missing_endpoint_backfills_unsized_tickets(client) -> No
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["updated_count"] == 1
-    assert payload["tickets"][0]["size_bucket"] == "M"
-    assert payload["tickets"][0]["size_source"] == "predicted"
+    assert payload["updated_count"] == 2
+    assert all(ticket["size_bucket"] == "M" for ticket in payload["tickets"])
+    assert all(ticket["size_source"] == "predicted" for ticket in payload["tickets"])
 
 
 @pytest.mark.asyncio
@@ -273,14 +281,20 @@ async def test_update_ticket_can_clear_optional_fields(client) -> None:
     assert create_response.status_code == 201
     ticket_key = create_response.json()["ticket_key"]
 
-    update_response = await client.patch(
-        f"/api/v1/projects/{project['slug']}/tickets/{ticket_key}",
-        headers=headers,
-        json={
-            "description": None,
-            "due_date": None,
-        },
-    )
+    with patch(
+        "web_backend.services.tickets.predict_ticket_size",
+        new=AsyncMock(
+            return_value=SimpleNamespace(predicted_bucket="M", confidence=0.7)
+        ),
+    ):
+        update_response = await client.patch(
+            f"/api/v1/projects/{project['slug']}/tickets/{ticket_key}",
+            headers=headers,
+            json={
+                "description": None,
+                "due_date": None,
+            },
+        )
 
     assert update_response.status_code == 200
     payload = update_response.json()

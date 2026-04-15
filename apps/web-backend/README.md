@@ -9,6 +9,7 @@ RESTful API backend that:
 - Pins the deployed revision to an exact MLflow Production model version
 - Persists inference telemetry for monitoring and drift detection
 - Persists AI-estimated ticket size buckets on project board tickets
+- Blends model size predictions with the five most semantically similar sized tickets when project context is available, weighted by the model's class confidence
 - Handles ticket assignment recommendations
 - Provides health checks and status endpoints
 
@@ -21,6 +22,10 @@ RESTful API backend that:
 cd apps/web-backend
 uv run uvicorn web_backend.main:app --reload
 ```
+
+The backend loads the repo-root `.env` automatically, so the MLflow tracking
+URI and credentials are available even when you start the server from inside
+`apps/web-backend/`.
 
 Server will be available at `http://localhost:8000`
 
@@ -50,6 +55,7 @@ Key project ticket sizing behavior:
 
 - `POST /api/v1/projects/{slug}/tickets`
   - auto-predicts a ticket size when no manual bucket is provided
+  - blends the model output with a semantic size estimate from the five most relevant historical tickets, weighted by class confidence
 - `PATCH /api/v1/projects/{slug}/tickets/{ticket_key}`
   - preserves manual size overrides and re-runs prediction when tickets return to auto mode
 - `POST /api/v1/projects/{slug}/tickets/classify-missing`

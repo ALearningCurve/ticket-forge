@@ -18,8 +18,9 @@ import numpy as np
 from ml_core.embeddings import get_embedding_service
 from ml_core.features import REPO_FEATURE_ORDER, TOP_50_LABELS
 from ml_core.keywords import get_keyword_extractor
+from ml_core.retrieval import vector_to_pgvector_text
 from mlflow.tracking import MlflowClient
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from web_backend.config import get_settings
@@ -40,9 +41,16 @@ _SIZE_BUCKET_LABELS: dict[int, str] = {
     2: "L",
     3: "XL",
 }
+_DEFAULT_SIZE_POINTS: dict[str, float] = {
+    "S": 1.0,
+    "M": 2.0,
+    "L": 3.0,
+    "XL": 4.0,
+}
 _CODE_BLOCK_RE = re.compile(r"```(.*?)```", re.DOTALL)
 _INLINE_CODE_RE = re.compile(r"`([^`]*)`")
 _MAX_TTA_HOURS = 720.0
+_SEMANTIC_RANK_DENOMINATOR_OFFSET = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +64,15 @@ class LoadedModel:
     model_stage: str | None
     model_version: str | None
     model_run_id: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class SemanticSizeEstimate:
+    """Semantic size estimate derived from similar tickets."""
+
+    average_points: float
+    sample_count: int
+    bucket: str
 
 
 def _tracking_uri() -> str | None:
@@ -187,6 +204,155 @@ def _extract_keywords(text: str) -> list[str]:
 def _embed_text(text: str) -> np.ndarray:
     """Generate the 384-dim embedding used during training."""
     return get_embedding_service(model_name="all-MiniLM-L6-v2").embed_text(text)
+
+
+def _points_for_bucket(bucket: str, size_points_map: dict[str, float]) -> float:
+    """Return the point value for a size bucket."""
+    return float(size_points_map.get(bucket, _DEFAULT_SIZE_POINTS.get(bucket, 0.0)))
+
+
+def _bucket_for_points(points: float, size_points_map: dict[str, float]) -> str:
+    """Map a numeric estimate back to the nearest size bucket."""
+    return min(
+        size_points_map.items(),
+        key=lambda item: (abs(item[1] - points), item[1]),
+    )[0]
+
+
+def _ordinal_size_points_map() -> dict[str, float]:
+    """Return the fixed ordinal scale for size blending."""
+    return {"S": 1.0, "M": 2.0, "L": 3.0, "XL": 4.0}
+
+
+def _semantic_rank_weight(rank: int) -> float:
+    """Return a softened, monotonically decreasing semantic neighbor weight."""
+    denominator = rank + _SEMANTIC_RANK_DENOMINATOR_OFFSET
+    if denominator <= 0:
+        return 0.0
+    return 1.0 / float(denominator)
+
+
+def _blend_size_points(
+    model_points: float,
+    semantic_points: float | None,
+    model_weight: float,
+) -> float:
+    """Blend model and semantic points into a single size estimate."""
+    if semantic_points is None:
+        return model_points
+    clamped_weight = max(0.0, min(model_weight, 1))
+    semantic_weight = 1.0 - clamped_weight
+    return round(
+        (model_points * clamped_weight) + (semantic_points * semantic_weight),
+        6,
+    )
+
+
+async def _estimate_semantic_size(
+    db: AsyncSession,
+    payload: TicketSizePredictionRequest,
+    *,
+    ticket_vector: np.ndarray,
+) -> SemanticSizeEstimate | None:
+    """Estimate ticket size from the five most similar sized tickets."""
+    if payload.project_id is None:
+        return None
+
+    size_points_map = _ordinal_size_points_map()
+
+    rows: list[dict[str, Any]] = [
+        dict(row)
+        for row in (
+            await db.execute(
+                text(
+                    """
+                                        WITH candidate_neighbors AS MATERIALIZED (
+                      SELECT
+                        pt.size_bucket,
+                                                t.ticket_vector <=> CAST(:ticket_vector AS vector) AS distance
+                      FROM project_tickets pt
+                      JOIN tickets t
+                        ON t.ticket_id = pt.ticket_key
+                      WHERE pt.project_id = :project_id
+                        AND pt.size_bucket IS NOT NULL
+                                                AND (
+                                                    CAST(:ticket_id AS uuid) IS NULL
+                                                    OR pt.id <> CAST(:ticket_id AS uuid)
+                                                )
+                    )
+                    SELECT
+                                            size_bucket
+                                        FROM candidate_neighbors
+                                        ORDER BY distance ASC
+                                        LIMIT 5
+                    """
+                ),
+                {
+                    "project_id": payload.project_id,
+                    "ticket_id": payload.ticket_id,
+                    "ticket_vector": vector_to_pgvector_text(ticket_vector.tolist()),
+                },
+            )
+        )
+        .mappings()
+        .all()
+    ]
+
+    if not rows:
+        logger.info(
+            "Semantic size estimate skipped project_id=%s ticket_id=%s no_neighbors=true",
+            payload.project_id,
+            payload.ticket_id,
+        )
+        return None
+
+    weighted_total = 0.0
+    weight_sum = 0.0
+    debug_neighbors: list[dict[str, Any]] = []
+    for rank, row in enumerate(rows, start=1):
+        bucket = str(row["size_bucket"])
+        if rank <= 0:
+            continue
+        points = _points_for_bucket(bucket, size_points_map)
+        weight = _semantic_rank_weight(rank)
+        weighted_total += points * weight
+        weight_sum += weight
+        debug_neighbors.append(
+            {
+                "bucket": bucket,
+                "rank": rank,
+                "points": points,
+                "weight": round(weight, 6),
+            }
+        )
+
+    if weight_sum <= 0.0:
+        logger.info(
+            "Semantic size estimate skipped project_id=%s ticket_id=%s weight_sum=0",
+            payload.project_id,
+            payload.ticket_id,
+        )
+        return None
+
+    average_points_float = round(weighted_total / weight_sum, 6)
+    bucket = _bucket_for_points(average_points_float, size_points_map)
+    logger.info(
+        (
+            "Semantic size estimate project_id=%s ticket_id=%s neighbors=%s "
+            "weighted_points=%.6f bucket=%s"
+        ),
+        payload.project_id,
+        payload.ticket_id,
+        debug_neighbors,
+        average_points_float,
+        bucket,
+    )
+
+    return SemanticSizeEstimate(
+        average_points=average_points_float,
+        sample_count=len(debug_neighbors),
+        bucket=bucket,
+    )
 
 
 def _build_feature_vector(
@@ -353,6 +519,8 @@ def _request_fingerprint(
         "historical_avg_completion_hours": payload.historical_avg_completion_hours,
         "created_at": payload.created_at.isoformat() if payload.created_at else None,
         "assigned_at": payload.assigned_at.isoformat() if payload.assigned_at else None,
+        "project_id": str(payload.project_id) if payload.project_id else None,
+        "ticket_id": str(payload.ticket_id) if payload.ticket_id else None,
     }
     encoded = json.dumps(fingerprint_source, sort_keys=True).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
@@ -421,9 +589,43 @@ async def predict_ticket_size(
     started_at = perf_counter()
     model = get_loaded_model()
     features, summary = _build_feature_vector(payload)
+    size_points_map = _ordinal_size_points_map()
     predicted_class = int(np.asarray(model.estimator.predict(features))[0])
-    predicted_bucket = _SIZE_BUCKET_LABELS.get(predicted_class, str(predicted_class))
+    model_bucket = _SIZE_BUCKET_LABELS.get(predicted_class, str(predicted_class))
     class_probabilities, confidence = _class_probabilities(model.estimator, features)
+
+    semantic_estimate = await _estimate_semantic_size(
+        db,
+        payload,
+        ticket_vector=_embed_text(_normalize_ticket_text(payload.title, payload.body)),
+    )
+    model_points = _points_for_bucket(model_bucket, size_points_map)
+    blended_points = _blend_size_points(
+        model_points,
+        semantic_estimate.average_points if semantic_estimate else None,
+        confidence,
+    )
+    predicted_bucket = _bucket_for_points(blended_points, size_points_map)
+    logger.info(
+        (
+            "Ticket size blend project_id=%s ticket_id=%s model_bucket=%s "
+            "model_points=%.6f confidence=%.6f semantic_bucket=%s "
+            "semantic_points=%s blended_points=%.6f final_bucket=%s"
+        ),
+        payload.project_id,
+        payload.ticket_id,
+        model_bucket,
+        model_points,
+        confidence,
+        semantic_estimate.bucket if semantic_estimate else None,
+        (
+            f"{semantic_estimate.average_points:.6f}"
+            if semantic_estimate is not None
+            else None
+        ),
+        blended_points,
+        predicted_bucket,
+    )
     latency_ms = round((perf_counter() - started_at) * 1000.0, 3)
 
     await _store_inference_event(
@@ -452,6 +654,15 @@ async def predict_ticket_size(
         latency_ms=latency_ms,
         model=current_model_metadata(),
         features=summary,
+        model_bucket=model_bucket,
+        semantic_bucket=semantic_estimate.bucket if semantic_estimate else None,
+        semantic_average_points=(
+            semantic_estimate.average_points if semantic_estimate else None
+        ),
+        semantic_sample_count=(
+            semantic_estimate.sample_count if semantic_estimate else 0
+        ),
+        blended_points=blended_points,
     )
 
 
