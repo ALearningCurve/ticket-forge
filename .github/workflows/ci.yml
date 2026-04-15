@@ -346,13 +346,41 @@ jobs:
               for name in ("BACKEND_IMAGE", "FRONTEND_IMAGE", "FRONTEND_API_URL")
           )
 
+          # These Airflow resources are known to transition destructively when moving
+          # between shared and dedicated networking or when reconciling VM zone drift.
+          def is_allowed_airflow_destructive_change(address: str, actions: list[str]) -> bool:
+              base_address = address.split("[", 1)[0]
+              actions_key = tuple(actions)
+              allowed = {
+                  "google_compute_instance.airflow_vm": {
+                      ("delete", "create"),
+                      ("create", "delete"),
+                  },
+                  "google_compute_router.airflow_vm_router": {
+                      ("delete",),
+                      ("delete", "create"),
+                      ("create", "delete"),
+                  },
+                  "google_compute_router_nat.airflow_vm_nat": {
+                      ("delete",),
+                      ("delete", "create"),
+                      ("create", "delete"),
+                  },
+                  "google_compute_subnetwork.airflow_vm_subnet": {
+                      ("delete",),
+                      ("delete", "create"),
+                      ("create", "delete"),
+                  },
+              }
+              return actions_key in allowed.get(base_address, set())
+
           for resource_change in resource_changes:
               address = resource_change.get("address", "")
               change = resource_change.get("change", {})
               actions = change.get("actions", [])
               after = change.get("after") or {}
 
-              if "delete" in actions:
+              if "delete" in actions and not is_allowed_airflow_destructive_change(address, actions):
                   problems.append(f"{address}: destructive actions {actions}")
 
               if address == "google_cloud_run_v2_service.web_backend" and enforce_serving_checks:

@@ -20,7 +20,7 @@ import subprocess
 import time
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -42,12 +42,18 @@ ENV_PATH = REPO_ROOT / ".env"
 load_dotenv(ENV_PATH)
 
 DEMO_EMAIL_DOMAIN = "demo.ticketforge.local"
+DEMO_SHARED_PASSWORD = "Demo123#"
 CANONICAL_COLUMNS = ("Backlog", "To Do", "In Progress", "In Review", "Done")
 COL_DONE = "done"
 COL_PROGRESS = "in progress"
 COL_BACKLOG = "backlog"
 COL_TODO = "to do"
 REQUIRED_TF_ENV = ("TF_VAR_project_id", "TF_VAR_state_bucket")
+VALID_SIZE_BUCKETS = {"S", "M", "L", "XL"}
+SPRINT_DAY_OFFSETS = (7, 21, 35, 49)
+DEFAULT_WEEKLY_POINTS_PER_MEMBER = 10
+DEFAULT_SIZE_POINTS_MAP = {"S": 1, "M": 2, "L": 3, "XL": 5}
+CURRENT_SPRINT_INDEX = 0
 
 
 @dataclass(frozen=True)
@@ -334,9 +340,9 @@ def _email_for_username(username: str) -> str:
 
 
 def _password_for_username(username: str) -> str:
-  """Build deterministic demo password per username."""
-  digest = hashlib.sha256(username.encode("utf-8")).hexdigest()[:6]
-  return f"TfDemo@{digest}!"
+  """Return one shared easy demo password for all seeded users."""
+  _ = username
+  return DEMO_SHARED_PASSWORD
 
 
 def _ticket_key_for_source_id(source_id: str) -> str:
@@ -366,6 +372,161 @@ def _parse_labels(raw_labels: object) -> list[str]:
   if isinstance(raw_labels, list):
     return [str(label).strip() for label in raw_labels if str(label).strip()]
   return []
+
+
+def _is_synthetic_demo_record(record: dict[str, Any]) -> bool:
+  """Return True when record looks like our synthetic demo payload."""
+  source_id = str(record.get("id") or "").strip()
+  return source_id.startswith("ALearningCurve_ticket-forge-demo-")
+
+
+def _deterministic_digest_int(*parts: str) -> int:
+  """Build deterministic int digest for stable seeding behavior."""
+  raw = "||".join(parts)
+  return int(hashlib.sha256(raw.encode("utf-8")).hexdigest()[:8], 16)
+
+
+def _resolve_assignee_username_for_seed(
+  *,
+  record: dict[str, Any],
+  seed_usernames: list[str],
+) -> str | None:
+  """Resolve assignee with deterministic scatter for open synthetic tickets."""
+  original = str(record.get("assignee") or "").strip().lower()
+  if not original or original not in seed_usernames:
+    return None
+  if not _is_synthetic_demo_record(record):
+    return original
+
+  state = str(record.get("state") or "").strip().lower()
+  source_id = str(record.get("id") or "").strip()
+  digest = _deterministic_digest_int(source_id, "assignee")
+
+  # Keep historical/closed ownership stable for realism + profile replay alignment.
+  if state == "closed":
+    return original
+
+  roll = digest % 100
+  if roll < 20:
+    # Intentionally leave a subset unassigned to create backlog variance.
+    return None
+  if roll < 35 and len(seed_usernames) > 1:
+    origin_index = seed_usernames.index(original)
+    shift = 1 + (digest % (len(seed_usernames) - 1))
+    return seed_usernames[(origin_index + shift) % len(seed_usernames)]
+  return original
+
+
+def _infer_sprint_index(record: dict[str, Any]) -> int:
+  """Infer deterministic sprint bucket index [0..3] for synthetic tickets."""
+  source_id = str(record.get("id") or "").strip()
+  if not source_id:
+    return 0
+  return _deterministic_digest_int(source_id, "sprint") % len(SPRINT_DAY_OFFSETS)
+
+
+def _resolve_due_date_for_seed(
+  *,
+  record: dict[str, Any],
+  sprint_index: int,
+) -> date | None:
+  """Resolve due date used to emulate sprint windows in seeded board data."""
+  if not _is_synthetic_demo_record(record):
+    return None
+
+  today = datetime.now(tz=UTC).date()
+  state = str(record.get("state") or "").strip().lower()
+  source_id = str(record.get("id") or "").strip()
+  digest = _deterministic_digest_int(source_id, "due")
+
+  if state == "closed":
+    # Keep closed work in past windows so "active" counts are realistic.
+    return today - timedelta(days=7 + (digest % 35))
+
+  base_offset = SPRINT_DAY_OFFSETS[sprint_index]
+  jitter = digest % 5
+  return today + timedelta(days=base_offset + jitter)
+
+
+def _append_sprint_label(labels: list[str], sprint_index: int) -> list[str]:
+  """Attach a sprint label for synthetic seeded tickets."""
+  sprint_label = f"sprint-{sprint_index + 1}"
+  normalized = {label.lower() for label in labels}
+  if sprint_label.lower() in normalized:
+    return labels
+  return [*labels, sprint_label]
+
+
+def _parse_manual_size_bucket(record: dict[str, Any]) -> str | None:
+  """Read optional manual size from ticket payload.
+
+  The seeder accepts `ticket_size`, `size_bucket`, or legacy `size`.
+  """
+  for key in ("ticket_size", "size_bucket", "size"):
+    raw_value = record.get(key)
+    if raw_value is None:
+      continue
+    normalized = str(raw_value).strip().upper()
+    if not normalized:
+      continue
+    if normalized in VALID_SIZE_BUCKETS:
+      return normalized
+    logger.warning(
+      "Ignoring unsupported size bucket `%s` for ticket `%s`",
+      normalized,
+      str(record.get("id") or "<unknown>"),
+    )
+    return None
+  return None
+
+
+def _capacity_points_for_ticket(manual_size_bucket: str | None) -> int:
+  """Return points used for assignment-capacity gating."""
+  if manual_size_bucket is None:
+    return DEFAULT_SIZE_POINTS_MAP["M"]
+  return DEFAULT_SIZE_POINTS_MAP.get(manual_size_bucket, DEFAULT_SIZE_POINTS_MAP["M"])
+
+
+def _resolve_capacity_limited_assignee(  # noqa: PLR0913
+  *,
+  record: dict[str, Any],
+  source_id: str,
+  assignee_username: str | None,
+  sprint_index: int,
+  manual_size_bucket: str | None,
+  assigned_points_by_user: dict[str, int],
+) -> str | None:
+  """Apply deterministic scope + points cap for seeded assignments.
+
+  This keeps demo board workload realistic for the current sprint while avoiding
+  overloaded member cards in the UI.
+  """
+  if assignee_username is None:
+    return None
+
+  normalized_state = str(record.get("state") or "").strip().lower()
+  is_synthetic = _is_synthetic_demo_record(record)
+
+  if (
+    is_synthetic
+    and normalized_state != "closed"
+    and sprint_index != CURRENT_SPRINT_INDEX
+  ):
+    return None
+
+  if normalized_state == "closed":
+    # Keep only a thin slice of historical ownership visible on board cards.
+    history_roll = _deterministic_digest_int(source_id, "history-assignee") % 100
+    if history_roll >= 15:
+      return None
+
+  ticket_points = _capacity_points_for_ticket(manual_size_bucket)
+  used_points = assigned_points_by_user.get(assignee_username, 0)
+  if used_points + ticket_points > DEFAULT_WEEKLY_POINTS_PER_MEMBER:
+    return None
+
+  assigned_points_by_user[assignee_username] = used_points + ticket_points
+  return assignee_username
 
 
 def _infer_priority(labels: list[str]) -> str:
@@ -726,20 +887,37 @@ def _seed_project_tickets(  # noqa: PLR0913
   total = 0
   assigned = 0
   embedding_service = get_embedding_service(model_name="all-MiniLM-L6-v2")
+  seed_usernames = sorted(user_map.keys())
+  assigned_points_by_user: dict[str, int] = {}
 
   for record in records:
     source_id = str(record.get("id") or "").strip()
     if not source_id:
       continue
-    assignee_username = str(record.get("assignee") or "").strip().lower()
-    assignee_id = user_map.get(assignee_username)
+    assignee_username = _resolve_assignee_username_for_seed(
+      record=record,
+      seed_usernames=seed_usernames,
+    )
+    state = str(record.get("state") or "open")
+    sprint_index = _infer_sprint_index(record)
+    labels = _append_sprint_label(_parse_labels(record.get("labels")), sprint_index)
+    manual_size_bucket = _parse_manual_size_bucket(record)
+    assignee_username = _resolve_capacity_limited_assignee(
+      record=record,
+      source_id=source_id,
+      assignee_username=assignee_username,
+      sprint_index=sprint_index,
+      manual_size_bucket=manual_size_bucket,
+      assigned_points_by_user=assigned_points_by_user,
+    )
+    assignee_id = (
+      user_map.get(assignee_username) if assignee_username is not None else None
+    )
     if assignee_id is not None:
       assigned += 1
-    state = str(record.get("state") or "open")
     column_id = _column_for_record(columns, state, assignee_username or None)
     position = positions[column_id]
     positions[column_id] = position + 1
-    labels = _parse_labels(record.get("labels"))
     title = str(record.get("title") or source_id)[:2000]
     description = str(record.get("body") or "")
     ticket_text = f"{title}\n\n{description}".strip() or title or "Demo ticket context"
@@ -750,12 +928,6 @@ def _seed_project_tickets(  # noqa: PLR0913
     resolution_time_actual = (
       closed_at - created_at if ticket_status == "closed" else None
     )
-    size_bucket = (
-      str(record.get("size_bucket") or record.get("size") or "").strip().upper()
-    )
-    size_updated_at = datetime.now(tz=UTC) if size_bucket else None
-    size_source = "manual" if size_bucket else None
-
     cur.execute(
       """
       INSERT INTO tickets (
@@ -789,6 +961,7 @@ def _seed_project_tickets(  # noqa: PLR0913
         created_at,
       ),
     )
+    due_date = _resolve_due_date_for_seed(record=record, sprint_index=sprint_index)
 
     cur.execute(
       """
@@ -802,7 +975,7 @@ def _seed_project_tickets(  # noqa: PLR0913
         %s, %s, %s, %s, %s,
         %s, %s, %s, %s, %s, %s::jsonb,
         %s, %s, NULL, %s,
-        NULL, %s, %s, now()
+        %s, %s, %s, now()
       )
       """,
       (
@@ -817,9 +990,10 @@ def _seed_project_tickets(  # noqa: PLR0913
         _infer_priority(labels),
         _infer_type(labels),
         json.dumps(labels),
-        size_bucket,
-        size_source,
-        size_updated_at,
+        manual_size_bucket,
+        "manual" if manual_size_bucket is not None else None,
+        datetime.now(tz=UTC) if manual_size_bucket is not None else None,
+        due_date,
         position,
         created_at,
       ),
