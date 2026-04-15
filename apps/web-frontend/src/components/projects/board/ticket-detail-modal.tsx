@@ -230,12 +230,6 @@ export function TicketDetailModal({
   const handleEstimateSize = useCallback(async () => {
     if (!token || !ticket) return;
 
-    // If ticket already has an AI prediction, show it immediately
-    if (ticket.size_bucket && ticket.size_source === "predicted") {
-      setAiSizeEstimate(ticket.size_bucket);
-      return;
-    }
-
     // Otherwise, save with null size to trigger backend prediction
     setIsEstimating(true);
     const { data, error } = await updateTicket(

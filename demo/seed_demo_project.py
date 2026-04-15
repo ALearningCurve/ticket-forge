@@ -390,6 +390,16 @@ def _infer_type(labels: list[str]) -> str:
   return "task"
 
 
+def _ticket_status_for_record(state: str) -> str:
+  """Map a seed record state to the normalized tickets status enum."""
+  normalized_state = state.strip().lower()
+  if normalized_state == "closed":
+    return "closed"
+  if normalized_state in {"in-progress", "in progress"}:
+    return "in-progress"
+  return "open"
+
+
 def _column_for_record(
   columns: dict[str, str], state: str, assignee: str | None
 ) -> str:
@@ -715,6 +725,7 @@ def _seed_project_tickets(  # noqa: PLR0913
   positions: dict[str, int] = dict.fromkeys(columns.values(), 0)
   total = 0
   assigned = 0
+  embedding_service = get_embedding_service(model_name="all-MiniLM-L6-v2")
 
   for record in records:
     source_id = str(record.get("id") or "").strip()
@@ -729,6 +740,55 @@ def _seed_project_tickets(  # noqa: PLR0913
     position = positions[column_id]
     positions[column_id] = position + 1
     labels = _parse_labels(record.get("labels"))
+    title = str(record.get("title") or source_id)[:2000]
+    description = str(record.get("body") or "")
+    ticket_text = f"{title}\n\n{description}".strip() or title or "Demo ticket context"
+    ticket_vector = embedding_service.embed_text(ticket_text).astype(np.float32)
+    ticket_status = _ticket_status_for_record(state)
+    created_at = _parse_timestamp(record.get("created_at"))
+    closed_at = _parse_timestamp(record.get("closed_at"))
+    resolution_time_actual = (
+      closed_at - created_at if ticket_status == "closed" else None
+    )
+    size_bucket = (
+      str(record.get("size_bucket") or record.get("size") or "").strip().upper()
+    )
+    size_updated_at = datetime.now(tz=UTC) if size_bucket else None
+    size_source = "manual" if size_bucket else None
+
+    cur.execute(
+      """
+      INSERT INTO tickets (
+        ticket_id, title, description, ticket_vector, labels, status,
+        resolution_time_actual, project_id, created_at, updated_at
+      )
+      VALUES (
+        %s, %s, %s, %s::vector, %s::jsonb, %s,
+        %s, %s, %s, now()
+      )
+      ON CONFLICT (ticket_id)
+      DO UPDATE SET
+        title = EXCLUDED.title,
+        description = EXCLUDED.description,
+        ticket_vector = EXCLUDED.ticket_vector,
+        labels = EXCLUDED.labels,
+        status = EXCLUDED.status,
+        resolution_time_actual = EXCLUDED.resolution_time_actual,
+        project_id = EXCLUDED.project_id,
+        updated_at = now()
+      """,
+      (
+        _ticket_key_for_source_id(source_id),
+        title,
+        description,
+        vector_to_pgvector_text(list(map(float, ticket_vector.tolist()))),
+        json.dumps(labels),
+        ticket_status,
+        resolution_time_actual,
+        project_id,
+        created_at,
+      ),
+    )
 
     cur.execute(
       """
@@ -741,7 +801,7 @@ def _seed_project_tickets(  # noqa: PLR0913
       VALUES (
         %s, %s, %s, %s, %s,
         %s, %s, %s, %s, %s, %s::jsonb,
-        NULL, NULL, NULL, NULL,
+        %s, %s, NULL, %s,
         NULL, %s, %s, now()
       )
       """,
@@ -752,13 +812,16 @@ def _seed_project_tickets(  # noqa: PLR0913
         assignee_id,
         owner_id,
         _ticket_key_for_source_id(source_id),
-        str(record.get("title") or source_id)[:2000],
-        str(record.get("body") or ""),
+        title,
+        description,
         _infer_priority(labels),
         _infer_type(labels),
         json.dumps(labels),
+        size_bucket,
+        size_source,
+        size_updated_at,
         position,
-        _parse_timestamp(record.get("created_at")),
+        created_at,
       ),
     )
     total += 1

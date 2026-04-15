@@ -1,5 +1,6 @@
 """Schemas for production inference requests and responses."""
 
+import uuid
 from datetime import datetime
 
 from pydantic import BaseModel, Field
@@ -17,6 +18,9 @@ class TicketSizePredictionRequest(BaseModel):
     historical_avg_completion_hours: float = Field(default=0.0, ge=0.0)
     created_at: datetime | None = None
     assigned_at: datetime | None = None
+    project_id: uuid.UUID | None = None
+    ticket_id: uuid.UUID | None = None
+    size_points_map: dict[str, int] | None = None
     rail: str = Field(default="direct_api", max_length=32)
 
 
@@ -54,6 +58,11 @@ class TicketSizePredictionResponse(BaseModel):
     latency_ms: float
     model: InferenceModelMetadataResponse
     features: InferenceFeatureSummaryResponse
+    model_bucket: str | None = None
+    semantic_bucket: str | None = None
+    semantic_average_points: float | None = None
+    semantic_sample_count: int = 0
+    blended_points: float | None = None
 
 
 class InferenceMonitoringRecordResponse(BaseModel):
