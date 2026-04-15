@@ -111,6 +111,10 @@ resource "google_compute_instance" "airflow_vm" {
     on_host_maintenance = "MIGRATE"
   }
 
+  lifecycle {
+    ignore_changes = [metadata_startup_script]
+  }
+
   depends_on = [
     google_project_service.airflow_services,
     google_sql_database.airflow,
