@@ -3,6 +3,11 @@ name: Model CI/CD
 on:
   push:
     branches: ["main"]
+    paths:
+      - "apps/training/**"
+      - "apps/pipelines/**"
+      - "libs/**"
+      - ".github/workflows/model-cicd.yml"
   schedule:
     # Run every Monday at 02:00 UTC
     - cron: "0 2 * * 1"
@@ -42,6 +47,7 @@ jobs:
     name: Train / Wait For CI Gate
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Wait for CI/CD on this commit
         env:
@@ -142,6 +148,7 @@ jobs:
 
   train-and-promote:
     name: Train / Run & Promote Best Model
+    timeout-minutes: 45
     needs: [wait-for-ci, prepare-infra]
     if: >-
       always() &&

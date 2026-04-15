@@ -194,63 +194,6 @@ resolve_live_serving_values() {
   fi
 }
 
-resolve_live_app_serving_values() {
-  local api_service_name="${TF_VAR_ticketforge_api_service_name:-ticketforge-api}"
-  local inference_service_name="${TF_VAR_ticketforge_inference_service_name:-ticketforge-inference}"
-  local web_service_name="${TF_VAR_ticketforge_web_service_name:-ticketforge-web}"
-  local api_live_revision=""
-  local inference_live_revision=""
-  local web_live_revision=""
-  local live_service_count=0
-
-  ticketforge_app_enabled="false"
-  ticketforge_api_image="${TF_VAR_ticketforge_api_container_image:-}"
-  ticketforge_inference_image="${TF_VAR_ticketforge_inference_container_image:-}"
-  ticketforge_web_image="${TF_VAR_ticketforge_web_container_image:-}"
-
-  api_live_revision="$(resolve_live_revision_name "${api_service_name}")"
-  inference_live_revision="$(resolve_live_revision_name "${inference_service_name}")"
-  web_live_revision="$(resolve_live_revision_name "${web_service_name}")"
-
-  [[ -n "${api_live_revision}" ]] && live_service_count=$((live_service_count + 1))
-  [[ -n "${inference_live_revision}" ]] && live_service_count=$((live_service_count + 1))
-  [[ -n "${web_live_revision}" ]] && live_service_count=$((live_service_count + 1))
-
-  if (( live_service_count == 0 )); then
-    echo "No live TicketForge app-serving services detected; Airflow deploy will leave optional app-serving disabled."
-    return 0
-  fi
-
-  if [[ -z "${api_live_revision}" || -z "${inference_live_revision}" || -z "${web_live_revision}" ]]; then
-    echo "ERROR: Detected a partial TicketForge app-serving deployment."
-    echo "api_revision=${api_live_revision:-<missing>}"
-    echo "inference_revision=${inference_live_revision:-<missing>}"
-    echo "web_revision=${web_live_revision:-<missing>}"
-    echo "Refusing to run Airflow deploy until the optional app-serving stack is healthy again."
-    exit 1
-  fi
-
-  if [[ -z "${ticketforge_api_image}" ]]; then
-    ticketforge_api_image="$(resolve_revision_image "${api_live_revision}")"
-  fi
-  if [[ -z "${ticketforge_inference_image}" ]]; then
-    ticketforge_inference_image="$(resolve_revision_image "${inference_live_revision}")"
-  fi
-  if [[ -z "${ticketforge_web_image}" ]]; then
-    ticketforge_web_image="$(resolve_revision_image "${web_live_revision}")"
-  fi
-
-  if [[ -z "${ticketforge_api_image}" || -z "${ticketforge_inference_image}" || -z "${ticketforge_web_image}" ]]; then
-    echo "ERROR: Could not resolve live TicketForge app-serving image values required to preserve that stack during Airflow deploy."
-    echo "api_image=${ticketforge_api_image:-<missing>}"
-    echo "inference_image=${ticketforge_inference_image:-<missing>}"
-    echo "web_image=${ticketforge_web_image:-<missing>}"
-    exit 1
-  fi
-
-  ticketforge_app_enabled="true"
-  echo "Preserving live TicketForge app-serving stack during Airflow deploy."
-}
 
 run_secret_bootstrap_apply() {
   local target_region="$1"
@@ -285,15 +228,6 @@ run_full_apply() {
     -var="web_frontend_api_url=${web_frontend_api_url}"
     -var="airflow_repo_ref=${repo_ref}"
   )
-
-  if [[ "${ticketforge_app_enabled}" == "true" ]]; then
-    tf_args+=(
-      -var="enable_ticketforge_app_cloud_run=true"
-      -var="ticketforge_api_container_image=${ticketforge_api_image}"
-      -var="ticketforge_inference_container_image=${ticketforge_inference_image}"
-      -var="ticketforge_web_container_image=${ticketforge_web_image}"
-    )
-  fi
 
   terraform -chdir=terraform apply -auto-approve "${tf_args[@]}" > >(tee "${apply_log}") 2>&1
 }
@@ -359,7 +293,6 @@ main() {
   done
 
   resolve_live_serving_values
-  resolve_live_app_serving_values
 
   import_region="${primary_airflow_region}"
   import_zone="${primary_airflow_zone}"

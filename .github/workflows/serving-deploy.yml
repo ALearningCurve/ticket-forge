@@ -3,6 +3,13 @@ name: Serving Deploy
 on:
   push:
     branches: ["main"]
+    paths:
+      - "apps/web-backend/**"
+      - "apps/web-frontend/**"
+      - "libs/**"
+      - "terraform/serving.tf"
+      - "terraform/secrets.tf"
+      - ".github/workflows/serving-deploy.yml"
   workflow_dispatch:
     inputs:
       deploy_backend:
@@ -112,6 +119,7 @@ jobs:
 
   wait-for-ci:
     name: Deploy / Wait For CI Gate
+    timeout-minutes: 20
     needs: [resolve-context]
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
@@ -267,6 +275,7 @@ jobs:
 
   deploy-backend:
     name: Deploy / Backend Serving API
+    timeout-minutes: 30
     needs: [resolve-context, wait-for-ci, bootstrap-serving-infra]
     if: >-
       always() &&
@@ -486,6 +495,7 @@ jobs:
 
   deploy-frontend:
     name: Deploy / Frontend Web App
+    timeout-minutes: 20
     needs: [resolve-context, wait-for-ci, bootstrap-serving-infra, deploy-backend]
     if: >-
       always() &&
