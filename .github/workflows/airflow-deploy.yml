@@ -34,6 +34,7 @@ env:
 jobs:
   wait-for-ci:
     name: Deploy / Wait For CI Gate
+    timeout-minutes: 20
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
@@ -89,6 +90,7 @@ jobs:
           exit 1
 
   deploy:
+    timeout-minutes: 30
     needs: [wait-for-ci]
     if: >-
       always() &&
