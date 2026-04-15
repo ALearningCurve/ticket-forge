@@ -928,12 +928,6 @@ def _seed_project_tickets(  # noqa: PLR0913
     resolution_time_actual = (
       closed_at - created_at if ticket_status == "closed" else None
     )
-    size_bucket = (
-      str(record.get("size_bucket") or record.get("size") or "").strip().upper()
-    )
-    size_updated_at = datetime.now(tz=UTC) if size_bucket else None
-    size_source = "manual" if size_bucket else None
-
     cur.execute(
       """
       INSERT INTO tickets (
