@@ -50,7 +50,7 @@ _DEFAULT_SIZE_POINTS: dict[str, float] = {
 _CODE_BLOCK_RE = re.compile(r"```(.*?)```", re.DOTALL)
 _INLINE_CODE_RE = re.compile(r"`([^`]*)`")
 _MAX_TTA_HOURS = 720.0
-_SEMANTIC_RANK_DENOMINATOR_OFFSET = 3
+_SEMANTIC_RANK_DENOMINATOR_OFFSET = 2
 
 
 @dataclass(frozen=True, slots=True)

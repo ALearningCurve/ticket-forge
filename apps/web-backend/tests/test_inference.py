@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import patch
 import uuid
 
@@ -13,6 +14,7 @@ from ml_core.features import TOTAL_FEATURE_DIM
 from sqlalchemy import select
 
 from web_backend.models.inference import InferenceEvent
+from web_backend.schemas.inference import TicketSizePredictionRequest
 from web_backend.services.inference import (
     SemanticSizeEstimate,
     _estimate_semantic_size,
@@ -55,7 +57,9 @@ def test_build_feature_vector_matches_training_shape() -> None:
             return_value=np.ones(384, dtype=np.float32),
         ),
     ):
-        features, summary = _build_feature_vector(payload=SimpleNamespace(**payload))
+        features, summary = _build_feature_vector(
+            payload=TicketSizePredictionRequest(**payload)
+        )
 
     assert features.shape == (1, TOTAL_FEATURE_DIM)
     assert summary.repo == "hashicorp/terraform"
@@ -229,8 +233,9 @@ async def test_semantic_size_estimate_runs_without_ticket_id(caplog) -> None:
             self.executed = True
             return _FakeResult()
 
-    fake_db = _FakeDb()
-    payload = SimpleNamespace(
+    fake_db: Any = _FakeDb()
+    payload = TicketSizePredictionRequest(
+        title="Terraform apply fails in production",
         project_id=uuid.UUID("11111111-1111-1111-1111-111111111111"),
         ticket_id=None,
     )
@@ -245,9 +250,9 @@ async def test_semantic_size_estimate_runs_without_ticket_id(caplog) -> None:
 
     assert fake_db.executed is True
     assert estimate == SemanticSizeEstimate(
-        average_points=2.636364,
+        average_points=2.276596,
         sample_count=3,
-        bucket="L",
+        bucket="M",
     )
     assert any(
         "Semantic size estimate project_id=" in message for message in caplog.messages
