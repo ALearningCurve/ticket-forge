@@ -56,6 +56,18 @@ const DONE_COLUMNS = new Set([
   "resolved",
 ]);
 
+// ── Sprint helpers ──────────────────────────────────────────────
+
+function getWeekStart(): Date {
+  const now = new Date();
+  const day = now.getDay();
+  const diff = day === 0 ? 6 : day - 1; // Monday = 0
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - diff);
+  monday.setHours(0, 0, 0, 0);
+  return monday;
+}
+
 function getAllAssignedTickets(
   tickets: TicketResponse[],
   userId: string
@@ -87,30 +99,77 @@ function getDoneTickets(
   });
 }
 
-function getAvailabilityLabel(
+function getDoneThisWeek(
   tickets: TicketResponse[],
   userId: string,
   boardColumns: { id: string; name: string }[]
+): TicketResponse[] {
+  const weekStart = getWeekStart();
+  return getDoneTickets(tickets, userId, boardColumns).filter((t) => {
+    const updated = new Date(t.updated_at);
+    return updated >= weekStart;
+  });
+}
+
+function getTicketPoints(
+  ticket: TicketResponse,
+  sizePointsMap: { S: number; M: number; L: number; XL: number }
+): number {
+  const size = ticket.size_bucket || ticket.size;
+  if (!size) return 0;
+  return sizePointsMap[size as keyof typeof sizePointsMap] || 0;
+}
+
+function getSprintCapacity(
+  tickets: TicketResponse[],
+  userId: string,
+  boardColumns: { id: string; name: string }[],
+  sizePointsMap: { S: number; M: number; L: number; XL: number }
+): { openPoints: number; donePoints: number; totalPoints: number } {
+  const open = getOpenTickets(tickets, userId, boardColumns);
+  const doneThisWeek = getDoneThisWeek(tickets, userId, boardColumns);
+
+  const openPoints = open.reduce(
+    (sum, t) => sum + getTicketPoints(t, sizePointsMap),
+    0
+  );
+  const donePoints = doneThisWeek.reduce(
+    (sum, t) => sum + getTicketPoints(t, sizePointsMap),
+    0
+  );
+
+  return {
+    openPoints,
+    donePoints,
+    totalPoints: openPoints + donePoints,
+  };
+}
+
+function getAvailabilityLabel(
+  tickets: TicketResponse[],
+  userId: string,
+  boardColumns: { id: string; name: string }[],
+  sizePointsMap: { S: number; M: number; L: number; XL: number },
+  weeklyLimit: number
 ): {
   label: string;
   variant: "default" | "destructive" | "secondary";
   colorClass: string;
 } {
-  const open = getOpenTickets(tickets, userId, boardColumns);
-  if (open.length === 0)
-    return {
-      label: "Available",
-      variant: "default",
-      colorClass: "bg-green-500",
-    };
-  if (open.length <= 2)
+  const { openPoints, totalPoints } = getSprintCapacity(
+    tickets,
+    userId,
+    boardColumns,
+    sizePointsMap
+  );
+  if (openPoints === 0)
+    return { label: "Available", variant: "default", colorClass: "bg-green-500" };
+  if (totalPoints < weeklyLimit)
     return { label: "Busy", variant: "secondary", colorClass: "bg-amber-500" };
-  return {
-    label: "Overloaded",
-    variant: "destructive",
-    colorClass: "bg-red-500",
-  };
+  return { label: "At Capacity", variant: "destructive", colorClass: "bg-red-500" };
 }
+
+// ── Components ──────────────────────────────────────────────────
 
 function ScoreBar({ value, label }: { value: number; label: string }) {
   return (
@@ -136,8 +195,8 @@ export function TeamView({
   tickets,
   projectSlug,
   boardColumns,
-  sizePointsMap: _sizePointsMap,
-  weeklyPointsPerMember: _weeklyPointsPerMember,
+  sizePointsMap,
+  weeklyPointsPerMember,
 }: TeamViewProps) {
   const { token } = useAuth();
   const [selectedMember, setSelectedMember] =
@@ -235,7 +294,15 @@ export function TeamView({
               const availability = getAvailabilityLabel(
                 tickets,
                 member.user_id,
-                boardColumns
+                boardColumns,
+                sizePointsMap,
+                weeklyPointsPerMember
+              );
+              const cap = getSprintCapacity(
+                tickets,
+                member.user_id,
+                boardColumns,
+                sizePointsMap
               );
               const memberColor = AVATAR_COLORS[idx % AVATAR_COLORS.length];
 
@@ -303,6 +370,21 @@ export function TeamView({
                         </span>{" "}
                         Done
                       </div>
+                      <div className="flex items-center gap-1.5">
+                        <span
+                          className={cn(
+                            "text-[10px] font-bold",
+                            cap.totalPoints >= weeklyPointsPerMember
+                              ? "text-red-500"
+                              : cap.totalPoints >=
+                                  weeklyPointsPerMember * 0.8
+                                ? "text-amber-500"
+                                : "text-foreground/70"
+                          )}
+                        >
+                          {cap.totalPoints}/{weeklyPointsPerMember} pts
+                        </span>
+                      </div>
                     </div>
 
                     {/* Subtle Separator */}
@@ -315,7 +397,7 @@ export function TeamView({
                           {openTickets.slice(0, 3).map((ticket) => {
                             const isOverdue =
                               ticket.due_date &&
-                              new Date(ticket.due_date + "T00:00:00")
+                              new Date(ticket.due_date + "T00:00:00") <
                                 new Date(
                                   new Date().toISOString().split("T")[0] +
                                     "T00:00:00"
@@ -393,7 +475,9 @@ export function TeamView({
                         getAvailabilityLabel(
                           tickets,
                           selectedMember.user_id,
-                          boardColumns
+                          boardColumns,
+                          sizePointsMap,
+                          weeklyPointsPerMember
                         ).colorClass
                       )}
                     />
@@ -415,7 +499,9 @@ export function TeamView({
                       getAvailabilityLabel(
                         tickets,
                         selectedMember.user_id,
-                        boardColumns
+                        boardColumns,
+                        sizePointsMap,
+                        weeklyPointsPerMember
                       ).variant
                     }
                     className="px-2.5 py-0.5 text-xs"
@@ -424,7 +510,9 @@ export function TeamView({
                       getAvailabilityLabel(
                         tickets,
                         selectedMember.user_id,
-                        boardColumns
+                        boardColumns,
+                        sizePointsMap,
+                        weeklyPointsPerMember
                       ).label
                     }
                   </Badge>
@@ -435,16 +523,51 @@ export function TeamView({
                     {selectedMember.role}
                   </Badge>
                   <div className="ml-2 flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
-                    <span className="text-foreground">
-                      {
-                        getOpenTickets(
-                          tickets,
-                          selectedMember.user_id,
-                          boardColumns
-                        ).length
-                      }
-                    </span>{" "}
-                    active
+                    {(() => {
+                      const cap = getSprintCapacity(
+                        tickets,
+                        selectedMember.user_id,
+                        boardColumns,
+                        sizePointsMap
+                      );
+                      const pct = Math.min(
+                        100,
+                        (cap.totalPoints / weeklyPointsPerMember) * 100
+                      );
+                      return (
+                        <>
+                          <span className="text-foreground">
+                            {
+                              getOpenTickets(
+                                tickets,
+                                selectedMember.user_id,
+                                boardColumns
+                              ).length
+                            }
+                          </span>{" "}
+                          active
+                          <div className="ml-3 flex items-center gap-1.5">
+                            <div className="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
+                              <div
+                                className={cn(
+                                  "h-full rounded-full transition-all",
+                                  cap.totalPoints >= weeklyPointsPerMember
+                                    ? "bg-red-500"
+                                    : cap.totalPoints >=
+                                        weeklyPointsPerMember * 0.8
+                                      ? "bg-amber-500"
+                                      : "bg-green-500"
+                                )}
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                            <span className="text-xs font-medium">
+                              {cap.totalPoints}/{weeklyPointsPerMember} pts
+                            </span>
+                          </div>
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
               </div>
@@ -452,25 +575,42 @@ export function TeamView({
 
             {/* Body - Flex layout for independent scrolling columns */}
             <div className="flex flex-1 flex-col overflow-hidden bg-background lg:flex-row">
-              {/* Left Column: Open Tickets */}
+              {/* Left Column: All Tickets */}
               <div className="flex w-full shrink-0 flex-col border-b bg-muted/10 lg:w-[340px] lg:border-b-0 lg:border-r">
                 <div className="border-b border-border/50 bg-muted/5 p-5">
                   <h3 className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-                    All Tickets ({getAllAssignedTickets(tickets, selectedMember.user_id).length})
+                    All Tickets (
+                    {
+                      getAllAssignedTickets(
+                        tickets,
+                        selectedMember.user_id
+                      ).length
+                    }
+                    )
                   </h3>
                 </div>
 
-               <div className="flex-1 overflow-y-auto p-5">
+                <div className="flex-1 overflow-y-auto p-5">
                   {(() => {
-                    const open = getOpenTickets(tickets, selectedMember.user_id, boardColumns);
-                    const done = getDoneTickets(tickets, selectedMember.user_id, boardColumns);
+                    const open = getOpenTickets(
+                      tickets,
+                      selectedMember.user_id,
+                      boardColumns
+                    );
+                    const done = getDoneThisWeek(
+                      tickets,
+                      selectedMember.user_id,
+                      boardColumns
+                    );
 
                     if (open.length === 0 && done.length === 0) {
                       return (
                         <div className="flex h-40 flex-col items-center justify-center rounded-lg border border-dashed bg-background/50 text-center text-muted-foreground">
                           <User className="mb-2 size-8 opacity-20" />
                           <p className="text-sm font-medium">No tickets</p>
-                          <p className="text-xs opacity-70">This member&apos;s queue is clear.</p>
+                          <p className="text-xs opacity-70">
+                            This member&apos;s queue is clear.
+                          </p>
                         </div>
                       );
                     }
@@ -483,25 +623,55 @@ export function TeamView({
                               In Progress ({open.length})
                             </p>
                             {open.map((ticket) => {
-                              const isOverdue = ticket.due_date && new Date(ticket.due_date + "T00:00:00") < new Date(new Date().toISOString().split("T")[0] + "T00:00:00");
-                              const col = boardColumns.find((c) => c.id === ticket.column_id);
+                              const isOverdue =
+                                ticket.due_date &&
+                                new Date(ticket.due_date + "T00:00:00") <
+                                  new Date(
+                                    new Date().toISOString().split("T")[0] +
+                                      "T00:00:00"
+                                  );
+                              const col = boardColumns.find(
+                                (c) => c.id === ticket.column_id
+                              );
                               return (
-                                <div key={ticket.id} className="group flex flex-col gap-2 rounded-lg border bg-background p-3 shadow-sm transition-all hover:shadow-md">
+                                <div
+                                  key={ticket.id}
+                                  className="group flex flex-col gap-2 rounded-lg border bg-background p-3 shadow-sm transition-all hover:shadow-md"
+                                >
                                   <div className="flex items-start justify-between gap-2">
-                                    <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] font-bold text-muted-foreground">{ticket.ticket_key}</span>
+                                    <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] font-bold text-muted-foreground">
+                                      {ticket.ticket_key}
+                                    </span>
                                     <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
                                       {isOverdue && (
-                                        <Badge variant="destructive" className="px-1.5 py-0 text-[9px] font-bold uppercase tracking-wider">Overdue</Badge>
+                                        <Badge
+                                          variant="destructive"
+                                          className="px-1.5 py-0 text-[9px] font-bold uppercase tracking-wider"
+                                        >
+                                          Overdue
+                                        </Badge>
                                       )}
                                       {ticket.size_bucket && (
-                                        <Badge variant="secondary" className="bg-muted/50 px-1.5 py-0 text-[9px]">{ticket.size_bucket}</Badge>
+                                        <Badge
+                                          variant="secondary"
+                                          className="bg-muted/50 px-1.5 py-0 text-[9px]"
+                                        >
+                                          {ticket.size_bucket}
+                                        </Badge>
                                       )}
                                       {col && (
-                                        <Badge variant="outline" className="bg-background px-1.5 py-0 text-[9px]">{col.name}</Badge>
+                                        <Badge
+                                          variant="outline"
+                                          className="bg-background px-1.5 py-0 text-[9px]"
+                                        >
+                                          {col.name}
+                                        </Badge>
                                       )}
                                     </div>
                                   </div>
-                                  <span className="text-sm font-medium leading-tight text-foreground/90">{ticket.title}</span>
+                                  <span className="text-sm font-medium leading-tight text-foreground/90">
+                                    {ticket.title}
+                                  </span>
                                 </div>
                               );
                             })}
@@ -511,22 +681,41 @@ export function TeamView({
                         {done.length > 0 && (
                           <div className="space-y-2.5">
                             <p className="text-[10px] font-bold uppercase tracking-wider text-green-600/60 dark:text-green-400/60">
-                              Completed ({done.length})
+                              Completed this week ({done.length})
                             </p>
                             {done.map((ticket) => {
-                              const col = boardColumns.find((c) => c.id === ticket.column_id);
+                              const col = boardColumns.find(
+                                (c) => c.id === ticket.column_id
+                              );
                               return (
-                                <div key={ticket.id} className="flex flex-col gap-1.5 rounded-lg border border-border/40 bg-muted/20 p-3 opacity-60">
+                                <div
+                                  key={ticket.id}
+                                  className="flex flex-col gap-1.5 rounded-lg border border-border/40 bg-muted/20 p-3 opacity-60"
+                                >
                                   <div className="flex items-start justify-between gap-2">
-                                    <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] font-bold text-muted-foreground">{ticket.ticket_key}</span>
+                                    <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] font-bold text-muted-foreground">
+                                      {ticket.ticket_key}
+                                    </span>
                                     <div className="flex shrink-0 items-center gap-1.5">
                                       {ticket.size_bucket && (
-                                        <Badge variant="secondary" className="bg-muted/50 px-1.5 py-0 text-[9px] opacity-60">{ticket.size_bucket}</Badge>
+                                        <Badge
+                                          variant="secondary"
+                                          className="bg-muted/50 px-1.5 py-0 text-[9px] opacity-60"
+                                        >
+                                          {ticket.size_bucket}
+                                        </Badge>
                                       )}
-                                      <Badge variant="outline" className="bg-green-50 text-green-700 dark:bg-green-950/30 dark:text-green-400 px-1.5 py-0 text-[9px]">Done</Badge>
+                                      <Badge
+                                        variant="outline"
+                                        className="bg-green-50 px-1.5 py-0 text-[9px] text-green-700 dark:bg-green-950/30 dark:text-green-400"
+                                      >
+                                        Done
+                                      </Badge>
                                     </div>
                                   </div>
-                                  <span className="text-sm font-medium leading-tight text-foreground/60 line-through decoration-muted-foreground/30">{ticket.title}</span>
+                                  <span className="text-sm font-medium leading-tight text-foreground/60 line-through decoration-muted-foreground/30">
+                                    {ticket.title}
+                                  </span>
                                 </div>
                               );
                             })}
