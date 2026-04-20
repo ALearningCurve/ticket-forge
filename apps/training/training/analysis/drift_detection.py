@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from shared.configuration import getenv_or
+from training.analysis.run_data_profiling import NumpyEncoder
 
 
 @dataclass(slots=True)
@@ -299,5 +300,5 @@ def write_drift_report(path: str | Path, report: dict[str, Any]) -> Path:
   report_path = Path(path)
   report_path.parent.mkdir(parents=True, exist_ok=True)
   with open(report_path, "w", encoding="utf-8") as f:
-    json.dump(report, f, indent=2)
+    json.dump(report, f, indent=2, cls=NumpyEncoder)
   return report_path

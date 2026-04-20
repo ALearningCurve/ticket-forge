@@ -20,7 +20,7 @@ from training.analysis.drift_detection import (
   load_drift_thresholds,
   write_drift_report,
 )
-from training.analysis.run_data_profiling import run_data_profiling
+from training.analysis.run_data_profiling import NumpyEncoder, run_data_profiling
 from training.cloud_storage_loader import (
   find_downloaded_dataset_file,
   resolve_cloud_dataset,
@@ -134,7 +134,7 @@ def _write_json_blob(
   bucket = client.bucket(bucket_name)
   blob = bucket.blob(object_name)
   blob.upload_from_string(
-    json.dumps(payload, indent=2, sort_keys=True) + "\n",
+    json.dumps(payload, indent=2, sort_keys=True, cls=NumpyEncoder) + "\n",
     content_type="application/json",
   )
   return f"gs://{bucket_name}/{object_name}"
@@ -474,7 +474,7 @@ def main() -> int:
 
   report_path = write_drift_report(run_dir / "drift_report.json", report)
   logger.info("Drift report written to %s", report_path)
-  print(json.dumps(report, indent=2))
+  print(json.dumps(report, indent=2, cls=NumpyEncoder))
   return 0
 
 
